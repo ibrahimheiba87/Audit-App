@@ -48,6 +48,16 @@ them reviewed or clear them at once, add findings by hand (for example sample ex
 download the register to Excel with the review trail and evidence list. A file whose findings
 have been worked on can't be deleted, so the support stays with the engagement.
 
+**Lead sheets and draft statements**: map each trial balance account to a financial statement
+line (cash, receivables, revenue, employee costs and so on). The app suggests a line from the
+account name or number, and you confirm or change it. Post adjusting entries (AJE),
+reclassifications (RJE) and proposed entries the client hasn't booked (PAJE). Each entry must
+balance. Booked entries roll into the adjusted trial balance, the lead sheets (unadjusted,
+adjustments, adjusted and prior year per account) and a draft income statement and balance
+sheet with comparatives. Proposed entries are summarised against materiality as uncorrected
+misstatements. A reviewer can mark a proposed entry as booked or delete an entry. Download it
+all as one Excel workbook.
+
 The **Quick audit** tab runs the checks on a file without saving anything.
 
 ## Users, roles and the activity log
@@ -58,9 +68,10 @@ temporary password and a role. Each role can do everything the roles above it in
 can:
 
 - **Preparer**: upload files, run the checks, comparisons and samples, add findings, notes and
-  evidence, and mark findings reviewed.
-- **Reviewer**: also clear and reopen findings, change severity, remove evidence and files, and
-  add or edit clients and engagements.
+  evidence, mark findings reviewed, map accounts and post adjusting entries.
+- **Reviewer**: also clear and reopen findings, change severity, remove evidence and files,
+  mark proposed entries booked, delete adjusting entries, and add or edit clients and
+  engagements.
 - **Partner**: also set materiality and delete clients and engagements.
 - **Admin**: also manage users and see the whole activity log.
 
@@ -182,6 +193,13 @@ Engagement endpoints (JSON unless noted):
 - `GET|PATCH|DELETE /api/findings/{id}` (`status`, `severity`, `note`, `author`),
   `POST /api/findings/{id}/notes`, `POST /api/findings/{id}/evidence` (multipart `file`),
   `GET|DELETE /api/evidence/{id}`
+- `GET /api/engagements/{id}/statements?upload_id=&prior_upload_id=`: mapping, adjusted TB,
+  lead sheets, statements and uncorrected misstatements (defaults to the latest trial balances);
+  `GET /api/engagements/{id}/statements/export`
+- `PUT /api/engagements/{id}/mapping` (`mappings`: account to line id, or `null` to unmap)
+- `POST /api/engagements/{id}/adjusting-entries` (`kind=adjusting|reclassification|proposed`,
+  `description`, `date`, `lines`: `account`, `debit`, `credit`, `memo`),
+  `PATCH /api/adjusting-entries/{id}` (`kind`), `DELETE /api/adjusting-entries/{id}`
 - `POST /api/sample`: draw a sample from a file without saving (multipart: `file`, the same
   fields as above, optional `mapping`, `sheet`, `format=json|xlsx`)
 

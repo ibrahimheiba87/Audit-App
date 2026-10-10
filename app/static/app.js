@@ -209,6 +209,8 @@ async function openEngagement(id) {
   if (currentEngagement?.id !== e.id) {
     // Check ids differ between engagements, so don't carry that filter over.
     regOffset = 0; regSelected.clear(); $("reg-check").value = "";
+    // Uploads differ too, so let the server pick this engagement's latest trial balances.
+    fsMapEdits = {}; $("fs-tb").innerHTML = $("fs-prior").innerHTML = "";
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -223,6 +225,7 @@ async function openEngagement(id) {
   renderSampleForm(e);
   renderSamples(e.samples);
   if (currentFinding && currentFinding.engagement_id !== e.id) closeFinding();
+  await loadStatements();
   await loadRegister();
 }
 
@@ -307,6 +310,7 @@ $("upload-form").addEventListener("submit", (e) => {
   guard(async () => {
     const fd = uploadMapper.addTo(new FormData($("upload-form")));
     await postForm(`/api/engagements/${currentEngagement.id}/uploads`, fd);
+    $("fs-tb").innerHTML = $("fs-prior").innerHTML = "";  // show the new file's statements
     $("upload-form").reset();
     uploadMapper.reset();
     await openEngagement(currentEngagement.id);
@@ -456,6 +460,248 @@ function renderComparisonTable() {
 }
 $("cmp-flagged-only").addEventListener("change", renderComparisonTable);
 
+// Lead sheets and draft statements
+
+let fs = null;          // latest /statements response
+let fsMapEdits = {};    // unsaved mapping changes: account -> line id ("" to unmap)
+const signed = (n) => n == null ? "" : n < 0 ? `(${money(-n)})` : money(n);
+const drcr = (n) => Math.abs(n) < 0.005 ? "0.00" : `${money(Math.abs(n))} ${n > 0 ? "Dr" : "Cr"}`;
+
+function fsQuery() {
+  // Only ask for files that still exist; otherwise the server picks the latest of each kind.
+  const ids = new Set(currentEngagement.uploads.map((u) => String(u.id)));
+  const q = new URLSearchParams();
+  if (ids.has($("fs-tb").value)) q.set("upload_id", $("fs-tb").value);
+  if (ids.has($("fs-prior").value)) q.set("prior_upload_id", $("fs-prior").value);
+  return q.toString();
+}
+
+async function loadStatements() {
+  fs = await getJSON(`/api/engagements/${currentEngagement.id}/statements?${fsQuery()}`);
+  renderStatementsPanel();
+}
+
+function renderStatementsPanel() {
+  const ready = !!fs.tb;
+  $("fs-empty").hidden = ready;
+  $("fs-body").hidden = $("fs-export").hidden = !ready;
+  if (!ready) return;
+  $("fs-tb").innerHTML = fs.tb_choices.map((u) =>
+    `<option value="${u.id}"${u.id === fs.tb.id ? " selected" : ""}>${esc(u.filename)} (${esc(when(u.uploaded_at))})</option>`).join("");
+  $("fs-prior").innerHTML = fs.prior_choices.length ? fs.prior_choices.map((u) =>
+    `<option value="${u.id}"${u.id === fs.prior_tb?.id ? " selected" : ""}>${esc(u.filename)} (${esc(when(u.uploaded_at))})</option>`).join("")
+    : '<option value="">None uploaded</option>';
+  $("fs-prior").disabled = !fs.prior_choices.length;
+  $("fs-export").href = `/api/engagements/${currentEngagement.id}/statements/export?${fsQuery()}`;
+  const st = fs.statements;
+  const assets = st.balance_sheet.find((r) => r.label === "Total assets");
+  const cards = [
+    [signed(st.profit.current), "Profit for the year (adjusted)"],
+    [signed(assets.current), "Total assets"],
+    [fs.unmapped.length, "Unmapped accounts"],
+    [fs.entries.length, "Adjusting entries"],
+  ];
+  if (Math.abs(st.difference.current) >= 0.005) cards.push([signed(st.difference.current), "Balance sheet out by"]);
+  $("fs-cards").innerHTML = cards.map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("");
+  renderMapping();
+  renderEntries();
+  renderLeadSheets();
+  renderStatementTables();
+  renderUncorrected();
+}
+
+["fs-tb", "fs-prior"].forEach((id) => $(id).addEventListener("change", () => guard(loadStatements)));
+
+$("fs-tabs").addEventListener("click", (ev) => {
+  const tab = ev.target.closest("[data-tab]");
+  if (!tab) return;
+  $("fs-tabs").querySelectorAll("[data-tab]").forEach((b) => b.setAttribute("aria-selected", b === tab));
+  document.querySelectorAll("#fs-body .tab").forEach((p) => { p.hidden = p.dataset.pane !== tab.dataset.tab; });
+});
+
+// Mapping
+
+function lineOptions(selected) {
+  return '<option value="">Not mapped</option>' + fs.sections.map((s) => `<optgroup label="${esc(s.label)}">` +
+    fs.lines.filter((l) => l.section === s.id).map((l) =>
+      `<option value="${l.id}"${l.id === selected ? " selected" : ""}>${esc(l.label)}</option>`).join("") + "</optgroup>").join("");
+}
+
+function renderMapping() {
+  const lineLabel = Object.fromEntries(fs.lines.map((l) => [l.id, l.label]));
+  const mapped = fs.accounts.filter((a) => a.line).length;
+  $("fs-map-note").textContent = `${mapped} of ${fs.accounts.length} accounts mapped.` +
+    (fs.unmapped.length ? " Unmapped accounts are left out of the statements, so the balance sheet won't balance until they are mapped." : "");
+  const onlyUnmapped = $("fs-unmapped-only").checked;
+  const rows = fs.accounts.filter((a) => !onlyUnmapped || !a.line || a.account in fsMapEdits);
+  $("fs-map").innerHTML = "<tr><th>Account</th><th>Name</th><th class=\"num\">Adjusted balance</th><th>Financial statement line</th></tr>" +
+    rows.map((a) => {
+      const value = a.account in fsMapEdits ? fsMapEdits[a.account] : a.line || "";
+      const hint = !a.line && a.suggested && !(a.account in fsMapEdits)
+        ? `<div class="tag">Suggested: ${esc(lineLabel[a.suggested])}</div>` : "";
+      return `<tr data-account="${esc(a.account)}"${a.account in fsMapEdits ? ' class="changed"' : ""}>
+        <td>${esc(a.account)}${a.in_tb ? "" : ` <span class="tag">(${a.prior != null ? "prior year only" : "from entries"})</span>`}</td><td>${esc(a.name)}</td>
+        <td class="num">${drcr(a.adjusted)}</td>
+        <td><select class="map" aria-label="Line for account ${esc(a.account)}">${lineOptions(value)}</select>${hint}</td></tr>`;
+    }).join("");
+  $("fs-save-map").disabled = !Object.keys(fsMapEdits).length;
+}
+
+$("fs-map").addEventListener("change", (ev) => {
+  const row = ev.target.closest("[data-account]");
+  if (!row) return;
+  const account = row.dataset.account;
+  const saved = fs.accounts.find((a) => a.account === account).line || "";
+  if (ev.target.value === saved) delete fsMapEdits[account]; else fsMapEdits[account] = ev.target.value;
+  row.classList.toggle("changed", account in fsMapEdits);
+  $("fs-save-map").disabled = !Object.keys(fsMapEdits).length;
+});
+$("fs-unmapped-only").addEventListener("change", renderMapping);
+$("fs-accept").addEventListener("click", () => {
+  fs.accounts.filter((a) => !a.line && a.suggested && !(a.account in fsMapEdits))
+    .forEach((a) => { fsMapEdits[a.account] = a.suggested; });
+  renderMapping();
+});
+$("fs-save-map").addEventListener("click", () => guard(async () => {
+  const mappings = Object.fromEntries(Object.entries(fsMapEdits).map(([k, v]) => [k, v || null]));
+  await sendJSON("PUT", `/api/engagements/${currentEngagement.id}/mapping`, { mappings });
+  fsMapEdits = {};
+  await loadStatements();
+  await loadEngagementActivity();
+}));
+
+// Adjusting entries
+
+function entryLineRow() {
+  return `<tr><td><input name="account" list="aje-accounts" aria-label="Account" maxlength="100"></td>
+    <td><input name="debit" type="number" min="0" step="0.01" aria-label="Debit"></td>
+    <td><input name="credit" type="number" min="0" step="0.01" aria-label="Credit"></td>
+    <td><input name="memo" maxlength="500" aria-label="Memo"></td>
+    <td><button type="button" class="small secondary" data-remove-line aria-label="Remove line">×</button></td></tr>`;
+}
+
+function resetEntryForm() {
+  $("aje-form").reset();
+  $("aje-lines").innerHTML = "<tr><th>Account</th><th>Debit</th><th>Credit</th><th>Memo</th><th></th></tr>" + entryLineRow() + entryLineRow();
+  updateEntryTotals();
+}
+
+function entryLines() {
+  return [...$("aje-lines").querySelectorAll("tr")].slice(1).map((tr) => ({
+    account: tr.querySelector("[name=account]").value.trim(),
+    debit: Number(tr.querySelector("[name=debit]").value) || 0,
+    credit: Number(tr.querySelector("[name=credit]").value) || 0,
+    memo: tr.querySelector("[name=memo]").value.trim(),
+  }));
+}
+
+function updateEntryTotals() {
+  const lines = entryLines();
+  const dr = lines.reduce((s, l) => s + l.debit, 0), cr = lines.reduce((s, l) => s + l.credit, 0);
+  const diff = Math.round((dr - cr) * 100) / 100;
+  $("aje-totals").textContent = `Debits ${money(dr)} · Credits ${money(cr)}` + (diff ? ` · Out by ${money(Math.abs(diff))}` : " · Balanced");
+}
+
+function renderEntries() {
+  if ($("aje-kind").options.length !== fs.entry_kinds.length) {
+    $("aje-kind").innerHTML = fs.entry_kinds.map((k) => `<option value="${k.id}">${esc(k.label)} (${k.prefix})</option>`).join("");
+    resetEntryForm();
+  }
+  $("aje-accounts").innerHTML = fs.accounts.map((a) => `<option value="${esc(a.account)}" label="${esc(a.name || "")}"></option>`).join("");
+  $("aje-list").innerHTML = fs.entries.length
+    ? "<tr><th>Entry</th><th>Description</th><th>Lines</th><th class=\"num\">Amount</th><th>By</th><th></th></tr>" + fs.entries.map((e) => `<tr>
+        <td class="nowrap"><strong>${esc(e.ref)}</strong><div class="tag">${esc(e.kind_label)}${e.date ? " · " + esc(e.date) : ""}</div></td>
+        <td>${esc(e.description)}</td>
+        <td class="nowrap">${e.lines.map((l) => `${l.debit ? "Dr" : "&nbsp;&nbsp;&nbsp;&nbsp;Cr"} ${esc(l.account)} ${money(l.debit || l.credit)}${l.memo ? ` <span class="tag">${esc(l.memo)}</span>` : ""}`).join("<br>")}</td>
+        <td class="num">${money(e.total)}</td>
+        <td class="nowrap">${esc(e.author)}<div class="tag">${esc(when(e.created_at))}</div></td>
+        <td><div class="cell-actions">
+          ${e.kind === "proposed" ? `<button type="button" class="small secondary min-2" data-book="${e.id}" title="The client has agreed to book it">Mark booked</button>` : ""}
+          <button type="button" class="small secondary danger min-2" data-delete-entry="${e.id}">Delete</button>
+        </div></td></tr>`).join("")
+    : '<tr><td class="muted">No adjusting entries yet.</td></tr>';
+}
+
+$("aje-lines").addEventListener("input", updateEntryTotals);
+$("aje-lines").addEventListener("click", (ev) => {
+  if (!ev.target.closest("[data-remove-line]")) return;
+  if ($("aje-lines").querySelectorAll("tr").length > 3) ev.target.closest("tr").remove();
+  updateEntryTotals();
+});
+$("aje-add-line").addEventListener("click", () => {
+  $("aje-lines").insertAdjacentHTML("beforeend", entryLineRow());
+});
+$("aje-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  guard(async () => {
+    const o = formObject($("aje-form"));
+    const lines = entryLines().filter((l) => l.account || l.debit || l.credit);
+    await sendJSON("POST", `/api/engagements/${currentEngagement.id}/adjusting-entries`,
+      { kind: o.kind, description: o.description, date: o.date || null, lines });
+    resetEntryForm();
+    await loadStatements();
+    await loadEngagementActivity();
+  });
+});
+$("aje-list").addEventListener("click", (ev) => {
+  const book = ev.target.closest("[data-book]"), del = ev.target.closest("[data-delete-entry]");
+  if (book) guard(async () => {
+    await sendJSON("PATCH", `/api/adjusting-entries/${book.dataset.book}`, { kind: "adjusting" });
+    await loadStatements();
+    await loadEngagementActivity();
+  });
+  if (del) {
+    const e = fs.entries.find((x) => String(x.id) === del.dataset.deleteEntry);
+    if (!confirm(`Delete ${e.ref}: ${e.description}?`)) return;
+    guard(async () => {
+      await sendJSON("DELETE", `/api/adjusting-entries/${e.id}`);
+      await loadStatements();
+      await loadEngagementActivity();
+    });
+  }
+});
+
+// Lead sheets, statements and uncorrected misstatements
+
+function renderLeadSheets() {
+  const prior = fs.has_prior;
+  const head = `<tr><th>Account</th><th>Name</th><th class="num">Unadjusted</th><th class="num">Adjusting</th><th class="num">Reclass</th><th class="num">Adjusted</th>${prior ? '<th class="num">Prior year</th><th class="num">Change</th>' : ""}</tr>`;
+  const nums = (r) => `<td class="num">${signed(r.unadjusted)}</td><td class="num">${signed(r.adjusting)}</td>
+    <td class="num">${signed(r.reclassification)}</td><td class="num">${signed(r.adjusted)}</td>` +
+    (prior ? `<td class="num">${signed(r.prior)}</td><td class="num">${signed(r.adjusted - (r.prior || 0))}</td>` : "");
+  $("fs-lead").innerHTML = fs.lead_sheets.length ? head + fs.lead_sheets.map((s) =>
+    `<tr class="line-head"><td colspan="${prior ? 8 : 6}">${esc(s.label)} <span class="tag">${esc(s.section_label)}</span></td></tr>` +
+    s.accounts.map((a) => `<tr><td>${esc(a.account)}</td><td>${esc(a.name)}</td>${nums(a)}</tr>`).join("") +
+    `<tr class="line-total"><td colspan="2">Total ${esc(s.label.toLowerCase())}</td>${nums(s.totals)}</tr>`).join("")
+    : '<tr><td class="muted">Map accounts to see lead sheets.</td></tr>';
+}
+
+function renderStatementTables() {
+  const prior = fs.has_prior;
+  const table = (rows) => `<tr><th></th><th class="num">This year</th>${prior ? '<th class="num">Prior year</th>' : ""}</tr>` +
+    rows.map((r) => `<tr class="${r.kind}"><td>${esc(r.label)}</td>` + (r.kind === "heading" ? `<td></td>${prior ? "<td></td>" : ""}`
+      : `<td class="num">${signed(r.current)}</td>${prior ? `<td class="num">${signed(r.prior)}</td>` : ""}`) + "</tr>").join("");
+  $("fs-is").innerHTML = table(fs.statements.income_statement);
+  $("fs-bs").innerHTML = table(fs.statements.balance_sheet);
+  const diff = fs.statements.difference.current;
+  $("fs-diff").hidden = Math.abs(diff) < 0.005;
+  $("fs-diff").textContent = `The balance sheet is out by ${signed(diff)} because ${fs.unmapped.length} account(s) are not mapped. Map them on the Account mapping tab.`;
+}
+
+function renderUncorrected() {
+  const u = fs.uncorrected;
+  $("unc-cards").innerHTML = [
+    [signed(u.profit), "Effect on profit"], [signed(u.net_assets), "Effect on net assets"],
+    [u.overall_materiality == null ? "Not set" : money(u.overall_materiality), "Overall materiality"],
+    [u.pct_of_overall == null ? "–" : `${u.pct_of_overall}%`, "Largest effect vs materiality"],
+  ].map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("");
+  $("unc-conclusion").textContent = u.conclusion || (u.overall_materiality == null ? "Set materiality above to compare against it." : "");
+  $("unc-table").innerHTML = u.entries.length
+    ? '<tr><th>Entry</th><th>Description</th><th class="num">Effect on profit</th><th class="num">Effect on net assets</th></tr>' +
+      u.entries.map((e) => `<tr><td>${esc(e.ref)}</td><td>${esc(e.description)}</td><td class="num">${signed(e.profit)}</td><td class="num">${signed(e.net_assets)}</td></tr>`).join("")
+    : '<tr><td class="muted">No proposed entries. Post one with type "Proposed" on the Adjusting entries tab.</td></tr>';
+}
+
 // Sampling
 
 let samplingOptions = null;
@@ -583,7 +829,11 @@ async function loadRegister() {
     reg.checks.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
   if (reg.checks.some((c) => c.id === chk)) $("reg-check").value = chk;
   renderRegister();
-  renderActivity($("eng-activity"), await getJSON(`/api/activity?engagement_id=${id}&limit=100`), false);
+  await loadEngagementActivity();
+}
+
+async function loadEngagementActivity() {
+  renderActivity($("eng-activity"), await getJSON(`/api/activity?engagement_id=${currentEngagement.id}&limit=100`), false);
 }
 
 function renderRegister() {

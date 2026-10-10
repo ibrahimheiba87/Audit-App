@@ -68,7 +68,7 @@
   <div id="view-users" class="view" hidden>
     <section class="panel">
       <h2>Users</h2>
-      <p class="muted">Preparers upload files, run checks, comparisons and samples, and add findings, notes and evidence. Reviewers can also clear and reopen findings, change severity, remove evidence and files, and add or edit clients and engagements. Partners can also set materiality and delete clients and engagements. Admins can also manage users and see the whole activity log.</p>
+      <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts and post adjusting entries. Reviewers can also clear and reopen findings, change severity, remove evidence and files, book or delete adjusting entries, and add or edit clients and engagements. Partners can also set materiality and delete clients and engagements. Admins can also manage users and see the whole activity log.</p>
       <div class="table-wrap"><table id="users"></table></div>
     </section>
     <section class="panel">
@@ -102,6 +102,9 @@
           <option value="run.">Audit runs</option>
           <option value="comparison.">Comparisons</option>
           <option value="sample.">Samples</option>
+          <option value="mapping.">Account mapping</option>
+          <option value="entry.">Adjusting entries</option>
+          <option value="statements.">Statements</option>
           <option value="finding.">Findings</option>
           <option value="evidence.">Evidence</option>
           <option value="quick.">Quick audit</option>
@@ -213,6 +216,81 @@
               <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="cmp-flagged-only" style="width:auto" checked> Flagged accounts only</label>
             </div>
             <div class="table-wrap"><table id="cmp-table"></table></div>
+          </section>
+
+          <section class="panel" id="fs-panel">
+            <div class="row-between">
+              <div>
+                <h2>Lead sheets and draft statements</h2>
+                <p class="muted" style="margin-top:-6px">Map each trial balance account to a financial statement line, post adjusting entries, and the adjusted balances roll into lead sheets and draft statements.</p>
+              </div>
+              <a class="button" id="fs-export" href="#">Download workpapers</a>
+            </div>
+            <p class="muted" id="fs-empty" hidden>Upload this year's trial balance above (type "Trial balance") to start. Add last year's as "Prior-year trial balance" for comparatives.</p>
+            <div id="fs-body" hidden>
+              <div class="grid">
+                <div><label for="fs-tb">Trial balance</label><select id="fs-tb" class="map"></select></div>
+                <div><label for="fs-prior">Prior year</label><select id="fs-prior" class="map"></select></div>
+              </div>
+              <div class="cards" id="fs-cards" style="margin-top:12px"></div>
+              <div class="tabs" role="tablist" id="fs-tabs">
+                <button type="button" role="tab" data-tab="mapping" aria-selected="true">Account mapping</button>
+                <button type="button" role="tab" data-tab="entries" aria-selected="false">Adjusting entries</button>
+                <button type="button" role="tab" data-tab="lead" aria-selected="false">Lead sheets</button>
+                <button type="button" role="tab" data-tab="statements" aria-selected="false">Statements</button>
+                <button type="button" role="tab" data-tab="uncorrected" aria-selected="false">Uncorrected misstatements</button>
+              </div>
+
+              <div class="tab" data-pane="mapping">
+                <p class="muted" id="fs-map-note"></p>
+                <div class="actions" style="margin:0 0 10px">
+                  <button type="button" class="small secondary" id="fs-accept">Use suggestions for unmapped accounts</button>
+                  <button type="button" class="small" id="fs-save-map" disabled>Save mapping</button>
+                  <label class="inline" style="margin-left:auto"><input type="checkbox" id="fs-unmapped-only" style="width:auto"> Unmapped only</label>
+                </div>
+                <div class="table-wrap"><table id="fs-map"></table></div>
+              </div>
+
+              <div class="tab" data-pane="entries" hidden>
+                <form id="aje-form" class="stack" style="margin-top:0">
+                  <div class="grid">
+                    <div><label for="aje-kind">Type</label><select id="aje-kind" name="kind" class="map"></select></div>
+                    <div><label for="aje-date">Date</label><input id="aje-date" name="date" type="date"></div>
+                  </div>
+                  <div><label for="aje-desc">Description</label><input id="aje-desc" name="description" required maxlength="2000" placeholder="e.g. Accrue December payroll"></div>
+                  <div class="table-wrap"><table id="aje-lines" class="entry-lines"></table></div>
+                  <datalist id="aje-accounts"></datalist>
+                  <div class="actions" style="margin-top:0;align-items:center">
+                    <button type="button" class="small secondary" id="aje-add-line">Add line</button>
+                    <span class="muted" id="aje-totals"></span>
+                    <span class="spacer"></span>
+                    <button type="submit">Post entry</button>
+                  </div>
+                </form>
+                <h3>Entries</h3>
+                <div class="table-wrap"><table id="aje-list"></table></div>
+              </div>
+
+              <div class="tab" data-pane="lead" hidden>
+                <p class="muted">Balances are shown as positive on each line's normal side: debits for assets and expenses, credits for liabilities, equity and income.</p>
+                <div class="table-wrap"><table id="fs-lead"></table></div>
+              </div>
+
+              <div class="tab" data-pane="statements" hidden>
+                <p class="warn-box" id="fs-diff" hidden></p>
+                <div class="statements">
+                  <div><h3>Income statement</h3><table id="fs-is" class="fs-table"></table></div>
+                  <div><h3>Balance sheet</h3><table id="fs-bs" class="fs-table"></table></div>
+                </div>
+              </div>
+
+              <div class="tab" data-pane="uncorrected" hidden>
+                <p class="muted">Proposed entries the client has not booked. Effects are on profit and on net assets (assets less liabilities).</p>
+                <div class="cards" id="unc-cards"></div>
+                <p id="unc-conclusion"></p>
+                <div class="table-wrap"><table id="unc-table"></table></div>
+              </div>
+            </div>
           </section>
 
           <section class="panel">

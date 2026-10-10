@@ -286,3 +286,19 @@ def test_only_databases_with_atomic_guards_are_allowed():
         with pytest.raises(RuntimeError, match="SQLite and PostgreSQL only"):
             db._make_engine(url)
     assert db._make_engine("sqlite://").dialect.name == "sqlite"
+
+
+def test_adjusting_entry_permissions():
+    a = admin()
+    prep = add_user(a, "preparer")
+    eid, _ = setup_engagement(a)
+    entry = {"kind": "proposed", "description": "Cut-off",
+             "lines": [{"account": "4000", "debit": 10}, {"account": "1200", "credit": 10}]}
+    r = prep.post(f"/api/engagements/{eid}/adjusting-entries", json=entry)
+    assert r.status_code == 201 and r.json()["author"] == "Preparer"
+    assert prep.put(f"/api/engagements/{eid}/mapping",
+                    json={"mappings": {"4000": "revenue"}}).status_code == 200
+    eid_ = r.json()["id"]
+    assert prep.patch(f"/api/adjusting-entries/{eid_}", json={"kind": "adjusting"}).status_code == 403
+    assert prep.delete(f"/api/adjusting-entries/{eid_}").status_code == 403
+    assert a.patch(f"/api/adjusting-entries/{eid_}", json={"kind": "adjusting"}).status_code == 200
