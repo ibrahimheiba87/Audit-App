@@ -286,7 +286,8 @@ def check_balance(df: pd.DataFrame, s: Settings) -> CheckResult:
 SEVERITY_ORDER = {HIGH: 0, MEDIUM: 1, LOW: 2}
 
 
-def run_all(df: pd.DataFrame, settings: Settings | None = None) -> dict:
+def run_all(df: pd.DataFrame, settings: Settings | None = None,
+            import_report: dict | None = None) -> dict:
     s = settings or Settings()
     analysis = benford(df)
     results = [
@@ -313,6 +314,7 @@ def run_all(df: pd.DataFrame, settings: Settings | None = None) -> dict:
                 sev: sum(1 for f in findings if f["severity"] == sev) for sev in (HIGH, MEDIUM, LOW)
             },
         },
+        "import": import_report,
         "checks": [r.summary() for r in results],
         "findings": findings,
         "benford": analysis,
