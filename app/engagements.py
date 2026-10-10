@@ -13,8 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import checks, loader, materiality, report
-from .db import Client, Comparison, Engagement, Run, Sample, Upload, get_session
+from . import checks, loader, materiality, register, report
+from .db import Client, Comparison, Engagement, Finding, Run, Sample, Upload, get_session
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
@@ -122,6 +122,7 @@ def engagement_out(e: Engagement) -> dict:
         "runs": [run_brief(r) for r in reversed(e.runs)],
         "comparisons": [comparison_brief(c) for c in reversed(e.comparisons)],
         "samples": [sample_brief(x) for x in reversed(e.samples)],
+        "findings_summary": register.summary(list(e.findings)),
     }
 
 
@@ -324,6 +325,13 @@ async def create_upload(
 @router.delete("/uploads/{upload_id}", status_code=204)
 def delete_upload(upload_id: int, session: Session = Depends(get_session)) -> Response:
     upload = get_or_404(session, Upload, upload_id)
+    findings = list(session.scalars(select(Finding).where(Finding.upload_id == upload_id)))
+    worked = [f for f in findings if register.is_worked(f)]
+    if worked:
+        raise HTTPException(409, f"{len(worked)} findings from this file have been reviewed or "
+                                 "have notes or evidence, so the file is kept as support.")
+    for f in findings:
+        session.delete(f)
     for run in session.scalars(select(Run).where(Run.upload_id == upload_id)):
         session.delete(run)
     for x in session.scalars(select(Sample).where(Sample.upload_id == upload_id)):
@@ -369,6 +377,8 @@ def create_run(engagement_id: int, body: RunIn,
     )
     run = Run(engagement=e, upload=upload, settings=settings, result=result)
     session.add(run)
+    session.flush()
+    register.sync_run_findings(session, run)
     session.commit()
     return {**run_brief(run), "result": result}
 

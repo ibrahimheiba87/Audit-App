@@ -1,0 +1,254 @@
+"""Findings register endpoints: review status, notes and evidence."""
+
+from __future__ import annotations
+
+import datetime as dt
+import hashlib
+from typing import Literal
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from . import register
+from .db import Engagement, Evidence, Finding, FindingNote, get_session
+from .engagements import get_or_404, safe_stem
+from .register import STATUSES
+
+router = APIRouter(prefix="/api")
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MAX_EVIDENCE_BYTES = 20 * 1024 * 1024
+
+Status = Literal["open", "reviewed", "cleared"]
+Severity = Literal["high", "medium", "low"]
+
+
+class FindingIn(BaseModel):
+    severity: Severity = "medium"
+    detail: str = Field(min_length=1, max_length=5000)
+    account: str | None = None
+    description: str | None = None
+    entry_id: str | None = None
+    date: dt.date | None = None
+    amount: float | None = None
+    author: str = Field(default="", max_length=200)
+
+
+class FindingPatch(BaseModel):
+    status: Status | None = None
+    severity: Severity | None = None
+    note: str = Field(default="", max_length=5000)
+    author: str = Field(default="", max_length=200)
+
+
+class NoteIn(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+    author: str = Field(default="", max_length=200)
+
+
+class BulkIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=5000)
+    status: Status
+    note: str = Field(default="", max_length=5000)
+    author: str = Field(default="", max_length=200)
+
+
+# --- Serialization ----------------------------------------------------------
+
+
+def finding_brief(f: Finding) -> dict:
+    return {
+        "id": f.id, "source": f.source, "check": f.check, "check_name": f.check_name,
+        "severity": f.severity, "status": f.status, "status_label": STATUSES[f.status],
+        "row": f.row, "entry_id": f.entry_id, "date": f.date, "account": f.account,
+        "description": f.description, "amount": f.amount, "detail": f.detail,
+        "upload_id": f.upload_id, "filename": f.upload.filename if f.upload else None,
+        "run_id": f.run_id, "notes": len([n for n in f.notes if n.text]),
+        "evidence": len(f.evidence), "updated_at": f.updated_at.isoformat(),
+    }
+
+
+def note_out(n: FindingNote) -> dict:
+    return {"id": n.id, "text": n.text, "author": n.author, "status_from": n.status_from,
+            "status_to": n.status_to, "created_at": n.created_at.isoformat()}
+
+
+def evidence_out(ev: Evidence) -> dict:
+    return {"id": ev.id, "filename": ev.filename, "content_type": ev.content_type,
+            "size": ev.size, "sha256": ev.sha256, "author": ev.author,
+            "uploaded_at": ev.uploaded_at.isoformat()}
+
+
+def finding_out(f: Finding) -> dict:
+    return {**finding_brief(f), "engagement_id": f.engagement_id,
+            "created_at": f.created_at.isoformat(),
+            "trail": [note_out(n) for n in f.notes],
+            "attachments": [evidence_out(ev) for ev in f.evidence]}
+
+
+# --- Helpers ----------------------------------------------------------------
+
+
+def set_status(f: Finding, status: str, note: str, author: str) -> bool:
+    """Move a finding to a new status, recording who and why. False if nothing changed."""
+    if status == f.status:
+        return False
+    if status == "cleared" and not note.strip():
+        raise HTTPException(400, "Add a note explaining why the finding is cleared.")
+    f.notes.append(FindingNote(text=note.strip(), author=author.strip(),
+                               status_from=f.status, status_to=status))
+    f.status = status
+    register.touch(f)
+    return True
+
+
+def engagement_findings(session: Session, e: Engagement) -> list[Finding]:
+    register.sync_engagement(session, e)
+    return list(e.findings)
+
+
+# --- Endpoints --------------------------------------------------------------
+
+
+@router.get("/findings/options")
+def options() -> dict:
+    return {"statuses": [{"id": k, "label": v} for k, v in STATUSES.items()],
+            "severities": register.SEVERITIES}
+
+
+@router.get("/engagements/{engagement_id}/findings")
+def list_findings(engagement_id: int, status: str = "", severity: str = "", check: str = "",
+                  session: Session = Depends(get_session)) -> dict:
+    e = get_or_404(session, Engagement, engagement_id)
+    every = engagement_findings(session, e)
+    shown = [f for f in every if (not status or f.status == status)
+             and (not severity or f.severity == severity) and (not check or f.check == check)]
+    checks = {f.check: f.check_name for f in every}
+    return {"summary": register.summary(every),
+            "checks": [{"id": k, "name": v} for k, v in checks.items()],
+            "findings": [finding_brief(f) for f in shown]}
+
+
+@router.post("/engagements/{engagement_id}/findings", status_code=201)
+def create_finding(engagement_id: int, body: FindingIn,
+                   session: Session = Depends(get_session)) -> dict:
+    e = get_or_404(session, Engagement, engagement_id)
+    f = Finding(engagement=e, source="manual", severity=body.severity, detail=body.detail.strip(),
+                account=body.account or None, description=body.description or None,
+                entry_id=body.entry_id or None, amount=body.amount,
+                date=body.date.isoformat() if body.date else None)
+    f.notes.append(FindingNote(text="Added by hand", author=body.author.strip(),
+                               status_from=None, status_to=None))
+    session.add(f)
+    session.commit()
+    return finding_out(f)
+
+
+@router.post("/engagements/{engagement_id}/findings/bulk")
+def bulk_update(engagement_id: int, body: BulkIn,
+                session: Session = Depends(get_session)) -> dict:
+    e = get_or_404(session, Engagement, engagement_id)
+    found = list(session.scalars(select(Finding).where(Finding.id.in_(body.ids))))
+    if len(found) != len(set(body.ids)) or any(f.engagement_id != e.id for f in found):
+        raise HTTPException(400, "Some findings were not found in this engagement.")
+    changed = sum(set_status(f, body.status, body.note, body.author) for f in found)
+    session.commit()
+    return {"changed": changed, "summary": register.summary(list(e.findings))}
+
+
+@router.get("/engagements/{engagement_id}/findings/export")
+def export_findings(engagement_id: int, session: Session = Depends(get_session)) -> Response:
+    e = get_or_404(session, Engagement, engagement_id)
+    findings = engagement_findings(session, e)
+    context = {"Client": e.client.name, "Engagement": e.name,
+               "Period end": e.period_end.isoformat(), "Framework": e.framework}
+    stem = safe_stem(f"{e.client.name}-{e.name}-findings")
+    return Response(register.to_excel(findings, context), media_type=XLSX,
+                    headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'})
+
+
+@router.get("/findings/{finding_id}")
+def get_finding(finding_id: int, session: Session = Depends(get_session)) -> dict:
+    return finding_out(get_or_404(session, Finding, finding_id))
+
+
+@router.patch("/findings/{finding_id}")
+def update_finding(finding_id: int, body: FindingPatch,
+                   session: Session = Depends(get_session)) -> dict:
+    f = get_or_404(session, Finding, finding_id)
+    if body.severity and body.severity != f.severity:
+        f.notes.append(FindingNote(text=f"Severity changed from {f.severity} to {body.severity}"
+                                   + (f": {body.note.strip()}" if body.note.strip() else ""),
+                                   author=body.author.strip()))
+        f.severity = body.severity
+        register.touch(f)
+    if body.status:
+        set_status(f, body.status, body.note, body.author)
+    session.commit()
+    return finding_out(f)
+
+
+@router.delete("/findings/{finding_id}", status_code=204)
+def delete_finding(finding_id: int, session: Session = Depends(get_session)) -> Response:
+    f = get_or_404(session, Finding, finding_id)
+    if f.source != "manual":
+        raise HTTPException(400, "Findings from a check run can't be deleted; clear them instead.")
+    session.delete(f)
+    session.commit()
+    return Response(status_code=204)
+
+
+@router.post("/findings/{finding_id}/notes", status_code=201)
+def add_note(finding_id: int, body: NoteIn, session: Session = Depends(get_session)) -> dict:
+    f = get_or_404(session, Finding, finding_id)
+    f.notes.append(FindingNote(text=body.text.strip(), author=body.author.strip()))
+    register.touch(f)
+    session.commit()
+    return finding_out(f)
+
+
+@router.post("/findings/{finding_id}/evidence", status_code=201)
+async def add_evidence(finding_id: int, file: UploadFile = File(...), author: str = Form(""),
+                       session: Session = Depends(get_session)) -> dict:
+    f = get_or_404(session, Finding, finding_id)
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "The file is empty.")
+    if len(content) > MAX_EVIDENCE_BYTES:
+        raise HTTPException(413, "Evidence files can be up to 20 MB.")
+    f.evidence.append(Evidence(
+        filename=(file.filename or "evidence")[:500],
+        content_type=(file.content_type or "application/octet-stream")[:200],
+        content=content, size=len(content), sha256=hashlib.sha256(content).hexdigest(),
+        author=author.strip()[:200],
+    ))
+    register.touch(f)
+    session.commit()
+    return finding_out(f)
+
+
+@router.get("/evidence/{evidence_id}")
+def download_evidence(evidence_id: int, session: Session = Depends(get_session)) -> Response:
+    ev = get_or_404(session, Evidence, evidence_id)
+    name = ev.filename.replace('"', "").replace("\r", "").replace("\n", "")
+    return Response(ev.content, media_type=ev.content_type, headers={
+        "Content-Disposition": f'attachment; filename="{safe_stem(name) or "evidence"}"',
+        "X-Content-Type-Options": "nosniff",
+    })
+
+
+@router.delete("/evidence/{evidence_id}", status_code=204)
+def delete_evidence(evidence_id: int, author: str = "",
+                    session: Session = Depends(get_session)) -> Response:
+    ev = get_or_404(session, Evidence, evidence_id)
+    f = ev.finding
+    if f.status == "cleared":
+        raise HTTPException(400, "Reopen the finding before removing its evidence.")
+    f.notes.append(FindingNote(text=f"Removed evidence {ev.filename} (SHA-256 {ev.sha256})",
+                               author=author.strip()[:200]))
+    register.touch(f)
+    session.delete(ev)
+    session.commit()
+    return Response(status_code=204)

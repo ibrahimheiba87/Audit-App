@@ -201,6 +201,8 @@ async function openEngagement(id) {
   renderComparisons(e.comparisons);
   renderSampleForm(e);
   renderSamples(e.samples);
+  if (currentFinding && currentFinding.engagement_id !== e.id) closeFinding();
+  await loadRegister();
 }
 
 $("eng-delete").addEventListener("click", () => {
@@ -531,6 +533,193 @@ function showSample(s) {
   $("smp-result").scrollIntoView({ behavior: "smooth" });
 }
 
+// Findings register
+
+const REG_MAX_ROWS = 500;
+let reg = null;               // {summary, checks, findings} for the open engagement
+let regSelected = new Set();
+let currentFinding = null;
+
+const store = {
+  get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+$("reg-author").value = store.get("auditAuthor");
+$("reg-author").addEventListener("change", () => store.set("auditAuthor", $("reg-author").value.trim()));
+const author = () => $("reg-author").value.trim();
+const fileSize = (n) => n < 1024 ? `${n} bytes` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+const statusPill = (f) => `<span class="st ${f.status}">${esc(f.status_label)}</span>`;
+
+async function loadRegister() {
+  const id = currentEngagement.id;
+  reg = await getJSON(`/api/engagements/${id}/findings`);
+  $("reg-export").href = `/api/engagements/${id}/findings/export`;
+  const s = reg.summary;
+  $("reg-cards").innerHTML = [["Open", s.open], ["Reviewed", s.reviewed], ["Cleared", s.cleared], ["Total", s.total]]
+    .map(([k, v]) => `<div class="card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+  const chk = $("reg-check").value;
+  $("reg-check").innerHTML = '<option value="">All checks</option>' +
+    reg.checks.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  if (reg.checks.some((c) => c.id === chk)) $("reg-check").value = chk;
+  const ids = new Set(reg.findings.map((f) => f.id));
+  regSelected = new Set([...regSelected].filter((x) => ids.has(x)));
+  renderRegister();
+}
+
+function regRows() {
+  const st = $("reg-status").value, sev = $("reg-sev").value, chk = $("reg-check").value;
+  return reg.findings.filter((f) => (!st || f.status === st) && (!sev || f.severity === sev) && (!chk || f.check === chk));
+}
+
+function renderRegister() {
+  const rows = regRows();
+  const shown = rows.slice(0, REG_MAX_ROWS);
+  $("reg-count").textContent = rows.length > REG_MAX_ROWS
+    ? `${rows.length} findings, first ${REG_MAX_ROWS} shown (the download has them all)`
+    : `${rows.length} findings`;
+  const allChecked = shown.length && shown.every((f) => regSelected.has(f.id));
+  $("reg-table").innerHTML = reg.findings.length
+    ? `<tr><th><input type="checkbox" id="reg-all" ${allChecked ? "checked" : ""} title="Select all shown"></th><th>Status</th><th>Severity</th><th>Finding</th><th>Entry</th><th>Date</th><th>Account</th><th>Amount</th><th></th></tr>` +
+      shown.map((f) => `<tr class="clickable${currentFinding?.id === f.id ? " current" : ""}" data-finding="${f.id}">
+        <td><input type="checkbox" data-select="${f.id}" ${regSelected.has(f.id) ? "checked" : ""}></td>
+        <td>${statusPill(f)}</td><td><span class="sev ${f.severity}">${f.severity}</span></td>
+        <td class="finding-cell"><div>${esc(f.check_name)}</div>${f.detail && f.detail !== f.check_name ? `<div class="muted">${esc(f.detail)}</div>` : ""}</td>
+        <td>${esc(f.entry_id)}</td><td class="nowrap">${esc(f.date)}</td>
+        <td>${esc(f.account)}</td><td class="num">${money(f.amount)}</td>
+        <td class="nowrap muted">${f.notes ? `${f.notes} note${f.notes > 1 ? "s" : ""}` : ""}${f.notes && f.evidence ? " · " : ""}${f.evidence ? `${f.evidence} file${f.evidence > 1 ? "s" : ""}` : ""}</td>
+      </tr>`).join("")
+    : '<tr><td class="muted">No findings yet. Run the audit on a file, or add a finding by hand.</td></tr>';
+  $("reg-bulk").hidden = !regSelected.size;
+  $("reg-selected").textContent = `${regSelected.size} selected`;
+}
+["reg-status", "reg-sev", "reg-check"].forEach((id) => $(id).addEventListener("change", renderRegister));
+
+$("reg-table").addEventListener("click", (ev) => {
+  const box = ev.target.closest("input[type=checkbox]");
+  if (box) {
+    const rows = regRows().slice(0, REG_MAX_ROWS);
+    if (box.id === "reg-all") rows.forEach((f) => box.checked ? regSelected.add(f.id) : regSelected.delete(f.id));
+    else box.checked ? regSelected.add(Number(box.dataset.select)) : regSelected.delete(Number(box.dataset.select));
+    renderRegister();
+    return;
+  }
+  const tr = ev.target.closest("[data-finding]");
+  if (tr) guard(async () => openFinding(await getJSON(`/api/findings/${tr.dataset.finding}`)));
+});
+
+$("reg-bulk").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-bulk]");
+  if (!btn) return;
+  guard(async () => {
+    await sendJSON("POST", `/api/engagements/${currentEngagement.id}/findings/bulk`, {
+      ids: [...regSelected], status: btn.dataset.bulk, note: $("reg-bulk-note").value, author: author(),
+    });
+    regSelected.clear();
+    $("reg-bulk-note").value = "";
+    await loadRegister();
+    if (currentFinding) openFinding(await getJSON(`/api/findings/${currentFinding.id}`), false);
+  });
+});
+
+$("reg-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  guard(async () => {
+    const body = formObject($("reg-form"));
+    for (const k of ["account", "entry_id", "date", "amount"]) if (!body[k]) delete body[k];
+    if (body.amount) body.amount = Number(body.amount);
+    const f = await sendJSON("POST", `/api/engagements/${currentEngagement.id}/findings`, { ...body, author: author() });
+    $("reg-form").reset();
+    $("reg-new").open = false;
+    await loadRegister();
+    openFinding(f);
+  });
+});
+
+function openFinding(f, scroll = true) {
+  currentFinding = f;
+  $("fd").hidden = false;
+  $("fd-title").innerHTML = `Finding #${f.id} ${statusPill(f)}`;
+  const where = [f.entry_id && `Entry ${f.entry_id}`, f.date, f.account, f.amount != null && money(f.amount),
+    f.row && `row ${f.row} of ${f.filename}`].filter(Boolean);
+  $("fd-meta").textContent = `${f.check_name}${where.length ? " · " + where.join(" · ") : ""}`;
+  $("fd-detail").textContent = [f.description, f.detail].filter(Boolean).join(": ");
+  $("fd-status").innerHTML = ["open", "reviewed", "cleared"].map((x) =>
+    `<option value="${x}"${x === f.status ? " selected" : ""}>${x[0].toUpperCase() + x.slice(1)}</option>`).join("");
+  $("fd-severity").value = f.severity;
+  $("fd-note").value = "";
+  $("fd-delete").hidden = f.source !== "manual";
+  $("fd-evidence").innerHTML = f.attachments.length
+    ? "<tr><th>File</th><th>Size</th><th>Added</th><th>SHA-256</th><th></th></tr>" + f.attachments.map((a) => `<tr>
+        <td>${esc(a.filename)}</td><td class="num">${fileSize(a.size)}</td>
+        <td class="nowrap">${esc(when(a.uploaded_at))}${a.author ? " · " + esc(a.author) : ""}</td>
+        <td class="muted" title="${esc(a.sha256)}">${esc(a.sha256.slice(0, 12))}…</td>
+        <td><div class="cell-actions"><a class="button" href="/api/evidence/${a.id}">Download</a>
+          ${f.status === "cleared" ? "" : `<button type="button" class="small secondary danger" data-remove-ev="${a.id}">Remove</button>`}</div></td></tr>`).join("")
+    : '<tr><td class="muted">No evidence attached.</td></tr>';
+  $("fd-trail").innerHTML = f.trail.length ? [...f.trail].reverse().map((n) => `<li>
+      <div class="who">${esc(when(n.created_at))}${n.author ? " · " + esc(n.author) : ""}</div>
+      ${n.status_to ? `<div>Status: ${esc(n.status_from)} → <strong>${esc(n.status_to)}</strong></div>` : ""}
+      ${n.text ? `<div>${esc(n.text)}</div>` : ""}</li>`).join("")
+    : '<li class="muted">Nothing yet.</li>';
+  renderRegister();
+  if (scroll) $("fd").scrollIntoView({ behavior: "smooth" });
+}
+
+function closeFinding() {
+  currentFinding = null;
+  $("fd").hidden = true;
+}
+$("fd-close").addEventListener("click", () => { closeFinding(); renderRegister(); });
+
+async function refreshFinding(f) {
+  await loadRegister();
+  openFinding(f, false);
+}
+
+$("fd-save").addEventListener("click", () => guard(async () => {
+  const f = currentFinding;
+  const status = $("fd-status").value, severity = $("fd-severity").value, note = $("fd-note").value.trim();
+  let out = f;
+  if (status !== f.status || severity !== f.severity) {
+    out = await sendJSON("PATCH", `/api/findings/${f.id}`, { status, severity, note, author: author() });
+  } else if (note) {
+    out = await sendJSON("POST", `/api/findings/${f.id}/notes`, { text: note, author: author() });
+  } else {
+    return;
+  }
+  await refreshFinding(out);
+}));
+
+$("fd-delete").addEventListener("click", () => {
+  if (!confirm("Delete this finding?")) return;
+  guard(async () => {
+    await sendJSON("DELETE", `/api/findings/${currentFinding.id}`);
+    closeFinding();
+    await loadRegister();
+  });
+});
+
+$("fd-ev-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  guard(async () => {
+    const fd = new FormData();
+    fd.append("file", $("fd-ev-file").files[0]);
+    fd.append("author", author());
+    const f = await (await postForm(`/api/findings/${currentFinding.id}/evidence`, fd)).json();
+    $("fd-ev-form").reset();
+    await refreshFinding(f);
+  });
+});
+
+$("fd-evidence").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-remove-ev]");
+  if (!btn || !confirm("Remove this evidence file? The review trail keeps a record of it.")) return;
+  guard(async () => {
+    await sendJSON("DELETE", `/api/evidence/${btn.dataset.removeEv}?author=${encodeURIComponent(author())}`);
+    await refreshFinding(await getJSON(`/api/findings/${currentFinding.id}`));
+  });
+});
+
 // --- Quick audit view ---------------------------------------------------------
 
 const quickMapper = Mapper($("quick-mapper"), () => { $("dl-xlsx").disabled = $("dl-csv").disabled = true; });
@@ -647,6 +836,8 @@ function renderBenford() {
   $("smp-method").innerHTML = samplingOptions.methods.map((m) => `<option value="${m.id}">${esc(m.label)}</option>`).join("");
   $("smp-population").innerHTML = samplingOptions.populations.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join("");
   $("smp-confidence").innerHTML = samplingOptions.confidence_levels.map((c) => `<option value="${c}"${c === 95 ? " selected" : ""}>${c}%</option>`).join("");
+  $("reg-status").innerHTML = '<option value="">All statuses</option>' +
+    (await getJSON("/api/findings/options")).statuses.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join("");
   $("up-kind").innerHTML = meta.upload_kinds.map((k) => `<option value="${k.id}">${esc(k.label)}</option>`).join("");
   route();
 })();

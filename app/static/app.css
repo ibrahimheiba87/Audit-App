@@ -83,3 +83,23 @@ button.small, a.small { padding: 4px 10px; font-size: 13px; }
 a.button { display: inline-block; padding: 4px 10px; font-size: 13px; border-radius: 6px;
            border: 1px solid var(--accent); color: var(--accent); text-decoration: none; }
 .cell-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.st { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.st.open { color: var(--medium); background: var(--medium-bg); }
+.st.reviewed { color: var(--accent); background: var(--low-bg); }
+.st.cleared { color: var(--ok, #1e8449); background: var(--low-bg); }
+.spacer { flex: 1; }
+label.inline { display: flex; gap: 6px; align-items: center; margin: 0; }
+label.inline input { width: 170px; padding: 6px; }
+.bulk { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 10px;
+        border: 1px solid var(--border); border-radius: 8px; background: var(--low-bg); font-size: 14px; }
+.bulk input { width: 240px; padding: 5px 8px; }
+#reg-table tr.clickable { cursor: pointer; }
+#reg-table tr.clickable:hover td { background: var(--low-bg); }
+#reg-table tr.current td { background: var(--low-bg); }
+#reg-table input[type=checkbox] { width: auto; }
+h3 { font-size: 15px; margin: 18px 0 8px; }
+.trail { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+.trail li { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.trail .who { color: var(--muted); font-size: 13px; }
+#reg-table td.finding-cell { min-width: 240px; }
+#reg-table td.finding-cell .muted { font-size: 13px; }

@@ -39,6 +39,16 @@ always picked and marked as top stratum. Every sample stores its seed, so the sa
 settings and seed reproduce the same selection. Samples export to an Excel workpaper with
 the parameters and blank columns for the test results.
 
+**Findings register**: every audit run adds its findings to the engagement's register.
+Running the checks again on the same file keeps the work already done instead of adding
+duplicates. Each finding moves from Open to Reviewed to Cleared; clearing needs a note saying
+why. Notes, status and severity changes are kept in a review trail with who and when (type your
+name in the register; it is remembered in your browser). Evidence files (up to 20 MB each) can
+be attached to a finding and are stored with their SHA-256. Select several findings to mark
+them reviewed or clear them at once, add findings by hand (for example sample exceptions), and
+download the register to Excel with the review trail and evidence list. A file whose findings
+have been worked on can't be deleted, so the support stays with the engagement.
+
 The **Quick audit** tab runs the checks on a file without saving anything.
 
 Data is stored in SQLite (`audit.db` in the working directory). Set `AUDIT_DB_URL` to use
@@ -131,6 +141,12 @@ Engagement endpoints (JSON unless noted):
   `sample_size`, `seed`, `population=all|debits|credits`, `min_amount`, and for MUS
   `confidence`, `tolerable_misstatement`, `expected_misstatement`), `GET /api/samples/{id}`,
   `GET /api/samples/{id}/export`
+- `GET /api/engagements/{id}/findings?status=&severity=&check=`,
+  `POST /api/engagements/{id}/findings` (add by hand), `POST /api/engagements/{id}/findings/bulk`
+  (`ids`, `status`, `note`), `GET /api/engagements/{id}/findings/export`
+- `GET|PATCH|DELETE /api/findings/{id}` (`status`, `severity`, `note`, `author`),
+  `POST /api/findings/{id}/notes`, `POST /api/findings/{id}/evidence` (multipart `file`),
+  `GET|DELETE /api/evidence/{id}`
 - `POST /api/sample`: draw a sample from a file without saving (multipart: `file`, the same
   fields as above, optional `mapping`, `sheet`, `format=json|xlsx`)
 
