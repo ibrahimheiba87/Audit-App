@@ -1340,8 +1340,49 @@ function openFinding(f, scroll = true) {
       ${n.text ? `<div>${esc(n.text)}</div>` : ""}</li>`).join("")
     : '<li class="muted">Nothing yet.</li>';
   renderRegister();
+  renderAssistant();
   if (scroll) $("fd").scrollIntoView({ behavior: "smooth" });
 }
+
+// AI assistant (shown only when the server has an API key)
+
+let assistant = { enabled: false };
+let aiAnswer = null;  // {findingId, label, text, model}: the answer on screen
+
+function renderAssistant() {
+  $("ai").hidden = !assistant.enabled || !currentFinding;
+  if (aiAnswer && aiAnswer.findingId !== currentFinding?.id) aiAnswer = null;
+  $("ai-out").hidden = !aiAnswer;
+  if (!aiAnswer) return;
+  $("ai-label").textContent = `${aiAnswer.label} from the AI assistant (${aiAnswer.model}). Check it before using it.`;
+  $("ai-text").textContent = aiAnswer.text;
+}
+
+$("ai").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-ai]");
+  if (!btn) return;
+  const id = currentFinding.id;
+  busy(btn, async () => {
+    const r = await sendJSON("POST", `/api/findings/${id}/assistant`, { task: btn.dataset.ai });
+    if (currentFinding?.id !== id) return;  // the user has opened another finding
+    aiAnswer = { findingId: id, ...r };
+    renderAssistant();
+    loadEngagementActivity();
+  });
+});
+
+$("ai-note").addEventListener("click", () => busy($("ai-note"), async () => {
+  const a = aiAnswer;
+  const out = await sendJSON("POST", `/api/findings/${a.findingId}/notes`,
+    { text: `${a.label} drafted with the AI assistant (${a.model}):\n\n${a.text}` });
+  aiAnswer = null;
+  if (currentFinding?.id === a.findingId) await refreshFinding(out);
+}));
+
+$("ai-edit").addEventListener("click", () => {
+  $("fd-note").value = aiAnswer.text;
+  $("fd-note").focus();
+});
 
 function closeFinding() {
   currentFinding = null;
@@ -1725,6 +1766,7 @@ async function startApp() {
   $("smp-confidence").innerHTML = samplingOptions.confidence_levels.map((c) => `<option value="${c}"${c === 95 ? " selected" : ""}>${c}%</option>`).join("");
   $("reg-status").innerHTML = '<option value="">All statuses</option>' +
     (await getJSON("/api/findings/options")).statuses.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join("");
+  assistant = await getJSON("/api/assistant/status");
   $("up-kind").innerHTML = meta.upload_kinds.map((k) => `<option value="${k.id}">${esc(k.label)}</option>`).join("");
   appStarted = true;
   route();

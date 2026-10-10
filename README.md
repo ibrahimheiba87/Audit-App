@@ -74,6 +74,20 @@ team. The team downloads the files, accepts them, or sends the request back sayi
 missing; accepted requests are locked until a reviewer sends them back. Overdue requests are
 flagged, and the request list downloads as Excel or CSV.
 
+**AI assistant** (optional): on any finding, ask Claude to explain why the entry was flagged
+and what to check, or to draft a write-up (condition, criteria, cause, effect,
+recommendation). It sends the finding, the engagement's framework and materiality, and up to
+50 ledger lines of the same entry; nothing is saved unless you add the answer as a note. It is
+off, and hidden, until the server has an API key:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...          # turns the assistant on
+export AUDIT_AI_MODEL=claude-opus-5-5         # optional; this is the default
+```
+
+Each request is logged with the model and how many ledger lines were sent. Ledger data goes
+to the Claude API when someone uses the assistant, so only turn it on if your firm allows it.
+
 The **Quick audit** tab runs the checks on a file without saving anything.
 
 ## Users, roles and the activity log
@@ -231,6 +245,8 @@ Engagement endpoints (JSON unless noted):
 - `POST /api/requests/{id}/files` (multipart `file`), `GET|DELETE /api/request-files/{id}`,
   `POST /api/requests/{id}/messages` (`text`): for the team and the request's client users
 - `GET /api/portal/requests`: a client user's engagements and requests
+- `GET /api/assistant/status`, `POST /api/findings/{id}/assistant` (`task=explain|draft`):
+  the AI assistant; 503 while it is off
 - `POST /api/sample`: draw a sample from a file without saving (multipart: `file`, the same
   fields as above, optional `mapping`, `sheet`, `format=json|xlsx`)
 

@@ -118,7 +118,7 @@
           <option value="finding.">Findings</option>
           <option value="evidence.">Evidence</option>
           <option value="signoff.">Sign-offs</option>
-          <option value="request.">Client requests</option><option value="note.">Review notes</option>
+          <option value="request.">Client requests</option><option value="assistant.">AI assistant</option><option value="note.">Review notes</option>
           <option value="quick.">Quick audit</option>
         </select>
         <span class="muted">Latest 500 entries</span>
@@ -398,6 +398,22 @@
             </div>
             <div style="margin-top:12px"><label for="fd-note">Note</label><textarea id="fd-note" rows="2" placeholder="What you did or found. Needed to clear."></textarea></div>
             <div class="actions"><button type="button" id="fd-save">Save</button><button type="button" class="secondary danger min-2" id="fd-delete" hidden>Delete finding</button></div>
+            <div id="ai" hidden>
+              <h3>AI assistant</h3>
+              <p class="tag">Sends this finding, the engagement's framework and materiality, and up to 50 lines of the entry to Claude. Check what it says before you rely on it; nothing is saved unless you add it.</p>
+              <div class="cell-actions">
+                <button type="button" class="small secondary" data-ai="explain">Explain this entry</button>
+                <button type="button" class="small secondary" data-ai="draft">Draft a write-up</button>
+              </div>
+              <div id="ai-out" class="ai-out" hidden>
+                <div class="tag" id="ai-label"></div>
+                <div class="ai-text" id="ai-text"></div>
+                <div class="cell-actions">
+                  <button type="button" class="small" id="ai-note">Add as a note</button>
+                  <button type="button" class="small secondary" id="ai-edit">Edit in the note box</button>
+                </div>
+              </div>
+            </div>
             <h3>Evidence</h3>
             <div class="table-wrap"><table id="fd-evidence"></table></div>
             <form id="fd-ev-form" class="actions" style="align-items:center">

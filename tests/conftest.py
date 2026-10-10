@@ -30,3 +30,15 @@ def fresh_db(tmp_path):
 def real_auth():
     """Use real sign-in (cookies) instead of the always-signed-in admin."""
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def no_ai_calls(monkeypatch):
+    """The AI assistant starts off, and no test can reach the Claude API."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AUDIT_AI_MODEL", raising=False)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("A test tried to call the Claude API.")
+
+    monkeypatch.setattr("urllib.request.urlopen", refuse)

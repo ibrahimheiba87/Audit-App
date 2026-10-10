@@ -171,3 +171,8 @@ button.danger-link { color: var(--high); }
 .st.rq-accepted { color: var(--ok, #1e8449); background: var(--low-bg); }
 .rq-status-returned { color: var(--medium); }
 .rq-status-accepted { color: var(--ok, #1e8449); }
+
+/* AI assistant */
+.ai-out { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px;
+          padding: 10px 12px; margin-top: 10px; }
+.ai-text { white-space: pre-wrap; margin: 6px 0 10px; }
