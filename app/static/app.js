@@ -206,7 +206,10 @@ $("eng-form").addEventListener("submit", (e) => {
 
 async function openEngagement(id) {
   const e = await getJSON(`/api/engagements/${id}`);
-  if (currentEngagement?.id !== e.id) { regOffset = 0; regSelected.clear(); }
+  if (currentEngagement?.id !== e.id) {
+    // Check ids differ between engagements, so don't carry that filter over.
+    regOffset = 0; regSelected.clear(); $("reg-check").value = "";
+  }
   currentEngagement = e;
   $("eng-empty").hidden = true;
   $("eng-detail").hidden = false;

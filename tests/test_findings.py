@@ -156,6 +156,7 @@ def test_runs_saved_before_the_register_are_synced():
     with db.SessionLocal() as s:
         for f in s.query(db.Finding).all():
             s.delete(f)
+        s.query(db.RunSync).delete()
         s.commit()
     assert findings(eid)["summary"]["total"] == len(run["result"]["findings"])
 

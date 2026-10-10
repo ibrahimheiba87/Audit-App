@@ -130,6 +130,18 @@ class Run(Base):
 
     engagement: Mapped[Engagement] = relationship(back_populates="runs")
     upload: Mapped[Upload] = relationship()
+    register_sync: Mapped[RunSync | None] = relationship(cascade="all, delete-orphan")
+
+
+class RunSync(Base):
+    """Marks a run whose findings have been put on the register (even if none were new).
+
+    A separate table so databases made before the register get it without a migration.
+    """
+
+    __tablename__ = "run_register_sync"
+
+    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id"), primary_key=True)
 
 
 class Comparison(Base):

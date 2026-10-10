@@ -73,9 +73,10 @@ def select_population(df: pd.DataFrame, p: SampleParams) -> pd.DataFrame:
 def mus_sample_size(book_value: float, p: SampleParams) -> int:
     if p.confidence not in CONFIDENCE:
         raise SamplingError(f"Confidence must be one of: {', '.join(map(str, CONFIDENCE))}.")
-    if not p.tolerable_misstatement or p.tolerable_misstatement <= 0:
+    tolerable, expected = p.tolerable_misstatement, p.expected_misstatement
+    if not tolerable or not math.isfinite(tolerable) or tolerable <= 0:
         raise SamplingError("MUS needs a tolerable misstatement (or a sample size).")
-    if p.expected_misstatement < 0:
+    if not math.isfinite(expected) or expected < 0:
         raise SamplingError("Expected misstatement can't be negative.")
     rf, ef = CONFIDENCE[p.confidence]
     room = p.tolerable_misstatement - p.expected_misstatement * ef
@@ -84,13 +85,14 @@ def mus_sample_size(book_value: float, p: SampleParams) -> int:
             "Expected misstatement is too high for the tolerable misstatement; "
             "reduce it or raise tolerable misstatement."
         )
-    n = max(1, math.ceil(book_value * rf / room))
-    if n > MAX_SAMPLE_SIZE:
+    needed = book_value * rf / room  # can overflow to inf for a tiny tolerable misstatement
+    if not math.isfinite(needed) or needed > MAX_SAMPLE_SIZE:
+        size = f"{math.ceil(needed):,}" if math.isfinite(needed) else "an unlimited number of"
         raise SamplingError(
-            f"That needs a sample of {n:,} monetary units, over the {MAX_SAMPLE_SIZE:,} limit. "
+            f"That needs a sample of {size} monetary units, over the {MAX_SAMPLE_SIZE:,} limit. "
             "Raise tolerable misstatement or narrow the population."
         )
-    return n
+    return max(1, math.ceil(needed))
 
 
 def _item(row: pd.Series, reason: str) -> dict:
