@@ -94,6 +94,33 @@
           </section>
 
           <section class="panel">
+            <h2>Prior-year comparison</h2>
+            <p class="muted">Compare account balances in this year's file with last year's. Upload last year's trial balance above as "Prior-year trial balance".</p>
+            <form id="cmp-form">
+              <div class="grid">
+                <div><label for="cmp-current">This year's file</label><select id="cmp-current" class="map" required></select></div>
+                <div><label for="cmp-prior">Prior year's file</label><select id="cmp-prior" class="map" required></select></div>
+                <div><label for="cmp-amount">Flag changes of at least</label><input id="cmp-amount" type="number" min="0" step="any"></div>
+                <div><label for="cmp-pct">and at least this % of last year</label><input id="cmp-pct" type="number" min="0" step="any" value="10"></div>
+              </div>
+              <div class="actions"><button type="submit">Compare</button></div>
+            </form>
+            <div class="table-wrap"><table id="comparisons"></table></div>
+          </section>
+
+          <section class="panel" id="cmp-result" hidden>
+            <div class="row-between">
+              <h2 id="cmp-title"></h2>
+              <div class="actions" id="cmp-actions" style="margin:0"></div>
+            </div>
+            <div class="cards" id="cmp-cards"></div>
+            <div class="filters" style="margin-top:12px">
+              <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="cmp-flagged-only" style="width:auto" checked> Flagged accounts only</label>
+            </div>
+            <div class="table-wrap"><table id="cmp-table"></table></div>
+          </section>
+
+          <section class="panel">
             <h2>Audit runs</h2>
             <div class="table-wrap"><table id="runs"></table></div>
           </section>

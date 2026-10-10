@@ -1,0 +1,17 @@
+Account,Account Name,Debit,Credit
+1000,Cash,389150.00,
+1200,Accounts Receivable,948200.00,
+1300,Inventory,845500.00,
+1500,Property and Equipment,1198000.00,
+2000,Accounts Payable,,512900.00
+2100,Accrued Liabilities,,151300.00
+2500,Bank Loan,,750000.00
+3000,Share Capital,,500000.00
+3100,Retained Earnings,,405810.00
+4000,Revenue,,6850000.00
+5000,Cost of Sales,4005000.00,
+6100,Rent,51000.00,
+6200,Salaries,1428900.00,
+6300,Travel,176430.00,
+6400,Office Supplies,23480.00,
+6500,Consulting Fees,104350.00,

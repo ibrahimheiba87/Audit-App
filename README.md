@@ -20,6 +20,14 @@ The **Engagements** tab keeps work organised by client and period:
 - Run the audit on an upload. Runs use the engagement's period end and performance
   materiality, are saved with their settings, and can be reopened or exported later.
 
+**Prior-year comparison**: upload this year's and last year's trial balances (or ledgers,
+which are summed per account) and compare them. Each account shows this year, last year, the
+change and the change as a % of last year. Accounts are flagged when the change is at least
+the threshold amount (performance materiality by default) and at least the threshold
+percentage (default 10%), when they are new or gone, or when the balance switched between
+debit and credit. Comparisons are saved and export to Excel. `sample_data/sample_tb_2025.csv`
+and `sample_tb_2026.csv` are sample trial balances for trying it.
+
 The **Quick audit** tab runs the checks on a file without saving anything.
 
 Data is stored in SQLite (`audit.db` in the working directory). Set `AUDIT_DB_URL` to use
@@ -100,6 +108,13 @@ Engagement endpoints (JSON unless noted):
   `sheet`, `mapping`), `DELETE /api/uploads/{id}`
 - `POST /api/engagements/{id}/runs` (`upload_id`, `cutoff_days`, `round_threshold`),
   `GET /api/runs/{id}`, `GET /api/runs/{id}/report?format=xlsx|csv`
+
+- `POST /api/engagements/{id}/comparisons` (`current_upload_id`, `prior_upload_id`,
+  `threshold_amount`, `threshold_pct`), `GET /api/comparisons/{id}`,
+  `GET /api/comparisons/{id}/report`
+- `POST /api/compare`: compare two files without saving (multipart: `current`, `prior`,
+  `threshold_amount`, optional `threshold_pct`, `current_mapping`, `prior_mapping`,
+  `current_sheet`, `prior_sheet`, `format=json|xlsx`)
 
 Quick audit uploads are processed in memory and not stored.
 
