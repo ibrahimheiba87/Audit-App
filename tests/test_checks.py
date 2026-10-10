@@ -119,7 +119,7 @@ def test_trial_balance_without_dates_skips_date_checks():
 
 
 def test_sample_ledger_finds_planted_issues():
-    df = loader.load(SAMPLE.name, SAMPLE.read_bytes())
+    df = loader.load(SAMPLE.name, SAMPLE.read_bytes()).df
     result = checks.run_all(df)
     descriptions = {(f["check"], f["description"]) for f in result["findings"]}
     assert ("duplicates", "Printer toner") in descriptions

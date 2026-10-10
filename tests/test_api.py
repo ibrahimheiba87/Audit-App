@@ -55,3 +55,45 @@ def test_csv_report():
     r = client.post("/api/report", files=files, data=data)
     assert r.status_code == 200
     assert r.text.startswith("severity,check,row")
+
+
+ODD = b"Txn Dt,GL,Value USD\n2026-01-05,Cash,100\n2026-01-06,Rent,-100\n"
+
+
+def test_preview_endpoint():
+    r = client.post("/api/preview", files={"file": ("gl.csv", ODD, "text/csv")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["columns"] == ["Txn Dt", "GL", "Value USD"]
+    assert body["suggested"] == {}
+    assert {f["id"] for f in body["fields"]} >= {"date", "account", "amount", "debit", "credit"}
+
+
+def test_audit_with_mapping():
+    mapping = '{"date": "Txn Dt", "account": "GL", "amount": "Value USD"}'
+    r = client.post("/api/audit", files={"file": ("gl.csv", ODD, "text/csv")},
+                    data={"mapping": mapping})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["summary"]["rows"] == 2
+    assert body["import"]["mapping"]["account"] == "GL"
+    assert {c["id"]: c["status"] for c in body["checks"]}["cutoff"] == "ran"
+
+
+def test_audit_with_bad_mapping_json():
+    r = client.post("/api/audit", files={"file": ("gl.csv", ODD, "text/csv")},
+                    data={"mapping": "{not json"})
+    assert r.status_code == 400
+
+
+def test_report_includes_import_details():
+    mapping = '{"date": "Txn Dt", "account": "GL", "amount": "Value USD"}'
+    r = client.post("/api/report", files={"file": ("gl.csv", ODD, "text/csv")},
+                    data={"mapping": mapping, "format": "xlsx"})
+    summary = pd.read_excel(io.BytesIO(r.content), sheet_name="Summary", header=None)
+    assert "Column for account" in summary[0].tolist()
+
+
+def test_static_assets_served():
+    assert client.get("/static/app.js").status_code == 200
+    assert client.get("/static/app.css").status_code == 200

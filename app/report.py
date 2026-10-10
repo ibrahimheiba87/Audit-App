@@ -30,6 +30,14 @@ def to_excel(result: dict, source_name: str = "") -> bytes:
         ("Medium findings", s["findings_by_severity"]["medium"]),
         ("Low findings", s["findings_by_severity"]["low"]),
     ]
+    imp = result.get("import")
+    if imp:
+        summary_rows[1:1] = [
+            ("Rows read", imp["rows_read"]),
+            ("Rows skipped", imp["rows_skipped"]),
+        ]
+        summary_rows += [("Import warning", w) for w in imp["warnings"]]
+        summary_rows += [(f"Column for {f}", c) for f, c in imp["mapping"].items()]
     checks = pd.DataFrame(result["checks"])[["name", "status", "flagged", "note"]]
     checks.columns = ["Check", "Status", "Flagged", "Notes"]
     benford = pd.DataFrame(result["benford"]["digits"])
