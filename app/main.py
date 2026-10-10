@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date
@@ -10,8 +11,11 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 
 from . import checks, db, loader, report
+from .accounts import router as accounts_router
+from .auth import current_user, log
 from .comparisons import router as comparisons_router
 from .engagements import router as engagements_router
 from .findings import router as findings_router
@@ -29,10 +33,10 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Audit App", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
-app.include_router(engagements_router)
-app.include_router(comparisons_router)
-app.include_router(samples_router)
-app.include_router(findings_router)
+app.include_router(accounts_router)
+# Everything else needs a signed-in user; endpoints check the role they need.
+for router in (engagements_router, comparisons_router, samples_router, findings_router):
+    app.include_router(router, dependencies=[Depends(current_user)])
 
 
 @dataclass
@@ -59,7 +63,7 @@ def audit_form(
                      performance_materiality)
 
 
-async def run_audit(form: AuditForm) -> dict:
+async def run_audit(form: AuditForm, user: db.User, session: Session, fmt: str) -> dict:
     content = await read_upload(form.file)
     try:
         loaded = loader.load(form.file.filename or "", content,
@@ -74,7 +78,14 @@ async def run_audit(form: AuditForm) -> dict:
         period_end=end, cutoff_days=form.cutoff_days, round_threshold=form.round_threshold,
         performance_materiality=form.performance_materiality or None,
     )
-    return checks.run_all(loaded.df, settings, loaded.report.to_dict())
+    result = checks.run_all(loaded.df, settings, loaded.report.to_dict())
+    log(session, user, "quick.audit", f"Ran the audit checks on {form.file.filename} without saving",
+        details={"sha256": hashlib.sha256(content).hexdigest(), "format": fmt,
+                 "settings": {"period_end": form.period_end, "cutoff_days": form.cutoff_days,
+                              "round_threshold": form.round_threshold,
+                              "performance_materiality": form.performance_materiality}})
+    session.commit()
+    return result
 
 
 @app.get("/")
@@ -88,7 +99,8 @@ def health() -> dict:
 
 
 @app.post("/api/preview")
-async def preview(file: UploadFile = File(...), sheet: str = Form("")) -> dict:
+async def preview(file: UploadFile = File(...), sheet: str = Form(""),
+                  _: db.User = Depends(current_user)) -> dict:
     """Columns, sample rows and a suggested column mapping for an uploaded file."""
     content = await read_upload(file)
     try:
@@ -98,17 +110,19 @@ async def preview(file: UploadFile = File(...), sheet: str = Form("")) -> dict:
 
 
 @app.post("/api/audit")
-async def audit(form: AuditForm = Depends(audit_form)) -> dict:
-    return await run_audit(form)
+async def audit(form: AuditForm = Depends(audit_form), user: db.User = Depends(current_user),
+                session: Session = Depends(db.get_session)) -> dict:
+    return await run_audit(form, user, session, "json")
 
 
 @app.post("/api/report")
 async def download_report(
     form: AuditForm = Depends(audit_form), format: str = Form("xlsx"),
+    user: db.User = Depends(current_user), session: Session = Depends(db.get_session),
 ) -> Response:
     if format not in ("csv", "xlsx"):
         raise HTTPException(400, "Format must be csv or xlsx.")
-    result = await run_audit(form)
+    result = await run_audit(form, user, session, format)
     stem = Path(form.file.filename or "ledger").stem
     if format == "csv":
         return Response(

@@ -14,6 +14,10 @@ let checkNames = {};
 
 async function request(url, options = {}) {
   const res = await fetch(url, options);
+  if (res.status === 401 && !url.startsWith("/api/auth/")) {
+    showLogin(false);
+    throw new Error("Please sign in.");
+  }
   if (!res.ok) {
     let msg = res.statusText;
     try {
@@ -118,12 +122,15 @@ function Mapper(root, onChange = () => {}) {
 // --- Views and routing ------------------------------------------------------
 
 function route() {
+  if (!me) return;
   const [, view = "engagements", id] = location.hash.split("/");
   document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${view}`; });
   document.querySelectorAll("nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
   $("results").hidden = true;
   showError("");
   if (view === "engagements") guard(() => showEngagements(id ? Number(id) : null));
+  if (view === "users") guard(showUsers);
+  if (view === "activity") guard(showActivity);
 }
 window.addEventListener("hashchange", route);
 
@@ -149,7 +156,7 @@ async function renderClients(activeId) {
   $("client-list").innerHTML = clients.length ? clients.map((c) => `
     <div class="client">
       <div class="client-name"><span>${esc(c.name)}</span>
-        <button type="button" class="link" data-new-eng="${c.id}" data-client-name="${esc(c.name)}">+ engagement</button></div>
+        <button type="button" data-new-eng="${c.id}" class="link min-2" data-client-name="${esc(c.name)}">+ engagement</button></div>
       ${c.industry ? `<div class="muted" style="font-size:13px">${esc(c.industry)}</div>` : ""}
       <ul>${c.engagements.map((e) => `<li><a href="#/engagements/${e.id}" class="${e.id === activeId ? "active" : ""}">
         ${esc(e.name)} <span class="muted">· ${esc(e.period_end)}</span></a></li>`).join("")}</ul>
@@ -302,7 +309,7 @@ function renderUploads(uploads) {
       <td class="muted">${u.import.warnings.length ? esc(u.import.warnings.join(" ")) : "OK"}</td>
       <td><div class="cell-actions">
         <button type="button" class="small" data-run="${u.id}">Run audit</button>
-        <button type="button" class="small secondary danger" data-delete-upload="${u.id}">Delete</button>
+        <button type="button" class="small secondary danger min-2" data-delete-upload="${u.id}">Delete</button>
       </div></td></tr>`).join("")
     : '<tr><td class="muted">No files uploaded yet.</td></tr>';
 }
@@ -540,13 +547,6 @@ let reg = null;               // {summary, checks, findings} for the open engage
 let regSelected = new Set();
 let currentFinding = null;
 
-const store = {
-  get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
-};
-$("reg-author").value = store.get("auditAuthor");
-$("reg-author").addEventListener("change", () => store.set("auditAuthor", $("reg-author").value.trim()));
-const author = () => $("reg-author").value.trim();
 const fileSize = (n) => n < 1024 ? `${n} bytes` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 const statusPill = (f) => `<span class="st ${f.status}">${esc(f.status_label)}</span>`;
 
@@ -564,6 +564,7 @@ async function loadRegister() {
   const ids = new Set(reg.findings.map((f) => f.id));
   regSelected = new Set([...regSelected].filter((x) => ids.has(x)));
   renderRegister();
+  renderActivity($("eng-activity"), await getJSON(`/api/activity?engagement_id=${id}&limit=100`), false);
 }
 
 function regRows() {
@@ -612,7 +613,7 @@ $("reg-bulk").addEventListener("click", (ev) => {
   if (!btn) return;
   guard(async () => {
     await sendJSON("POST", `/api/engagements/${currentEngagement.id}/findings/bulk`, {
-      ids: [...regSelected], status: btn.dataset.bulk, note: $("reg-bulk-note").value, author: author(),
+      ids: [...regSelected], status: btn.dataset.bulk, note: $("reg-bulk-note").value,
     });
     regSelected.clear();
     $("reg-bulk-note").value = "";
@@ -627,7 +628,7 @@ $("reg-form").addEventListener("submit", (ev) => {
     const body = formObject($("reg-form"));
     for (const k of ["account", "entry_id", "date", "amount"]) if (!body[k]) delete body[k];
     if (body.amount) body.amount = Number(body.amount);
-    const f = await sendJSON("POST", `/api/engagements/${currentEngagement.id}/findings`, { ...body, author: author() });
+    const f = await sendJSON("POST", `/api/engagements/${currentEngagement.id}/findings`, body);
     $("reg-form").reset();
     $("reg-new").open = false;
     await loadRegister();
@@ -646,6 +647,7 @@ function openFinding(f, scroll = true) {
   $("fd-status").innerHTML = ["open", "reviewed", "cleared"].map((x) =>
     `<option value="${x}"${x === f.status ? " selected" : ""}>${x[0].toUpperCase() + x.slice(1)}</option>`).join("");
   $("fd-severity").value = f.severity;
+  $("fd-severity").disabled = me.rank < 2;
   $("fd-note").value = "";
   $("fd-delete").hidden = f.source !== "manual";
   $("fd-evidence").innerHTML = f.attachments.length
@@ -654,7 +656,7 @@ function openFinding(f, scroll = true) {
         <td class="nowrap">${esc(when(a.uploaded_at))}${a.author ? " · " + esc(a.author) : ""}</td>
         <td class="muted" title="${esc(a.sha256)}">${esc(a.sha256.slice(0, 12))}…</td>
         <td><div class="cell-actions"><a class="button" href="/api/evidence/${a.id}">Download</a>
-          ${f.status === "cleared" ? "" : `<button type="button" class="small secondary danger" data-remove-ev="${a.id}">Remove</button>`}</div></td></tr>`).join("")
+          ${f.status === "cleared" ? "" : `<button type="button" class="small secondary danger min-2" data-remove-ev="${a.id}">Remove</button>`}</div></td></tr>`).join("")
     : '<tr><td class="muted">No evidence attached.</td></tr>';
   $("fd-trail").innerHTML = f.trail.length ? [...f.trail].reverse().map((n) => `<li>
       <div class="who">${esc(when(n.created_at))}${n.author ? " · " + esc(n.author) : ""}</div>
@@ -681,9 +683,9 @@ $("fd-save").addEventListener("click", () => guard(async () => {
   const status = $("fd-status").value, severity = $("fd-severity").value, note = $("fd-note").value.trim();
   let out = f;
   if (status !== f.status || severity !== f.severity) {
-    out = await sendJSON("PATCH", `/api/findings/${f.id}`, { status, severity, note, author: author() });
+    out = await sendJSON("PATCH", `/api/findings/${f.id}`, { status, severity, note });
   } else if (note) {
-    out = await sendJSON("POST", `/api/findings/${f.id}/notes`, { text: note, author: author() });
+    out = await sendJSON("POST", `/api/findings/${f.id}/notes`, { text: note });
   } else {
     return;
   }
@@ -704,7 +706,6 @@ $("fd-ev-form").addEventListener("submit", (ev) => {
   guard(async () => {
     const fd = new FormData();
     fd.append("file", $("fd-ev-file").files[0]);
-    fd.append("author", author());
     const f = await (await postForm(`/api/findings/${currentFinding.id}/evidence`, fd)).json();
     $("fd-ev-form").reset();
     await refreshFinding(f);
@@ -715,10 +716,167 @@ $("fd-evidence").addEventListener("click", (ev) => {
   const btn = ev.target.closest("[data-remove-ev]");
   if (!btn || !confirm("Remove this evidence file? The review trail keeps a record of it.")) return;
   guard(async () => {
-    await sendJSON("DELETE", `/api/evidence/${btn.dataset.removeEv}?author=${encodeURIComponent(author())}`);
+    await sendJSON("DELETE", `/api/evidence/${btn.dataset.removeEv}`);
     await refreshFinding(await getJSON(`/api/findings/${currentFinding.id}`));
   });
 });
+
+// --- Sign-in, users and activity ------------------------------------------------
+
+let me = null;       // signed-in user
+let roles = [];
+let appStarted = false;
+
+function setUser(user) {
+  me = user;
+  document.body.dataset.rank = user.rank;
+  $("user-name").textContent = user.name;
+  $("user-role").textContent = user.role_label;
+  $("user-chip").hidden = $("nav").hidden = false;
+}
+
+function showLogin(needsSetup) {
+  me = null;
+  delete document.body.dataset.rank;
+  $("user-chip").hidden = $("nav").hidden = true;
+  document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== "view-login"; });
+  $("results").hidden = true;
+  $("login-form").hidden = needsSetup;
+  $("setup-form").hidden = !needsSetup;
+  (needsSetup ? $("setup-name") : $("login-email")).focus();
+}
+
+async function signedIn(res) {
+  setUser((await res.json()).user);
+  showError("");
+  if (appStarted) route(); else { appStarted = true; await startApp(); }
+}
+
+$("login-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  guard(async () => {
+    const res = await request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(formObject($("login-form"))) });
+    $("login-password").value = "";
+    await signedIn(res);
+  });
+});
+
+$("setup-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  guard(async () => {
+    const res = await request("/api/auth/setup", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(formObject($("setup-form"))) });
+    await signedIn(res);
+  });
+});
+
+$("logout").addEventListener("click", () => guard(async () => {
+  await sendJSON("POST", "/api/auth/logout");
+  location.hash = "#/engagements";
+  showLogin(false);
+}));
+
+$("pw-open").addEventListener("click", () => {
+  $("pw-form").reset();
+  $("pw-error").hidden = true;
+  $("pw-dialog").showModal();
+});
+$("pw-cancel").addEventListener("click", () => $("pw-dialog").close());
+$("pw-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    await sendJSON("POST", "/api/auth/password", formObject($("pw-form")));
+    $("pw-dialog").close();
+  } catch (err) {
+    $("pw-error").textContent = err.message;
+    $("pw-error").hidden = false;
+  }
+});
+
+let users = [];
+
+async function showUsers() {
+  users = await getJSON("/api/users");
+  const roleOptions = (sel) => roles.map((r) => `<option value="${r.id}"${r.id === sel ? " selected" : ""}>${esc(r.label)}</option>`).join("");
+  $("nu-role").innerHTML = roleOptions("preparer");
+  $("users").innerHTML = "<tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Status</th><th></th></tr>" +
+    users.map((u) => `<tr data-user="${u.id}">
+      <td>${esc(u.name)}${u.id === me.id ? ' <span class="muted">(you)</span>' : ""}</td><td>${esc(u.email)}</td>
+      <td><select class="map" data-role>${roleOptions(u.role)}</select></td>
+      <td class="nowrap">${esc(when(u.last_login_at)) || '<span class="muted">Never</span>'}</td>
+      <td>${u.active ? "Active" : '<span class="muted">Deactivated</span>'}</td>
+      <td><div class="cell-actions">
+        <button type="button" class="small secondary" data-reset>Reset password</button>
+        <button type="button" class="small secondary${u.active ? " danger" : ""}" data-active="${!u.active}">${u.active ? "Deactivate" : "Reactivate"}</button>
+      </div></td></tr>`).join("");
+}
+
+$("users").addEventListener("change", (ev) => {
+  const sel = ev.target.closest("[data-role]");
+  if (!sel) return;
+  const id = sel.closest("[data-user]").dataset.user;
+  guard(async () => {
+    try { await sendJSON("PATCH", `/api/users/${id}`, { role: sel.value }); } finally { await showUsers(); }
+  });
+});
+
+$("users").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-user]");
+  if (!row) return;
+  const id = row.dataset.user;
+  const reset = ev.target.closest("[data-reset]");
+  const active = ev.target.closest("[data-active]");
+  if (reset) {
+    const password = prompt("New temporary password (at least 10 characters). They will be signed out.");
+    if (password) guard(async () => { await sendJSON("PATCH", `/api/users/${id}`, { password }); alert("Password reset."); });
+  } else if (active) {
+    guard(async () => { await sendJSON("PATCH", `/api/users/${id}`, { active: active.dataset.active === "true" }); await showUsers(); });
+  }
+});
+
+$("user-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  guard(async () => {
+    await sendJSON("POST", "/api/users", formObject($("user-form")));
+    $("user-form").reset();
+    await showUsers();
+  });
+});
+
+function activityDetails(d) {
+  const parts = [];
+  if (d.sha256) parts.push(`SHA-256 ${d.sha256}`);
+  if (d.current_sha256) parts.push(`this year ${d.current_sha256.slice(0, 12)}…, prior ${d.prior_sha256.slice(0, 12)}…`);
+  const params = d.settings || d.params;
+  if (params) parts.push(Object.entries(params).filter(([, v]) => v !== null && v !== "")
+    .map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(", "));
+  return parts.join(" · ");
+}
+
+function renderActivity(table, rows, withEngagement) {
+  table.innerHTML = rows.length
+    ? `<tr><th>When</th><th>Who</th>${withEngagement ? "<th>Engagement</th>" : ""}<th>What</th><th>Details</th></tr>` +
+      rows.map((a) => `<tr><td class="nowrap">${esc(when(a.at))}</td>
+        <td class="nowrap">${esc(a.user_name) || '<span class="muted">Not signed in</span>'}${a.user_role ? ` <span class="muted">${esc(a.user_role)}</span>` : ""}</td>
+        ${withEngagement ? `<td>${a.engagement_id ? `<a href="#/engagements/${a.engagement_id}">${esc(a.engagement_label)}</a>` : ""}</td>` : ""}
+        <td>${esc(a.summary)}</td><td class="details-cell">${esc(activityDetails(a.details))}${a.ip ? ` <span title="IP address">${esc(a.ip)}</span>` : ""}</td></tr>`).join("")
+    : '<tr><td class="muted">Nothing yet.</td></tr>';
+}
+
+async function showActivity() {
+  if (!users.length) users = await getJSON("/api/users");
+  const sel = $("act-user").value;
+  $("act-user").innerHTML = '<option value="">Everyone</option>' +
+    users.map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join("");
+  $("act-user").value = sel;
+  const q = new URLSearchParams({ limit: 500 });
+  if ($("act-user").value) q.set("user_id", $("act-user").value);
+  if ($("act-action").value) q.set("action", $("act-action").value);
+  renderActivity($("act-table"), await getJSON(`/api/activity?${q}`), true);
+}
+$("act-user").addEventListener("change", () => guard(showActivity));
+$("act-action").addEventListener("change", () => guard(showActivity));
 
 // --- Quick audit view ---------------------------------------------------------
 
@@ -828,7 +986,7 @@ function renderBenford() {
 
 // --- Start --------------------------------------------------------------------
 
-(async () => {
+async function startApp() {
   meta = await getJSON("/api/materiality/benchmarks");
   $("mat-benchmark").innerHTML = meta.benchmarks.map((b) => `<option value="${b.id}">${esc(b.label)}</option>`).join("");
   $("eng-framework").innerHTML = meta.frameworks.map((f) => `<option>${esc(f)}</option>`).join("");
@@ -839,5 +997,17 @@ function renderBenford() {
   $("reg-status").innerHTML = '<option value="">All statuses</option>' +
     (await getJSON("/api/findings/options")).statuses.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join("");
   $("up-kind").innerHTML = meta.upload_kinds.map((k) => `<option value="${k.id}">${esc(k.label)}</option>`).join("");
+  appStarted = true;
   route();
+}
+
+(async () => {
+  const status = await getJSON("/api/auth/status");
+  roles = status.roles;
+  if (status.user) {
+    setUser(status.user);
+    await startApp();
+  } else {
+    showLogin(status.needs_setup);
+  }
 })();

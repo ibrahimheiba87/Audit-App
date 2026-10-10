@@ -14,7 +14,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import checks, loader, materiality, register, report
-from .db import Client, Comparison, Engagement, Finding, Run, Sample, Upload, get_session
+from .auth import current_user, log, require
+from .db import Client, Comparison, Engagement, Finding, Run, Sample, Upload, User, get_session
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
@@ -202,9 +203,11 @@ def list_clients(session: Session = Depends(get_session)) -> list[dict]:
 
 
 @router.post("/clients", status_code=201)
-def create_client(body: ClientIn, session: Session = Depends(get_session)) -> dict:
+def create_client(body: ClientIn, user: User = Depends(require("review")),
+                  session: Session = Depends(get_session)) -> dict:
     client = Client(name=body.name.strip(), industry=body.industry, notes=body.notes)
     session.add(client)
+    log(session, user, "client.create", f"Added client {client.name}")
     try:
         session.commit()
     except IntegrityError as exc:
@@ -218,12 +221,13 @@ def get_client(client_id: int, session: Session = Depends(get_session)) -> dict:
 
 
 @router.patch("/clients/{client_id}")
-def update_client(client_id: int, body: ClientPatch,
+def update_client(client_id: int, body: ClientPatch, user: User = Depends(require("review")),
                   session: Session = Depends(get_session)) -> dict:
     client = get_or_404(session, Client, client_id)
-    for key, value in body.model_dump(exclude_unset=True).items():
-        if value is not None:
-            setattr(client, key, value.strip() if key == "name" else value)
+    changes = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    for key, value in changes.items():
+        setattr(client, key, value.strip() if key == "name" else value)
+    log(session, user, "client.update", f"Edited client {client.name}", details=changes)
     try:
         session.commit()
     except IntegrityError as exc:
@@ -232,8 +236,12 @@ def update_client(client_id: int, body: ClientPatch,
 
 
 @router.delete("/clients/{client_id}", status_code=204)
-def delete_client(client_id: int, session: Session = Depends(get_session)) -> Response:
-    session.delete(get_or_404(session, Client, client_id))
+def delete_client(client_id: int, user: User = Depends(require("manage")),
+                  session: Session = Depends(get_session)) -> Response:
+    client = get_or_404(session, Client, client_id)
+    log(session, user, "client.delete",
+        f"Deleted client {client.name} and its {len(client.engagements)} engagements")
+    session.delete(client)
     session.commit()
     return Response(status_code=204)
 
@@ -241,7 +249,7 @@ def delete_client(client_id: int, session: Session = Depends(get_session)) -> Re
 # --- Engagements ------------------------------------------------------------
 
 @router.post("/clients/{client_id}/engagements", status_code=201)
-def create_engagement(client_id: int, body: EngagementIn,
+def create_engagement(client_id: int, body: EngagementIn, user: User = Depends(require("review")),
                       session: Session = Depends(get_session)) -> dict:
     client = get_or_404(session, Client, client_id)
     check_period(body.period_start, body.period_end)
@@ -249,6 +257,9 @@ def create_engagement(client_id: int, body: EngagementIn,
     engagement = Engagement(client=client, name=body.name.strip(), period_end=body.period_end,
                             period_start=body.period_start, framework=body.framework)
     session.add(engagement)
+    session.flush()
+    log(session, user, "engagement.create",
+        f"Created engagement {engagement.name} (period end {body.period_end})", engagement)
     session.commit()
     return engagement_out(engagement)
 
@@ -260,6 +271,7 @@ def get_engagement(engagement_id: int, session: Session = Depends(get_session)) 
 
 @router.patch("/engagements/{engagement_id}")
 def update_engagement(engagement_id: int, body: EngagementPatch,
+                      user: User = Depends(require("review")),
                       session: Session = Depends(get_session)) -> dict:
     e = get_or_404(session, Engagement, engagement_id)
     changes = body.model_dump(exclude_unset=True)
@@ -269,25 +281,36 @@ def update_engagement(engagement_id: int, body: EngagementPatch,
         if value is not None or key == "period_start":
             setattr(e, key, value)
     check_period(e.period_start, e.period_end)
+    log(session, user, "engagement.update", "Edited engagement details", e,
+        details={k: str(v) for k, v in changes.items()})
     session.commit()
     return engagement_out(e)
 
 
 @router.delete("/engagements/{engagement_id}", status_code=204)
-def delete_engagement(engagement_id: int, session: Session = Depends(get_session)) -> Response:
-    session.delete(get_or_404(session, Engagement, engagement_id))
+def delete_engagement(engagement_id: int, user: User = Depends(require("manage")),
+                      session: Session = Depends(get_session)) -> Response:
+    e = get_or_404(session, Engagement, engagement_id)
+    log(session, user, "engagement.delete", f"Deleted engagement {e.name} with "
+        f"{len(e.uploads)} files and {len(e.findings)} findings", e)
+    session.delete(e)
     session.commit()
     return Response(status_code=204)
 
 
 @router.put("/engagements/{engagement_id}/materiality")
 def set_materiality(engagement_id: int, body: MaterialityIn,
+                    user: User = Depends(require("manage")),
                     session: Session = Depends(get_session)) -> dict:
     e = get_or_404(session, Engagement, engagement_id)
     m = calc(body)
     for key, value in m.to_dict().items():
         setattr(e, key, value)
     e.materiality_rationale = body.rationale
+    log(session, user, "materiality.set",
+        f"Set overall materiality {m.overall_materiality:,.2f}, performance "
+        f"{m.performance_materiality:,.2f}", e,
+        details={**m.to_dict(), "rationale": body.rationale})
     session.commit()
     return engagement_out(e)
 
@@ -301,6 +324,7 @@ async def create_upload(
     kind: str = Form("gl"),
     sheet: str = Form(""),
     mapping: str = Form(""),
+    user: User = Depends(require("prepare")),
     session: Session = Depends(get_session),
 ) -> dict:
     e = get_or_404(session, Engagement, engagement_id)
@@ -318,12 +342,18 @@ async def create_upload(
         mapping=loaded.report.mapping, import_report=loaded.report.to_dict(),
     )
     session.add(upload)
+    session.flush()
+    log(session, user, "upload.create", f"Uploaded {filename} ({UPLOAD_KINDS[kind]})", e,
+        details={"upload_id": upload.id, "filename": filename, "kind": kind,
+                 "sha256": upload.sha256, "size": upload.size, "sheet": upload.sheet,
+                 "mapping": upload.mapping, "rows_used": loaded.report.rows_used})
     session.commit()
     return upload_out(upload)
 
 
 @router.delete("/uploads/{upload_id}", status_code=204)
-def delete_upload(upload_id: int, session: Session = Depends(get_session)) -> Response:
+def delete_upload(upload_id: int, user: User = Depends(require("review")),
+                  session: Session = Depends(get_session)) -> Response:
     upload = get_or_404(session, Upload, upload_id)
     findings = list(session.scalars(select(Finding).where(Finding.upload_id == upload_id)))
     worked = [f for f in findings if register.is_worked(f)]
@@ -339,6 +369,8 @@ def delete_upload(upload_id: int, session: Session = Depends(get_session)) -> Re
     for c in session.scalars(select(Comparison).where(
             (Comparison.current_upload_id == upload_id) | (Comparison.prior_upload_id == upload_id))):
         session.delete(c)
+    log(session, user, "upload.delete", f"Deleted {upload.filename}", upload.engagement,
+        details={"upload_id": upload.id, "sha256": upload.sha256})
     session.delete(upload)
     session.commit()
     return Response(status_code=204)
@@ -362,7 +394,7 @@ def engagement_settings(e: Engagement, cutoff_days: int, round_threshold: float)
 
 
 @router.post("/engagements/{engagement_id}/runs", status_code=201)
-def create_run(engagement_id: int, body: RunIn,
+def create_run(engagement_id: int, body: RunIn, user: User = Depends(require("prepare")),
                session: Session = Depends(get_session)) -> dict:
     e = get_or_404(session, Engagement, engagement_id)
     upload = get_or_404(session, Upload, body.upload_id)
@@ -378,7 +410,13 @@ def create_run(engagement_id: int, body: RunIn,
     run = Run(engagement=e, upload=upload, settings=settings, result=result)
     session.add(run)
     session.flush()
-    register.sync_run_findings(session, run)
+    added = register.sync_run_findings(session, run)
+    sev = result["summary"]["findings_by_severity"]
+    log(session, user, "run.create", f"Ran the audit checks on {upload.filename}: "
+        f"{sev['high']} high, {sev['medium']} medium, {sev['low']} low "
+        f"({added} new on the register)", e,
+        details={"run_id": run.id, "upload_id": upload.id, "sha256": upload.sha256,
+                 "settings": settings})
     session.commit()
     return {**run_brief(run), "result": result}
 
@@ -390,10 +428,14 @@ def get_run(run_id: int, session: Session = Depends(get_session)) -> dict:
 
 
 @router.get("/runs/{run_id}/report")
-def run_report(run_id: int, format: str = "xlsx",
+def run_report(run_id: int, format: str = "xlsx", user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> Response:
     run = get_or_404(session, Run, run_id)
     e = run.engagement
+    if format in ("csv", "xlsx"):
+        log(session, user, "run.download", f"Downloaded run #{run.id} report ({format})", e,
+            details={"run_id": run.id})
+        session.commit()
     stem = safe_stem(f"{e.client.name}-{e.name}-run{run.id}")
     if format == "csv":
         return Response(

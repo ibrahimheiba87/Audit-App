@@ -1,0 +1,225 @@
+"""Sign-in, user management and activity log endpoints."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from . import auth
+from .auth import COOKIE, ROLES, current_user, log, require, user_out
+from .db import Activity, Engagement, User, get_session
+
+router = APIRouter(prefix="/api")
+
+Role = Literal["preparer", "reviewer", "partner", "admin"]
+
+
+class SetupIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    name: str = Field(min_length=1, max_length=200)
+    password: str = Field(max_length=200)
+
+
+class LoginIn(BaseModel):
+    email: str = Field(max_length=320)
+    password: str = Field(max_length=200)
+
+
+class PasswordIn(BaseModel):
+    current_password: str = Field(max_length=200)
+    new_password: str = Field(max_length=200)
+
+
+class UserIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    name: str = Field(min_length=1, max_length=200)
+    role: Role
+    password: str = Field(max_length=200)
+
+
+class UserPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    role: Role | None = None
+    active: bool | None = None
+    password: str | None = Field(default=None, max_length=200)
+
+
+def clean_email(email: str) -> str:
+    email = email.strip().lower()
+    if "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(400, "Enter a valid email address.")
+    return email
+
+
+def signed_in(request: Request, session: Session, user: User, status: int = 200) -> Response:
+    token = auth.start_session(session, user)
+    session.commit()
+    res = JSONResponse({"user": user_out(user)}, status_code=status)
+    res.set_cookie(COOKIE, token, max_age=auth.SESSION_HOURS * 3600, httponly=True,
+                   samesite="lax", secure=auth.secure_cookies(request), path="/")
+    return res
+
+
+def active_admins(session: Session) -> int:
+    return session.scalar(select(func.count(User.id)).where(
+        User.role == "admin", User.active.is_(True))) or 0
+
+
+# --- Sign-in ------------------------------------------------------------------
+
+
+@router.get("/auth/status")
+def status(request: Request, session: Session = Depends(get_session)) -> dict:
+    user = auth.user_for_token(session, request.cookies.get(COOKIE))
+    needs_setup = session.scalar(select(func.count(User.id))) == 0
+    return {"needs_setup": needs_setup, "user": user_out(user) if user else None,
+            "roles": [{"id": k, "label": v} for k, v in ROLES.items()]}
+
+
+@router.post("/auth/setup", status_code=201)
+def setup(body: SetupIn, request: Request, session: Session = Depends(get_session)) -> Response:
+    """Create the first admin. Only works while there are no users."""
+    if session.scalar(select(func.count(User.id))):
+        raise HTTPException(409, "The app is already set up. Sign in instead.")
+    auth.check_password_strength(body.password)
+    user = User(email=clean_email(body.email), name=body.name.strip(), role="admin",
+                password_hash=auth.hash_password(body.password))
+    session.add(user)
+    session.flush()
+    log(session, user, "auth.setup", f"Set up the app as admin {user.email}", request=request)
+    return signed_in(request, session, user, 201)
+
+
+@router.post("/auth/login")
+def login(body: LoginIn, request: Request, session: Session = Depends(get_session)) -> Response:
+    email = body.email.strip().lower()
+    if auth.recent_failed_logins(session, email) >= auth.MAX_FAILED_LOGINS:
+        raise HTTPException(429, f"Too many failed sign-ins. Try again in "
+                                 f"{auth.LOCKOUT_MINUTES} minutes.")
+    user = session.scalar(select(User).where(User.email == email))
+    if user is None or not user.active or not auth.verify_password(body.password,
+                                                                    user.password_hash):
+        log(session, None, "auth.login_failed", f"Failed sign-in for {email}", request=request)
+        session.commit()
+        raise HTTPException(401, "Email or password is wrong.")
+    log(session, user, "auth.login", "Signed in", request=request)
+    return signed_in(request, session, user)
+
+
+@router.post("/auth/logout", status_code=204)
+def logout(request: Request, session: Session = Depends(get_session)) -> Response:
+    token = request.cookies.get(COOKIE)
+    user = auth.user_for_token(session, token)
+    auth.end_session(session, token)
+    if user:
+        log(session, user, "auth.logout", "Signed out", request=request)
+    session.commit()
+    res = Response(status_code=204)
+    res.delete_cookie(COOKIE, path="/")
+    return res
+
+
+@router.get("/auth/me")
+def me(user: User = Depends(current_user)) -> dict:
+    return user_out(user)
+
+
+@router.post("/auth/password", status_code=204)
+def change_password(body: PasswordIn, request: Request, user: User = Depends(current_user),
+                    session: Session = Depends(get_session)) -> Response:
+    if not auth.verify_password(body.current_password, user.password_hash):
+        raise HTTPException(400, "Your current password is wrong.")
+    auth.check_password_strength(body.new_password)
+    user.password_hash = auth.hash_password(body.new_password)
+    log(session, user, "user.password", "Changed own password", request=request)
+    session.commit()
+    return Response(status_code=204)
+
+
+# --- Users (admin) ------------------------------------------------------------
+
+
+@router.get("/users")
+def list_users(_: User = Depends(require("admin")),
+               session: Session = Depends(get_session)) -> list[dict]:
+    return [user_out(u) for u in session.scalars(select(User).order_by(User.name))]
+
+
+@router.post("/users", status_code=201)
+def create_user(body: UserIn, request: Request, admin: User = Depends(require("admin")),
+                session: Session = Depends(get_session)) -> dict:
+    auth.check_password_strength(body.password)
+    user = User(email=clean_email(body.email), name=body.name.strip(), role=body.role,
+                password_hash=auth.hash_password(body.password))
+    session.add(user)
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise HTTPException(409, f"There is already a user with email {user.email}.") from exc
+    log(session, admin, "user.create", f"Added {user.name} ({user.email}) as {ROLES[user.role]}",
+        details={"user_id": user.id}, request=request)
+    session.commit()
+    return user_out(user)
+
+
+@router.patch("/users/{user_id}")
+def update_user(user_id: int, body: UserPatch, request: Request,
+                admin: User = Depends(require("admin")),
+                session: Session = Depends(get_session)) -> dict:
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "User not found.")
+    changes = []
+    losing_admin = user.role == "admin" and user.active and (
+        (body.role and body.role != "admin") or body.active is False)
+    if losing_admin and active_admins(session) <= 1:
+        raise HTTPException(400, "Keep at least one active admin.")
+    if body.name and body.name.strip() != user.name:
+        changes.append(f"name to {body.name.strip()}")
+        user.name = body.name.strip()
+    if body.role and body.role != user.role:
+        changes.append(f"role from {ROLES[user.role]} to {ROLES[body.role]}")
+        user.role = body.role
+    if body.active is not None and body.active != user.active:
+        changes.append("reactivated" if body.active else "deactivated")
+        user.active = body.active
+        if not body.active:
+            auth.end_user_sessions(session, user)
+    if body.password:
+        auth.check_password_strength(body.password)
+        user.password_hash = auth.hash_password(body.password)
+        auth.end_user_sessions(session, user)
+        changes.append("password reset")
+    if changes:
+        log(session, admin, "user.update", f"Changed {user.email}: {', '.join(changes)}",
+            details={"user_id": user.id}, request=request)
+    session.commit()
+    return user_out(user)
+
+
+# --- Activity -----------------------------------------------------------------
+
+
+@router.get("/activity")
+def activity(engagement_id: int | None = None, user_id: int | None = None, action: str = "",
+             limit: int = 200, user: User = Depends(current_user),
+             session: Session = Depends(get_session)) -> list[dict]:
+    """The activity log. Anyone can see an engagement's log; the full log is for admins."""
+    if engagement_id is None:
+        auth.ensure(user, "admin")
+    elif session.get(Engagement, engagement_id) is None and not auth.can(user, "admin"):
+        raise HTTPException(404, "Engagement not found.")
+    q = select(Activity).order_by(Activity.id.desc()).limit(max(1, min(limit, 1000)))
+    if engagement_id is not None:
+        q = q.where(Activity.engagement_id == engagement_id)
+    if user_id is not None:
+        q = q.where(Activity.user_id == user_id)
+    if action:
+        q = q.where(Activity.action.startswith(action))
+    return [auth.activity_out(a) for a in session.scalars(q)]
