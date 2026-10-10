@@ -307,3 +307,45 @@ def test_concurrent_mark_booked_books_once(monkeypatch):
     assert refs == ["AJE-1", "AJE-1"]
     log = client.get("/api/activity", params={"engagement_id": eid}).json()
     assert [x["action"] for x in log].count("entry.update") == 1
+
+
+# --- Copilot review fixes -------------------------------------------------------
+
+
+def test_keywords_need_the_whole_word():
+    s = statements.suggest_line
+    assert s("3100", "Stockholders' equity") == "retained_earnings"  # not inventory
+    assert s("6900", "Bankruptcy costs") == "other_expenses"  # not cash
+    assert s("1400", "Inventories") == "inventory"  # stems still match
+    assert s("6400", "Administrative expenses") == "admin"
+
+
+def test_only_saved_mappings_classify_misstatements():
+    paje = entry("proposed", [("6100", 5, 0), ("1200", 0, 5)], "PAJE-1")
+    mat = {"overall_materiality": 1000, "performance_materiality": 750, "trivial_threshold": 50}
+    mapping = {k: v for k, v in MAPPING.items() if k != "6100"}  # suggested, but not saved
+    unc = statements.build(TB, None, mapping, [paje], mat)["uncorrected"]
+    assert unc["unclassified"] == ["6100"] and unc["conclusion"].startswith("Map 6100")
+    unc = statements.build(TB, None, MAPPING, [paje], mat)["uncorrected"]
+    assert unc["unclassified"] == [] and "trivial" in unc["conclusion"]
+
+
+def test_long_entries_of_large_amounts_balance_exactly():
+    lines = [{"account": "1", "debit": 9999999999999.99}] * 100 + \
+            [{"account": "2", "credit": 9999999999999.99}] * 100
+    statements.check_entry_lines(lines)
+    with pytest.raises(statements.StatementsError, match="must be equal"):
+        statements.check_entry_lines(lines[:-1] + [{"account": "2", "credit": 9999999999999.98}])
+
+
+def test_numbers_from_before_the_counter_are_not_reused():
+    from app import db
+    eid = engagement(with_prior=False)
+    post_entry(eid)
+    a2 = post_entry(eid).json()
+    with db.SessionLocal() as s:  # a database from before entry numbers had counters
+        s.query(db.Guard).filter(db.Guard.key.like("entry-number:%")).delete(
+            synchronize_session=False)
+        s.commit()
+    client.delete(f"/api/adjusting-entries/{a2['id']}")
+    assert post_entry(eid).json()["ref"] == "AJE-3"

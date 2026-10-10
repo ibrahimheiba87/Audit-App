@@ -176,17 +176,31 @@ def create_entry(engagement_id: int, body: EntryIn, user: User = Depends(require
 def next_number(session: Session, engagement_id: int, kind: str) -> int:
     """The next entry number for a type. Numbers only go up, so a deleted entry's number isn't
     given to a later one. Call with the engagement's entries guard held."""
-    key = f"entry-number:{engagement_id}:{kind}"
-    counter = session.get(Guard, key)
     highest = session.scalar(select(func.max(AdjustingEntry.number)).where(
         AdjustingEntry.engagement_id == engagement_id, AdjustingEntry.kind == kind)) or 0
-    number = max(counter.n if counter else 0, highest) + 1
-    if counter is None:
-        session.add(Guard(key=key, n=number))
-    else:
-        counter.n = number
+    return _advance(session, engagement_id, kind, highest)
+
+
+def _counter(session: Session, engagement_id: int, kind: str) -> Guard:
+    key = f"entry-number:{engagement_id}:{kind}"
+    counter = session.get(Guard, key)
+    if counter is None:  # the first entry of this type, or one from before the counter existed
+        counter = Guard(key=key, n=0)
+        session.add(counter)
+    return counter
+
+
+def _advance(session: Session, engagement_id: int, kind: str, highest: int) -> int:
+    counter = _counter(session, engagement_id, kind)
+    counter.n = max(counter.n, highest) + 1
     session.flush()
-    return number
+    return counter.n
+
+
+def use_number(session: Session, entry: AdjustingEntry) -> None:
+    """Record an entry's number as used before it's deleted or retyped, so it isn't reused."""
+    counter = _counter(session, entry.engagement_id, entry.kind)
+    counter.n = max(counter.n, entry.number)
 
 
 @router.patch("/adjusting-entries/{entry_id}")
@@ -199,6 +213,7 @@ def update_entry(entry_id: int, body: EntryPatch, user: User = Depends(require("
     entry = get_or_404(session, AdjustingEntry, entry_id)
     if body.kind != entry.kind:
         old = entry_ref(entry)
+        use_number(session, entry)
         number = next_number(session, entry.engagement_id, body.kind)
         entry.kind, entry.number = body.kind, number
         log(session, user, "entry.update", f"Changed {old} to {entry_ref(entry)} "
@@ -211,7 +226,11 @@ def update_entry(entry_id: int, body: EntryPatch, user: User = Depends(require("
 @router.delete("/adjusting-entries/{entry_id}", status_code=204)
 def delete_entry(entry_id: int, user: User = Depends(require("review")),
                  session: Session = Depends(get_session)) -> Response:
+    engagement_id = get_or_404(session, AdjustingEntry, entry_id).engagement_id
+    auth.hold(session, f"entries:{engagement_id}")
+    session.expire_all()  # another request may have changed it before we held the guard
     entry = get_or_404(session, AdjustingEntry, entry_id)
+    use_number(session, entry)
     out = entry_out(entry)
     log(session, user, "entry.delete", f"Deleted {out['ref']}: {entry.description}",
         entry.engagement, details={"entry_id": entry.id, "ref": out["ref"],

@@ -82,8 +82,9 @@ ENTRY_KINDS = {
 }
 
 # Name keywords, checked in order, so "bank loan" is a borrowing before "bank" is cash and
-# "common stock" is share capital before "stock" is inventory. Each keyword matches at the
-# start of a word, so "rent" doesn't match "current".
+# "common stock" is share capital before "stock" is inventory. Each keyword matches a whole
+# word, also in the plural, so "rent" doesn't match "current" and "stock" doesn't match
+# "stockholders". A trailing * marks a stem: "inventor*" matches "inventory", "inventories".
 KEYWORDS = [
     (("accumulated depreciation", "accumulated amortisation", "accumulated amortization"), "ppe"),
     (("depreciation", "amortisation", "amortization"), "depreciation"),
@@ -91,7 +92,7 @@ KEYWORDS = [
     (("income tax", "tax expense", "corporation tax"), "income_tax"),
     (("tax payable", "taxes payable", "vat", "gst", "sales tax"), "tax_payable"),
     (("receivable", "debtor"), "receivables"),
-    (("loan", "borrowing", "mortgage", "overdraft", "notes payable", "debenture", "lease liab",
+    (("loan", "borrowing", "mortgage", "overdraft", "notes payable", "debenture", "lease liab*",
       "debt"), "borrowings"),
     (("interest expense", "bank charge", "finance cost", "bank fee"), "finance_costs"),
     (("interest income", "dividend income", "other income", "gain on", "sundry income"),
@@ -99,10 +100,10 @@ KEYWORDS = [
     (("cash", "bank", "petty"), "cash"),
     (("share capital", "common stock", "capital stock", "preferred stock", "share premium",
       "paid-in", "paid in"), "share_capital"),
-    (("inventor", "stock"), "inventory"),
-    (("customer deposit", "liabilit"), "accruals"),
+    (("inventor*", "stock"), "inventory"),
+    (("customer deposit", "liabilit*"), "accruals"),
     (("prepaid", "prepayment", "deposit"), "other_current_assets"),
-    (("property", "plant", "equipment", "furniture", "vehicle", "building", "land",
+    (("propert*", "plant", "equipment", "furniture", "vehicle", "building", "land",
       "computer", "fixed asset", "machinery"), "ppe"),
     (("goodwill", "intangible", "software", "patent", "trademark", "licence", "license"),
      "intangibles"),
@@ -112,14 +113,22 @@ KEYWORDS = [
     (("cost of sales", "cost of goods", "cogs", "purchases", "cost of revenue"),
      "cost_of_sales"),
     (("revenue", "sales", "turnover", "fees earned", "service income"), "revenue"),
-    (("salar", "wage", "payroll", "staff", "employee", "pension", "bonus"), "staff_costs"),
+    (("salar*", "wage", "payroll", "staff", "employee", "pension", "bonus"), "staff_costs"),
     (("rent", "premises", "utilities", "electricity", "occupancy"), "premises"),
-    (("office", "admin", "postage", "telephone", "insurance", "professional", "audit fee",
-      "legal", "consult", "subscription", "stationery", "supplies"), "admin"),
-    (("expense", "travel", "advertising", "marketing", "repairs", "entertainment"),
+    (("office", "admin*", "postage", "telephone", "insurance", "professional", "audit fee",
+      "legal", "consult*", "subscription", "stationery", "supplies"), "admin"),
+    (("expense", "travel*", "advertising", "marketing", "repairs", "entertainment"),
      "other_expenses"),
 ]
-KEYWORD_PATTERNS = [(re.compile("|".join(r"\b" + re.escape(w) for w in words)), line)
+
+
+def _keyword(word: str) -> str:
+    if word.endswith("*"):
+        return r"\b" + re.escape(word[:-1])
+    return r"\b" + re.escape(word) + r"(?:s|es)?\b"
+
+
+KEYWORD_PATTERNS = [(re.compile("|".join(_keyword(w) for w in words)), line)
                     for words, line in KEYWORDS]
 # First digit of a numeric account code, as in most charts of accounts.
 DIGIT = {"1": "other_current_assets", "2": "accruals", "3": "retained_earnings",
@@ -165,11 +174,13 @@ def check_entry_lines(lines: list[dict]) -> None:
             raise StatementsError(f"Line {i}: enter either a debit or a credit.")
         if not str(ln.get("account") or "").strip():
             raise StatementsError(f"Line {i}: enter an account.")
-    debits = round(sum(ln.get("debit") or 0.0 for ln in lines), 2)
-    credits = round(sum(ln.get("credit") or 0.0 for ln in lines), 2)
-    if not (math.isfinite(debits) and math.isfinite(credits)):
-        raise StatementsError("The entry's amounts are too large.")
-    if debits != credits:
+    try:  # in whole cents, so long entries of large amounts still compare exactly
+        debit_cents = sum(round((ln.get("debit") or 0.0) * 100) for ln in lines)
+        credit_cents = sum(round((ln.get("credit") or 0.0) * 100) for ln in lines)
+    except OverflowError:
+        raise StatementsError("The entry's amounts are too large.") from None
+    debits, credits = debit_cents / 100, credit_cents / 100
+    if debit_cents != credit_cents:
         raise StatementsError(f"Debits ({debits:,.2f}) and credits ({credits:,.2f}) "
                               "must be equal.")
 
@@ -263,9 +274,7 @@ def build(tb: pd.DataFrame, prior: pd.DataFrame | None, mapping: dict[str, str],
         "totals": {"unadjusted": _r(sum(r["unadjusted"] for r in rows)),
                    "adjusted": _r(sum(r["adjusted"] for r in rows)),
                    "prior": _r(sum(r["prior"] or 0.0 for r in rows)) if pri else None},
-        "uncorrected": uncorrected_summary(entries, {**{r["account"]: r["line"] or
-                                                        r["suggested"] for r in rows},
-                                                     **mapping}, materiality),
+        "uncorrected": uncorrected_summary(entries, mapping, materiality),
         "has_prior": bool(pri),
     }
 
@@ -356,7 +365,10 @@ def _statements(by_line: dict[str, list[dict]]) -> dict:
 
 def uncorrected_summary(entries: list[dict], lines: dict[str, str | None],
                         materiality: dict | None) -> dict:
-    """Proposed entries the client has not booked, and their effect against materiality."""
+    """Proposed entries the client has not booked, and their effect against materiality.
+
+    Only saved mappings count: an account that isn't mapped yet is listed as unclassified and
+    there is no conclusion until it is, rather than guessing its line."""
     items = []
     unclassified: dict[str, None] = {}
     for e in entries:
@@ -364,7 +376,7 @@ def uncorrected_summary(entries: list[dict], lines: dict[str, str | None],
             continue
         profit = assets = liabilities = 0.0
         for account, amount in entry_effects(e).items():
-            line = lines.get(account) or suggest_line(account, None)
+            line = lines.get(account)
             section = LINE.get(line or "", {}).get("section")
             statement = SECTION[section].statement if section else None
             if section is None:

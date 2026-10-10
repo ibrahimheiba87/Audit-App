@@ -22,6 +22,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    text,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -387,6 +388,15 @@ def configure(url: str) -> None:
 
 def init() -> None:
     Base.metadata.create_all(engine)
+    _upgrade()
+
+
+def _upgrade() -> None:
+    """Changes create_all can't make to tables an earlier version created."""
+    if engine.dialect.name == "postgresql":  # SQLite doesn't enforce VARCHAR lengths
+        with engine.begin() as conn:
+            for table in ("account_mappings", "adjusting_lines"):  # account was VARCHAR(100)
+                conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN account TYPE VARCHAR(200)"))
 
 
 def get_session() -> Iterator[Session]:
