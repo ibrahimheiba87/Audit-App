@@ -6,11 +6,31 @@ the browser and export them as an Excel workbook or CSV.
 
 ![Screenshot](docs/screenshot.png)
 
+## Engagements and materiality
+
+The **Engagements** tab keeps work organised by client and period:
+
+- Add clients, and engagements for each client with a period, period end and framework.
+- Set materiality with the calculator: pick a benchmark (profit before tax, revenue, total
+  assets, equity or expenses) and a percentage, and it works out overall materiality,
+  performance materiality (default 75% of overall) and the clearly trivial threshold
+  (default 5%). Record the rationale alongside.
+- Upload general ledgers and trial balances to the engagement. Each file is stored with its
+  SHA-256 hash and column mapping, so runs can be repeated and traced.
+- Run the audit on an upload. Runs use the engagement's period end and performance
+  materiality, are saved with their settings, and can be reopened or exported later.
+
+The **Quick audit** tab runs the checks on a file without saving anything.
+
+Data is stored in SQLite (`audit.db` in the working directory). Set `AUDIT_DB_URL` to use
+another database supported by SQLAlchemy.
+
 ## Checks
 
 | Check | What it flags | Severity |
 | --- | --- | --- |
 | Debits equal credits | The file doesn't net to zero, or a journal entry doesn't balance | High |
+| At or above performance materiality | Lines whose amount is at least performance materiality (when set) | High |
 | Duplicate entries | Rows with the same date, account, description and amount | High |
 | Period cutoff | Entries dated after period end, dated in the period but posted after it, or in the last *N* days | High / Low |
 | Weekend entries | Entries posted (or dated, if there's no posting date) on a Saturday or Sunday | Medium |
@@ -70,7 +90,18 @@ Then open http://127.0.0.1:8000 and upload `sample_data/sample_gl.csv` to try it
   `checks`, `findings` and `benford`.
 - `POST /api/report`: same fields plus `format` (`xlsx` or `csv`). Returns the report file.
 
-Uploaded files are processed in memory and not stored.
+Engagement endpoints (JSON unless noted):
+
+- `GET/POST /api/clients`, `GET/PATCH/DELETE /api/clients/{id}`
+- `POST /api/clients/{id}/engagements`, `GET/PATCH/DELETE /api/engagements/{id}`
+- `GET /api/materiality/benchmarks`, `POST /api/materiality/calculate`,
+  `PUT /api/engagements/{id}/materiality`
+- `POST /api/engagements/{id}/uploads` (multipart: `file`, `kind` = `gl`, `tb` or `prior_tb`,
+  `sheet`, `mapping`), `DELETE /api/uploads/{id}`
+- `POST /api/engagements/{id}/runs` (`upload_id`, `cutoff_days`, `round_threshold`),
+  `GET /api/runs/{id}`, `GET /api/runs/{id}/report?format=xlsx|csv`
+
+Quick audit uploads are processed in memory and not stored.
 
 ## Development
 

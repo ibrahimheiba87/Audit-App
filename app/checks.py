@@ -19,6 +19,8 @@ class Settings:
     round_threshold: float = 1000.0
     outlier_iqr_multiplier: float = 1.5
     balance_tolerance: float = 0.01
+    performance_materiality: float | None = None
+    trivial_threshold: float | None = None
 
 
 @dataclass
@@ -283,6 +285,20 @@ def check_balance(df: pd.DataFrame, s: Settings) -> CheckResult:
     return res
 
 
+def check_materiality(df: pd.DataFrame, s: Settings) -> CheckResult:
+    res = CheckResult("materiality", "At or above performance materiality")
+    pm = s.performance_materiality
+    if not pm:
+        res.status, res.note = "skipped", "Set performance materiality to run this check."
+        return res
+    res.note = f"Lines of {_money(pm)} or more (performance materiality)."
+    for _, r in df[df["amount"].abs() >= pm].iterrows():
+        res.findings.append(_finding(
+            res.id, HIGH, r, f"At or above performance materiality of {_money(pm)}",
+        ))
+    return res
+
+
 SEVERITY_ORDER = {HIGH: 0, MEDIUM: 1, LOW: 2}
 
 
@@ -293,6 +309,7 @@ def run_all(df: pd.DataFrame, settings: Settings | None = None,
     results = [
         check_balance(df, s),
         check_duplicates(df, s),
+        check_materiality(df, s),
         check_cutoff(df, s),
         check_weekend(df, s),
         check_round_amounts(df, s),
@@ -313,6 +330,14 @@ def run_all(df: pd.DataFrame, settings: Settings | None = None,
             "findings_by_severity": {
                 sev: sum(1 for f in findings if f["severity"] == sev) for sev in (HIGH, MEDIUM, LOW)
             },
+        },
+        "materiality": {
+            "performance_materiality": s.performance_materiality,
+            "trivial_threshold": s.trivial_threshold,
+            "findings_above_trivial": sum(
+                1 for f in findings
+                if s.trivial_threshold and abs(f["amount"]) > s.trivial_threshold
+            ),
         },
         "import": import_report,
         "checks": [r.summary() for r in results],

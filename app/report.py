@@ -18,9 +18,10 @@ def to_csv(result: dict) -> bytes:
     return findings_frame(result).to_csv(index=False).encode("utf-8")
 
 
-def to_excel(result: dict, source_name: str = "") -> bytes:
+def to_excel(result: dict, source_name: str = "", context: dict | None = None) -> bytes:
     s = result["summary"]
-    summary_rows = [
+    summary_rows = [(k, v) for k, v in (context or {}).items()]
+    summary_rows += [
         ("Source file", source_name),
         ("Rows analysed", s["rows"]),
         ("Total debits", s["total_debits"]),
@@ -30,9 +31,15 @@ def to_excel(result: dict, source_name: str = "") -> bytes:
         ("Medium findings", s["findings_by_severity"]["medium"]),
         ("Low findings", s["findings_by_severity"]["low"]),
     ]
+    mat = result.get("materiality") or {}
+    if mat.get("performance_materiality"):
+        summary_rows.append(("Performance materiality", mat["performance_materiality"]))
+    if mat.get("trivial_threshold"):
+        summary_rows.append(("Clearly trivial threshold", mat["trivial_threshold"]))
     imp = result.get("import")
     if imp:
-        summary_rows[1:1] = [
+        at = next(i for i, (k, _) in enumerate(summary_rows) if k == "Rows analysed")
+        summary_rows[at:at] = [
             ("Rows read", imp["rows_read"]),
             ("Rows skipped", imp["rows_skipped"]),
         ]
