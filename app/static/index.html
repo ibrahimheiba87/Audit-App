@@ -68,7 +68,7 @@
   <div id="view-users" class="view" hidden>
     <section class="panel">
       <h2>Users</h2>
-      <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts and post proposed adjusting entries. Reviewers can also clear and reopen findings, change severity, remove evidence and files, post booked entries, mark proposed ones booked, delete adjusting entries, and add or edit clients and engagements. Partners can also set materiality and delete clients and engagements. Admins can also manage users and see the whole activity log.</p>
+      <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts, post proposed adjusting entries, sign off sections as prepared and reply to review notes. Reviewers can also clear and reopen findings, change severity, remove evidence and files, post booked entries, mark proposed ones booked, delete adjusting entries, raise and clear review notes, sign off sections as reviewed, and add or edit clients and engagements. Partners can also set materiality, sign off completion and delete clients and engagements. Admins can also manage users and see the whole activity log.</p>
       <div class="table-wrap"><table id="users"></table></div>
     </section>
     <section class="panel">
@@ -107,6 +107,8 @@
           <option value="statements.">Statements</option>
           <option value="finding.">Findings</option>
           <option value="evidence.">Evidence</option>
+          <option value="signoff.">Sign-offs</option>
+          <option value="note.">Review notes</option>
           <option value="quick.">Quick audit</option>
         </select>
         <span class="muted">Latest 500 entries</span>
@@ -394,6 +396,27 @@
             </form>
             <h3>Review trail</h3>
             <ul class="trail" id="fd-trail"></ul>
+          </section>
+
+          <section class="panel" id="rv-panel">
+            <h2>Review and sign-off</h2>
+            <p class="muted" style="margin-top:-6px">Each section is signed off by whoever prepared it, then by someone else who reviewed it. A sign-off is marked changed if the section changes afterwards. Reviewers raise notes for the preparer to answer; a section can't be reviewed until its notes are cleared.</p>
+            <div class="cards" id="rv-cards"></div>
+            <div class="table-wrap" style="margin-top:12px"><table id="rv-sections"></table></div>
+            <h3>Review notes</h3>
+            <div class="filters">
+              <select id="rv-filter" aria-label="Show notes"><option value="todo">Not cleared</option><option value="">All notes</option></select>
+              <select id="rv-filter-section" aria-label="Section"><option value="">All sections</option></select>
+            </div>
+            <details id="rv-new" class="min-2">
+              <summary>Raise a review note</summary>
+              <form id="rv-form" class="stack">
+                <div><label for="rv-section">Section</label><select id="rv-section" name="section" class="map"></select></div>
+                <div><label for="rv-text">Note</label><textarea id="rv-text" name="text" rows="2" required maxlength="5000" placeholder="e.g. Please explain the large manual journal on 31 December"></textarea></div>
+                <div><button type="submit" id="rv-submit">Raise note</button></div>
+              </form>
+            </details>
+            <div id="rv-notes"></div>
           </section>
 
           <section class="panel">

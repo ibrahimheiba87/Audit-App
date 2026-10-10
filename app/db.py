@@ -101,6 +101,12 @@ class Engagement(Base):
     adjusting_entries: Mapped[list[AdjustingEntry]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="AdjustingEntry.id"
     )
+    signoffs: Mapped[list[SignOff]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan"
+    )
+    review_notes: Mapped[list[ReviewNote]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="ReviewNote.id"
+    )
 
 
 class Upload(Base):
@@ -307,6 +313,58 @@ class AdjustingLine(Base):
     memo: Mapped[str] = mapped_column(String(500), default="")
 
     entry: Mapped[AdjustingEntry] = relationship(back_populates="lines")
+
+
+class SignOff(Base):
+    """Who prepared or reviewed a section of the engagement file, and when (review.SECTIONS)."""
+
+    __tablename__ = "signoffs"
+    __table_args__ = (UniqueConstraint("engagement_id", "section", "kind"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    section: Mapped[str] = mapped_column(String(50))
+    kind: Mapped[str] = mapped_column(String(20))  # prepared | reviewed
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_name: Mapped[str] = mapped_column(String(200), default="")
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="signoffs")
+
+
+class ReviewNote(Base):
+    """A reviewer's question on a section, answered by the preparer and cleared by a reviewer."""
+
+    __tablename__ = "review_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    section: Mapped[str] = mapped_column(String(50))
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open | responded | cleared
+    author_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    author: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    cleared_by: Mapped[str] = mapped_column(String(200), default="")
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="review_notes")
+    replies: Mapped[list[ReviewReply]] = relationship(
+        back_populates="note", cascade="all, delete-orphan", order_by="ReviewReply.id"
+    )
+
+
+class ReviewReply(Base):
+    __tablename__ = "review_replies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    note_id: Mapped[int] = mapped_column(ForeignKey("review_notes.id"), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    author_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    author: Mapped[str] = mapped_column(String(200), default="")
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    note: Mapped[ReviewNote] = relationship(back_populates="replies")
 
 
 class User(Base):

@@ -58,6 +58,15 @@ sheet with comparatives. Proposed entries are summarised against materiality as 
 misstatements. Preparers post proposed entries; a reviewer posts booked ones, marks a
 proposed entry as booked or deletes an entry. Download it all as one Excel workbook.
 
+**Review and sign-off**: the file is split into sections (planning and materiality, files and
+checks, prior-year comparison, sampling, findings, lead sheets and statements, completion).
+Whoever prepared a section signs it off, then someone else signs it off as reviewed. If the
+section changes afterwards (a new upload or run, a changed finding, a new entry), the sign-off
+is marked changed so the reviewer knows to look again. Reviewers raise review notes on a
+section; the preparer replies and a reviewer clears them. A section can't be signed off as
+reviewed while it has notes to clear, raising a note takes back its review sign-off, and a
+partner signs off completion once every other section is reviewed.
+
 The **Quick audit** tab runs the checks on a file without saving anything.
 
 ## Users, roles and the activity log
@@ -68,11 +77,12 @@ temporary password and a role. Each role can do everything the roles above it in
 can:
 
 - **Preparer**: upload files, run the checks, comparisons and samples, add findings, notes and
-  evidence, mark findings reviewed, map accounts and post proposed adjusting entries.
+  evidence, mark findings reviewed, map accounts, post proposed adjusting entries, sign off
+  sections as prepared and reply to review notes.
 - **Reviewer**: also clear and reopen findings, change severity, remove evidence and files,
-  post booked entries or mark proposed ones booked, delete adjusting entries, and add or edit
-  clients and engagements.
-- **Partner**: also set materiality and delete clients and engagements.
+  post booked entries or mark proposed ones booked, delete adjusting entries, raise and clear
+  review notes, sign off sections as reviewed, and add or edit clients and engagements.
+- **Partner**: also set materiality, sign off completion, and delete clients and engagements.
 - **Admin**: also manage users and see the whole activity log.
 
 Every change and download is written to the activity log with who, when, the engagement, the
@@ -197,6 +207,12 @@ Engagement endpoints (JSON unless noted):
 - `POST /api/engagements/{id}/adjusting-entries` (`kind=adjusting|reclassification|proposed`,
   `description`, `date`, `lines`: `account`, `debit`, `credit`, `memo`),
   `PATCH /api/adjusting-entries/{id}` (`kind`), `DELETE /api/adjusting-entries/{id}`
+- `GET /api/engagements/{id}/review`: each section's sign-offs and status, and the review notes
+- `POST /api/engagements/{id}/signoffs` (`section`, `kind=prepared|reviewed`),
+  `DELETE /api/engagements/{id}/signoffs/{section}/{kind}`
+- `POST /api/engagements/{id}/review-notes` (`section`, `text`),
+  `POST /api/review-notes/{id}/replies` (`text`), `PATCH /api/review-notes/{id}`
+  (`status=open|cleared`), `DELETE /api/review-notes/{id}`
 - `POST /api/sample`: draw a sample from a file without saving (multipart: `file`, the same
   fields as above, optional `mapping`, `sheet`, `format=json|xlsx`)
 

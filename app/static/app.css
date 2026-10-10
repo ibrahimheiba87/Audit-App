@@ -133,3 +133,17 @@ td a { color: var(--accent); }
 .entry-lines td { padding: 4px; }
 .warn-box { color: var(--medium); background: var(--medium-bg); padding: 8px 12px; border-radius: 6px; }
 .tag { font-size: 12px; color: var(--muted); }
+
+/* Review and sign-off */
+#rv-sections td { vertical-align: top; }
+.stale { color: var(--medium); font-size: 12px; }
+.rv-note { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+.rv-note.cleared { opacity: .7; }
+.rv-note .head { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; font-size: 13px; color: var(--muted); }
+.rv-note .text { margin: 6px 0; white-space: pre-wrap; }
+.rv-note .reply { border-left: 3px solid var(--border); padding-left: 10px; margin: 6px 0; white-space: pre-wrap; }
+.rv-note form { display: flex; gap: 8px; margin-top: 8px; align-items: flex-start; }
+.rv-note textarea { flex: 1; }
+.status-open { color: var(--high); }
+.status-responded { color: var(--medium); }
+.status-cleared { color: var(--muted); }

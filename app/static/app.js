@@ -219,6 +219,7 @@ async function openEngagement(id) {
     // Uploads differ too, so let the server pick this engagement's latest trial balances.
     fsMapEdits = {}; $("fs-tb").innerHTML = $("fs-prior").innerHTML = "";
     resetEntryForm();
+    $("rv-form").reset();
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -865,7 +866,131 @@ async function loadRegister() {
 
 async function loadEngagementActivity() {
   renderActivity($("eng-activity"), await getJSON(`/api/activity?engagement_id=${currentEngagement.id}&limit=100`), false);
+  await loadReview();  // any change to the file can make a sign-off out of date
 }
+
+// Review and sign-off
+
+let rv = null;  // latest /review response
+const NOTE_STATUS = { open: "Open", responded: "Answered", cleared: "Cleared" };
+
+async function loadReview() {
+  const id = currentEngagement.id;
+  const data = await getJSON(`/api/engagements/${id}/review`);
+  if (currentEngagement?.id !== id) return;  // the user has opened another engagement
+  rv = data;
+  renderReview();
+}
+
+function signoffCell(s, kind) {
+  const so = s[kind];
+  const canSign = kind === "prepared" || me.rank >= (s.id === "completion" ? 3 : 2);
+  const prepOk = s.prepared && !s.prepared.stale;
+  const mine = so && so.user_id === me.id;
+  let html = so ? `${esc(so.user_name)}<div class="tag">${esc(when(so.at))}</div>${so.stale ? '<div class="stale">Changed since</div>' : ""}` : '<span class="muted">–</span>';
+  const buttons = [];
+  if (canSign && (!so || so.stale) && (kind === "prepared" || prepOk)) {
+    const blocked = kind === "reviewed" && (s.open_notes ? `Clear its ${s.open_notes} review note(s) first`
+      : s.prepared.user_id === me.id ? "You prepared it, so someone else reviews it" : "");
+    buttons.push(`<button type="button" class="small${so ? " secondary" : ""}" data-sign="${s.id}" data-kind="${kind}"${blocked ? ` disabled title="${esc(blocked)}"` : ""}>${so ? "Sign again" : "Sign off"}</button>`);
+  }
+  if (so && (mine || me.rank >= 2)) {
+    buttons.push(`<button type="button" class="small secondary" data-unsign="${s.id}" data-kind="${kind}">Take back</button>`);
+  }
+  if (buttons.length) html += `<div class="cell-actions" style="margin-top:4px">${buttons.join("")}</div>`;
+  return html;
+}
+
+function renderReview() {
+  $("rv-cards").innerHTML = [
+    [`${rv.reviewed} of ${rv.total}`, "Sections reviewed"],
+    [rv.open_notes, "Review notes to clear"],
+    [rv.sections.find((s) => s.id === "completion").done ? "Yes" : "No", "Signed off for completion"],
+  ].map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("");
+  $("rv-sections").innerHTML = "<tr><th>Section</th><th>Prepared</th><th>Reviewed</th><th class=\"num\">Notes</th><th>Status</th></tr>" +
+    rv.sections.map((s) => `<tr>
+      <td><strong>${esc(s.label)}</strong><div class="tag">${esc(s.description)}${s.last_change_at ? ` Last changed ${esc(when(s.last_change_at))}.` : ""}</div></td>
+      <td>${signoffCell(s, "prepared")}</td><td>${signoffCell(s, "reviewed")}</td>
+      <td class="num">${s.open_notes || ""}</td>
+      <td class="nowrap">${s.done ? "✓ " : ""}${esc(s.status)}</td></tr>`).join("");
+  const options = rv.sections.map((s) => `<option value="${s.id}">${esc(s.label)}</option>`).join("");
+  for (const [id, first] of [["rv-section", ""], ["rv-filter-section", '<option value="">All sections</option>']]) {
+    const keep = $(id).value;
+    $(id).innerHTML = first + options;
+    if (keep) $(id).value = keep;
+  }
+  renderNotes();
+}
+
+function renderNotes() {
+  const todo = $("rv-filter").value === "todo", section = $("rv-filter-section").value;
+  const notes = rv.notes.filter((n) => (!todo || n.status !== "cleared") && (!section || n.section === section));
+  $("rv-notes").innerHTML = notes.length ? notes.map((n) => `<div class="rv-note ${n.status}" data-note="${n.id}">
+      <div class="head"><strong class="status-${n.status}">${NOTE_STATUS[n.status]}</strong><span>${esc(n.section_label)}</span>
+        <span>${esc(n.author)} · ${esc(when(n.created_at))}</span>${n.cleared_by ? `<span>Cleared by ${esc(n.cleared_by)} · ${esc(when(n.cleared_at))}</span>` : ""}</div>
+      <div class="text">${esc(n.text)}</div>
+      ${n.replies.map((r) => `<div class="reply">${esc(r.text)}<div class="tag">${esc(r.author)} · ${esc(when(r.at))}</div></div>`).join("")}
+      <div class="cell-actions">
+        ${n.status !== "cleared" ? '<button type="button" class="small min-2" data-note-status="cleared">Clear</button>' : '<button type="button" class="small secondary min-2" data-note-status="open">Reopen</button>'}
+        ${n.author_id === me.id && !n.replies.length ? '<button type="button" class="small secondary danger" data-note-delete>Delete</button>' : ""}
+      </div>
+      ${n.status !== "cleared" ? '<form data-reply><textarea name="text" rows="1" required maxlength="5000" aria-label="Reply to note" placeholder="Reply"></textarea><button type="submit" class="small secondary">Reply</button></form>' : ""}
+    </div>`).join("")
+    : `<p class="muted">${rv.notes.length ? "No notes match." : "No review notes yet."}</p>`;
+}
+
+$("rv-filter").addEventListener("change", renderNotes);
+$("rv-filter-section").addEventListener("change", renderNotes);
+
+$("rv-sections").addEventListener("click", (ev) => {
+  const sign = ev.target.closest("[data-sign]"), unsign = ev.target.closest("[data-unsign]");
+  const id = currentEngagement.id;
+  if (sign) busy(sign, async () => {
+    await sendJSON("POST", `/api/engagements/${id}/signoffs`, { section: sign.dataset.sign, kind: sign.dataset.kind });
+    await loadEngagementActivity();
+  });
+  if (unsign) {
+    const s = rv.sections.find((x) => x.id === unsign.dataset.unsign);
+    const both = unsign.dataset.kind === "prepared" && s.reviewed;
+    if (!confirm(`Take back the ${unsign.dataset.kind} sign-off on ${s.label}${both ? " (the review sign-off goes too)" : ""}?`)) return;
+    busy(unsign, async () => {
+      await sendJSON("DELETE", `/api/engagements/${id}/signoffs/${unsign.dataset.unsign}/${unsign.dataset.kind}`);
+      await loadEngagementActivity();
+    });
+  }
+});
+
+$("rv-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("rv-submit"), async () => {
+    await sendJSON("POST", `/api/engagements/${currentEngagement.id}/review-notes`, formObject($("rv-form")));
+    $("rv-text").value = "";
+    await loadEngagementActivity();
+  });
+});
+
+$("rv-notes").addEventListener("click", (ev) => {
+  const status = ev.target.closest("[data-note-status]"), del = ev.target.closest("[data-note-delete]");
+  const note = ev.target.closest("[data-note]")?.dataset.note;
+  if (status) busy(status, async () => {
+    await sendJSON("PATCH", `/api/review-notes/${note}`, { status: status.dataset.noteStatus });
+    await loadEngagementActivity();
+  });
+  if (del && confirm("Delete this review note?")) busy(del, async () => {
+    await sendJSON("DELETE", `/api/review-notes/${note}`);
+    await loadEngagementActivity();
+  });
+});
+$("rv-notes").addEventListener("submit", (ev) => {
+  const form = ev.target.closest("[data-reply]");
+  if (!form) return;
+  ev.preventDefault();
+  const note = form.closest("[data-note]").dataset.note;
+  busy(form.querySelector("button"), async () => {
+    await sendJSON("POST", `/api/review-notes/${note}/replies`, { text: form.text.value.trim() });
+    await loadEngagementActivity();
+  });
+});
 
 function renderRegister() {
   const shown = reg.findings;
