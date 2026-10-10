@@ -8,6 +8,7 @@ import pandas as pd
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from . import auth
 from .db import Engagement, Finding, Run, RunSync, utcnow
 from .exports import finish_workbook
 
@@ -49,12 +50,18 @@ def sync_engagement(session: Session, e: Engagement) -> None:
 
     Costs one query once every run is marked as synced.
     """
-    pending = list(session.scalars(select(Run).where(
-        Run.engagement_id == e.id, ~exists().where(RunSync.run_id == Run.id)).order_by(Run.id)))
-    for run in pending:
+    def unsynced() -> list[Run]:
+        return list(session.scalars(select(Run).where(
+            Run.engagement_id == e.id, ~exists().where(RunSync.run_id == Run.id)).order_by(Run.id)))
+
+    if not unsynced():
+        return
+    # Two requests backfilling at once would both add the same markers; take turns, then
+    # look again in case the other request already did the work.
+    auth.hold(session, f"register-sync:{e.id}")
+    for run in unsynced():
         sync_run_findings(session, run)
-    if pending:
-        session.commit()
+    session.commit()
 
 
 def with_details(query):
