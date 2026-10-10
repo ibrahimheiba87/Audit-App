@@ -137,6 +137,18 @@ def test_tiny_or_non_finite_tolerable_misstatement_is_a_sampling_error():
     assert r.status_code == 400 and "limit" in r.json()["detail"]
 
 
+def test_misstatement_fields_are_checked_even_with_a_mus_sample_size():
+    for field in ("tolerable_misstatement", "expected_misstatement", "min_amount"):
+        p = sampling.SampleParams("mus", sample_size=2, seed=1, **{field: float("inf")})
+        with pytest.raises(sampling.SamplingError, match="must be a number of zero or more"):
+            sampling.draw(frame(), p)
+    files = {"file": ("gl.csv", ledger_csv(), "text/csv")}
+    r = client.post("/api/sample", files=files, data={
+        "method": "mus", "sample_size": "1", "tolerable_misstatement": "inf"})
+    assert r.status_code == 400, r.text
+    assert r.json()["detail"] == "Tolerable misstatement must be a number of zero or more."
+
+
 def test_negative_inputs_are_rejected():
     with pytest.raises(sampling.SamplingError, match="Seed"):
         sampling.draw(frame(), sampling.SampleParams("random", sample_size=2, seed=-1))
@@ -233,3 +245,36 @@ def test_runs_with_nothing_new_are_not_resynced(monkeypatch):
     client.get(f"/api/engagements/{eid}/findings")
     client.get(f"/api/engagements/{eid}/findings")
     assert len(calls) == 2  # each run once, then never again
+
+
+def test_concurrent_backfills_do_not_fail(monkeypatch):
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    eid, uid = engagement_with_upload()
+    for threshold in (1000, 50, 10):
+        client.post(f"/api/engagements/{eid}/runs",
+                    json={"upload_id": uid, "round_threshold": threshold})
+    with db.SessionLocal() as s:  # an older database: runs synced before the marker existed
+        s.query(db.RunSync).delete()
+        s.commit()
+    real = register.sync_run_findings
+
+    def slow_sync(*args):  # widen the window between finding the runs and marking them
+        time.sleep(0.2)
+        return real(*args)
+
+    monkeypatch.setattr(register, "sync_run_findings", slow_sync)
+    barrier = threading.Barrier(4)
+    quiet = TestClient(app, raise_server_exceptions=False)
+
+    def fetch(_):
+        barrier.wait()
+        return quiet.get(f"/api/engagements/{eid}/findings").status_code
+
+    with ThreadPoolExecutor(4) as pool:
+        codes = list(pool.map(fetch, range(4)))
+    assert codes == [200] * 4
+    with db.SessionLocal() as s:
+        assert s.query(db.RunSync).count() == 3

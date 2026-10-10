@@ -77,7 +77,7 @@ def mus_sample_size(book_value: float, p: SampleParams) -> int:
     if not tolerable or not math.isfinite(tolerable) or tolerable <= 0:
         raise SamplingError("MUS needs a tolerable misstatement (or a sample size).")
     if not math.isfinite(expected) or expected < 0:
-        raise SamplingError("Expected misstatement can't be negative.")
+        raise SamplingError("Expected misstatement must be a number of zero or more.")
     rf, ef = CONFIDENCE[p.confidence]
     room = p.tolerable_misstatement - p.expected_misstatement * ef
     if room <= 0:
@@ -118,8 +118,12 @@ def draw(df: pd.DataFrame, p: SampleParams) -> dict:
         raise SamplingError(f"Seed must be a whole number from 0 to {MAX_SEED:,}.")
     if p.sample_size is not None and not 1 <= p.sample_size <= MAX_SAMPLE_SIZE:
         raise SamplingError(f"Sample size must be from 1 to {MAX_SAMPLE_SIZE:,}.")
-    if p.min_amount < 0:
-        raise SamplingError("Minimum amount can't be negative.")
+    for label, value in (("Minimum amount", p.min_amount),
+                         ("Tolerable misstatement", p.tolerable_misstatement),
+                         ("Expected misstatement", p.expected_misstatement)):
+        # Checked even when a MUS sample size is given, since the values are saved with it.
+        if value is not None and not (math.isfinite(value) and value >= 0):
+            raise SamplingError(f"{label} must be a number of zero or more.")
     seed = p.seed if p.seed is not None else secrets.randbelow(2**31)
     rng = np.random.default_rng(seed)
     pop = select_population(df, p)
