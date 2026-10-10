@@ -54,6 +54,9 @@ class Client(Base):
     engagements: Mapped[list[Engagement]] = relationship(
         back_populates="client", cascade="all, delete-orphan", order_by="Engagement.period_end"
     )
+    portal_users: Mapped[list[ClientUser]] = relationship(
+        back_populates="client", cascade="all, delete-orphan"
+    )
 
 
 class Engagement(Base):
@@ -107,6 +110,9 @@ class Engagement(Base):
     )
     review_notes: Mapped[list[ReviewNote]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="ReviewNote.id"
+    )
+    document_requests: Mapped[list[DocumentRequest]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="DocumentRequest.number"
     )
 
 
@@ -368,6 +374,69 @@ class ReviewReply(Base):
     note: Mapped[ReviewNote] = relationship(back_populates="replies")
 
 
+class DocumentRequest(Base):
+    """A document the auditor asks the client for (portal.py). The client sees all of it."""
+
+    __tablename__ = "document_requests"
+    __table_args__ = (UniqueConstraint("engagement_id", "number"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    number: Mapped[int] = mapped_column(Integer)  # per engagement: request 1, 2... never reused
+    title: Mapped[str] = mapped_column(String(200))
+    details: Mapped[str] = mapped_column(Text, default="")
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open")  # see portal.STATUSES
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="document_requests")
+    files: Mapped[list[RequestFile]] = relationship(
+        back_populates="request", cascade="all, delete-orphan", order_by="RequestFile.id"
+    )
+    messages: Mapped[list[RequestMessage]] = relationship(
+        back_populates="request", cascade="all, delete-orphan", order_by="RequestMessage.id"
+    )
+
+
+class RequestFile(Base):
+    """A file sent in answer to a document request, by the client or by the audit team."""
+
+    __tablename__ = "request_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("document_requests.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(500))
+    content_type: Mapped[str] = mapped_column(String(200), default="application/octet-stream")
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)  # loaded on download
+    size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    uploaded_by: Mapped[str] = mapped_column(String(200), default="")
+    uploaded_by_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    from_client: Mapped[bool] = mapped_column(Boolean, default=False)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    request: Mapped[DocumentRequest] = relationship(back_populates="files")
+
+
+class RequestMessage(Base):
+    """A message on a document request, or a record of a status change (status_to set)."""
+
+    __tablename__ = "request_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("document_requests.id"), index=True)
+    text: Mapped[str] = mapped_column(Text, default="")
+    author: Mapped[str] = mapped_column(String(200), default="")
+    author_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    from_client: Mapped[bool] = mapped_column(Boolean, default=False)
+    status_to: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    request: Mapped[DocumentRequest] = relationship(back_populates="messages")
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -379,6 +448,30 @@ class User(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    client_link: Mapped[ClientUser | None] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+    @property
+    def client_id(self) -> int | None:
+        """The client a client-role user works for, or None."""
+        return self.client_link.client_id if self.client_link else None
+
+
+class ClientUser(Base):
+    """Which client a client-role user belongs to: they only see that client's requests.
+
+    A separate table so databases made before the portal get it without a migration.
+    """
+
+    __tablename__ = "client_users"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), index=True)
+
+    user: Mapped[User] = relationship(back_populates="client_link")
+    client: Mapped[Client] = relationship(back_populates="portal_users")
 
 
 class AuthSession(Base):

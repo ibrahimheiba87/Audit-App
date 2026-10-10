@@ -147,3 +147,27 @@ td a { color: var(--accent); }
 .status-open { color: var(--high); }
 .status-responded { color: var(--medium); }
 .status-cleared { color: var(--muted); }
+
+/* Client document requests */
+.rq { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+.rq.accepted { opacity: .8; }
+.rq .head { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.rq .text { margin: 6px 0; white-space: pre-wrap; }
+.rq .reply { border-left: 3px solid var(--border); padding-left: 10px; margin: 6px 0; white-space: pre-wrap; font-size: 14px; }
+.rq .reply.client { border-left-color: var(--accent); }
+.rq form { display: flex; gap: 8px; margin-top: 8px; align-items: flex-start; flex-wrap: wrap; }
+.rq textarea { flex: 1; min-width: 200px; }
+.rq .cell-actions { margin-top: 8px; }
+.rq-files { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.rq-files li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.rq-files a.button { word-break: break-all; }
+label.button { display: inline-block; margin: 0; padding: 4px 10px; font-size: 13px; border-radius: 6px;
+               border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+label.button:has(input:disabled) { opacity: .5; cursor: default; }
+button.danger-link { color: var(--high); }
+.overdue { color: var(--high); font-size: 13px; font-weight: 600; }
+.st.rq-open, .st.rq-returned { color: var(--medium); background: var(--medium-bg); }
+.st.rq-submitted { color: var(--accent); background: var(--low-bg); }
+.st.rq-accepted { color: var(--ok, #1e8449); background: var(--low-bg); }
+.rq-status-returned { color: var(--medium); }
+.rq-status-accepted { color: var(--ok, #1e8449); }

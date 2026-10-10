@@ -20,6 +20,7 @@ def fresh_db(tmp_path):
                       password_hash=auth.hash_password(ADMIN["password"])))
         s.commit()
     app.dependency_overrides[auth.current_user] = signed_in_admin
+    app.dependency_overrides[auth.signed_in_user] = signed_in_admin
     yield
     app.dependency_overrides.clear()
     db.engine.dispose()

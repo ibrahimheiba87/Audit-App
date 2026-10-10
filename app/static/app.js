@@ -140,7 +140,10 @@ const VIEW_RANK = { engagements: 1, users: 4, activity: 4 };
 function route() {
   if (!me) return;
   let [, view = "engagements", id] = location.hash.split("/");
-  if (!(me.rank >= (VIEW_RANK[view] || Infinity))) {
+  if (me.role === "client") {
+    view = "portal";  // client users only have the portal
+    if (location.hash !== "#/portal") history.replaceState(null, "", "#/portal");
+  } else if (!(me.rank >= (VIEW_RANK[view] || Infinity))) {
     view = "engagements";
     id = undefined;
     history.replaceState(null, "", "#/engagements");
@@ -152,6 +155,7 @@ function route() {
   if (view === "engagements") guard(() => showEngagements(id ? Number(id) : null));
   if (view === "users") guard(showUsers);
   if (view === "activity") guard(showActivity);
+  if (view === "portal") guard(showPortal);
 }
 window.addEventListener("hashchange", route);
 
@@ -226,6 +230,9 @@ async function openEngagement(id) {
     $("rv-form").reset();
     rv = null; rvDrafts = {};  // don't show (or act on) the last engagement's sign-offs
     $("rv-cards").innerHTML = $("rv-sections").innerHTML = $("rv-notes").innerHTML = "";
+    $("rq-form").reset();
+    rq = null; rqDrafts = {};
+    $("rq-cards").innerHTML = $("rq-list").innerHTML = $("rq-contacts").textContent = "";
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -241,6 +248,7 @@ async function openEngagement(id) {
   renderSamples(e.samples);
   if (currentFinding && currentFinding.engagement_id !== e.id) closeFinding();
   guard(loadReview);  // on its own, so a slow or failing panel above doesn't hold it up
+  guard(loadRequests);
   await loadStatements();
   await loadRegister();
 }
@@ -1018,6 +1026,204 @@ $("rv-notes").addEventListener("submit", (ev) => {
   });
 });
 
+// Client document requests: shared by the team's panel and the client portal
+
+let rq = null;          // latest /requests response for the open engagement
+let rqDrafts = {};      // unsent messages by request id, kept when the list is redrawn
+let portal = null;      // latest /portal/requests response (client users)
+
+function keepDrafts(root) {
+  root.querySelectorAll("[data-rq-message]").forEach((f) => {
+    const id = f.closest("[data-rq]").dataset.rq;
+    if (f.text.value.trim()) rqDrafts[id] = f.text.value; else delete rqDrafts[id];
+  });
+}
+function restoreDrafts(root) {
+  root.querySelectorAll("[data-rq-message]").forEach((f) => {
+    f.text.value = rqDrafts[f.closest("[data-rq]").dataset.rq] || "";
+  });
+}
+
+function requestCard(r, team) {
+  const open = r.status !== "accepted";
+  const files = r.files.map((f) => {
+    const canRemove = open && (f.uploaded_by_id === me.id || (team && me.rank >= 2));
+    return `<li><a class="button" href="/api/request-files/${f.id}">${esc(f.filename)}</a>
+      <span class="tag">${fileSize(f.size)} · ${esc(f.uploaded_by)}${team && f.from_client ? " (client)" : ""} · ${esc(when(f.uploaded_at))}</span>
+      ${canRemove ? `<button type="button" class="link danger-link" data-rq-remove="${f.id}">Remove</button>` : ""}</li>`;
+  }).join("");
+  // One line each: replies keep the message's own line breaks (white-space: pre-wrap).
+  const messages = r.messages.map((m) => `<div class="reply${m.from_client ? " client" : ""}">${
+    m.status_label ? `<strong class="rq-status-${m.status_to}">${esc(m.status_label)}</strong>${m.text ? ": " : ""}` : ""}${esc(m.text)}<div class="tag">${
+    esc(m.author)}${team && m.from_client ? " (client)" : ""} · ${esc(when(m.at))}</div></div>`).join("");
+  const actions = [];
+  if (open) actions.push(`<label class="button small upload">${r.files.length ? "Add a file" : "Upload a file"}<input type="file" multiple data-rq-upload hidden></label>`);
+  if (team && r.status === "submitted") actions.push('<button type="button" class="small" data-rq-accept>Accept files</button>');
+  if (team && (!r.files.length || me.rank >= 2)) actions.push('<button type="button" class="small secondary danger" data-rq-delete>Delete request</button>');
+  const returnable = team && (r.status === "submitted" || r.status === "accepted");
+  return `<div class="rq ${r.status}" data-rq="${r.id}">
+    <div class="head"><strong>${r.number}. ${esc(r.title)}</strong>
+      <span class="st rq-${r.status}">${esc(r.status_label)}</span>
+      ${r.due_date ? `<span class="${r.overdue ? "overdue" : "tag"}">Due ${esc(r.due_date)}${r.overdue ? " · overdue" : ""}</span>` : ""}
+      ${team ? `<span class="tag">Asked by ${esc(r.created_by)} · ${esc(when(r.created_at))}</span>` : ""}</div>
+    ${r.details ? `<div class="text">${esc(r.details)}</div>` : ""}
+    ${files ? `<ul class="rq-files">${files}</ul>` : `<p class="tag">${team ? "No files yet." : "Nothing sent yet."}</p>`}
+    ${messages}
+    ${actions.length ? `<div class="cell-actions">${actions.join("")}</div>` : ""}
+    <form data-rq-message><textarea name="text" rows="1" maxlength="5000" aria-label="Message" placeholder="${team ? "Message to the client" : "Message to your auditors"}"></textarea>
+      <button type="submit" class="small secondary">Send message</button>
+      ${returnable ? '<button type="button" class="small secondary" data-rq-return title="Send this request back to the client with the message">Send back with message</button>' : ""}</form>
+  </div>`;
+}
+
+// Click, change and submit handlers for a list of request cards. `reload` redraws it.
+function wireRequests(root, reload) {
+  root.addEventListener("change", (ev) => {
+    const input = ev.target.closest("[data-rq-upload]");
+    if (!input || !input.files.length) return;
+    const id = input.closest("[data-rq]").dataset.rq;
+    busy(input, async () => {
+      try {
+        for (const file of input.files) {
+          const fd = new FormData();
+          fd.append("file", file);
+          await postForm(`/api/requests/${id}/files`, fd);
+        }
+      } finally { await reload(); }
+    });
+  });
+  root.addEventListener("click", (ev) => {
+    const card = ev.target.closest("[data-rq]");
+    if (!card) return;
+    const id = card.dataset.rq;
+    const accept = ev.target.closest("[data-rq-accept]"), del = ev.target.closest("[data-rq-delete]");
+    const remove = ev.target.closest("[data-rq-remove]"), ret = ev.target.closest("[data-rq-return]");
+    if (accept) busy(accept, async () => {
+      await sendJSON("POST", `/api/requests/${id}/status`, { status: "accepted", message: card.querySelector("[data-rq-message]").text.value.trim() });
+      delete rqDrafts[id];
+      await reload();
+    });
+    if (ret) {
+      const text = card.querySelector("[data-rq-message]").text;
+      if (!text.value.trim()) { showError("Write what's missing or wrong in the message box first."); text.focus(); return; }
+      busy(ret, async () => {
+        await sendJSON("POST", `/api/requests/${id}/status`, { status: "returned", message: text.value.trim() });
+        delete rqDrafts[id];
+        await reload();
+      });
+    }
+    if (remove && confirm("Remove this file? The request keeps a record of it.")) busy(remove, async () => {
+      await sendJSON("DELETE", `/api/request-files/${remove.dataset.rqRemove}`);
+      await reload();
+    });
+    if (del && confirm("Delete this request? The client will no longer see it.")) busy(del, async () => {
+      await sendJSON("DELETE", `/api/requests/${id}`);
+      delete rqDrafts[id];
+      await reload();
+    });
+  });
+  root.addEventListener("submit", (ev) => {
+    const form = ev.target.closest("[data-rq-message]");
+    if (!form) return;
+    ev.preventDefault();
+    const id = form.closest("[data-rq]").dataset.rq;
+    if (!form.text.value.trim()) return;
+    busy(form.querySelector("button[type=submit]"), async () => {
+      await sendJSON("POST", `/api/requests/${id}/messages`, { text: form.text.value.trim() });
+      form.text.value = "";
+      delete rqDrafts[id];
+      await reload();
+    });
+  });
+}
+
+// The team's panel on the engagement page
+
+async function loadRequests() {
+  const id = currentEngagement.id;
+  const data = await getJSON(`/api/engagements/${id}/requests`);
+  if (currentEngagement?.id !== id) return;  // the user has opened another engagement
+  rq = data;
+  renderRequests();
+}
+
+function renderRequests() {
+  const s = rq.summary;
+  $("rq-cards").innerHTML = [
+    [s.open + s.returned, "Waiting for the client"], [s.submitted, "Submitted, to look at"],
+    [s.accepted, "Accepted"], [s.overdue, "Overdue"],
+  ].map(([v, k]) => `<div class="card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+  const active = rq.contacts.filter((c) => c.active);
+  $("rq-contacts").textContent = active.length
+    ? `Client users who can see these: ${active.map((c) => `${c.name} (${c.email})`).join(", ")}.`
+    : "No one at this client has a Client account yet, so they can't see these requests. An admin can add one under Users.";
+  keepDrafts($("rq-list"));
+  const filter = $("rq-filter").value.split(",").filter(Boolean);
+  const list = rq.requests.filter((r) => !filter.length || filter.includes(r.status));
+  $("rq-list").innerHTML = list.length ? list.map((r) => requestCard(r, true)).join("")
+    : `<p class="muted">${rq.requests.length ? "No requests match." : "No requests yet."}</p>`;
+  restoreDrafts($("rq-list"));
+}
+
+async function reloadRequests() {
+  await loadRequests();
+  await loadEngagementActivity();
+}
+
+wireRequests($("rq-list"), reloadRequests);
+$("rq-filter").addEventListener("change", renderRequests);
+
+$("rq-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  busy($("rq-submit"), async () => {
+    const body = formObject($("rq-form"));
+    if (!body.due_date) delete body.due_date;
+    await sendJSON("POST", `/api/engagements/${id}/requests`, body);
+    if (currentEngagement?.id !== id) return;
+    $("rq-form").reset();
+    await reloadRequests();
+  });
+});
+
+document.querySelectorAll("[data-rq-export]").forEach((btn) => btn.addEventListener("click", () => busy(btn, async () => {
+  const format = btn.dataset.rqExport;
+  await saveFile(await request(`/api/engagements/${currentEngagement.id}/requests/export?format=${format}`), `requests.${format}`);
+  await loadEngagementActivity();
+})));
+
+// The client portal
+
+async function showPortal() {
+  portal = await getJSON("/api/portal/requests");
+  renderPortal();
+}
+
+function renderPortal() {
+  if (!portal.client) {
+    $("pt-lead").textContent = "Your account isn't linked to a client yet. Ask your auditors to set it up.";
+    $("pt-list").innerHTML = "";
+    return;
+  }
+  $("pt-lead").textContent = `Documents your auditors have asked ${portal.client} for. Upload a file against each request; they will accept it or tell you what else they need.`;
+  keepDrafts($("pt-list"));
+  const todo = $("pt-filter").value === "todo";
+  const html = portal.engagements.map((e) => {
+    const list = e.requests.filter((r) => !todo || r.status === "open" || r.status === "returned");
+    const owed = e.summary.open + e.summary.returned;
+    return `<section class="panel">
+      <h2>${esc(e.name)} <span class="muted">· period ending ${esc(e.period_end)}</span></h2>
+      <p class="tag" style="margin-top:-6px">${owed ? `${owed} still to send` : "Nothing left to send"}${e.summary.overdue ? ` · <span class="overdue">${e.summary.overdue} overdue</span>` : ""} · ${e.summary.accepted} of ${e.summary.total} accepted</p>
+      ${list.length ? list.map((r) => requestCard(r, false)).join("") : '<p class="muted">Nothing here right now.</p>'}
+    </section>`;
+  }).join("");
+  $("pt-list").innerHTML = html || '<section class="panel muted">Your auditors haven\'t asked for anything yet.</section>';
+  restoreDrafts($("pt-list"));
+}
+
+wireRequests($("pt-list"), showPortal);
+$("pt-filter").addEventListener("change", renderPortal);
+
 function renderRegister() {
   const shown = reg.findings;
   const first = reg.offset + 1, last = reg.offset + shown.length;
@@ -1190,7 +1396,8 @@ function setUser(user) {
   document.body.dataset.rank = user.rank;
   $("user-name").textContent = user.name;
   $("user-role").textContent = user.role_label;
-  $("user-chip").hidden = $("nav").hidden = false;
+  $("user-chip").hidden = false;
+  $("nav").hidden = user.role === "client";
 }
 
 function showLogin(needsSetup) {
@@ -1207,7 +1414,7 @@ function showLogin(needsSetup) {
 async function signedIn(res) {
   setUser((await res.json()).user);
   showError("");
-  if (appStarted) route(); else { appStarted = true; await startApp(); }
+  if (me.role === "client" || meta) route(); else await startApp();
 }
 
 $("login-form").addEventListener("submit", (ev) => {
@@ -1254,14 +1461,24 @@ $("pw-form").addEventListener("submit", async (ev) => {
 
 let users = [];
 
+let clients = [];  // for linking client users
+
 async function showUsers() {
-  users = await getJSON("/api/users");
-  const roleOptions = (sel) => roles.map((r) => `<option value="${r.id}"${r.id === sel ? " selected" : ""}>${esc(r.label)}</option>`).join("");
-  $("nu-role").innerHTML = roleOptions("preparer");
+  [users, clients] = await Promise.all([getJSON("/api/users"), getJSON("/api/clients")]);
+  // Team members and client users stay on their side here: a client user needs a client.
+  const staff = roles.filter((r) => r.id !== "client");
+  const roleOptions = (sel, list) => list.map((r) => `<option value="${r.id}"${r.id === sel ? " selected" : ""}>${esc(r.label)}</option>`).join("");
+  const clientOptions = (sel) => clients.map((c) => `<option value="${c.id}"${c.id === sel ? " selected" : ""}>${esc(c.name)}</option>`).join("");
+  const keep = $("nu-role").value;
+  $("nu-role").innerHTML = roleOptions(keep || "preparer", [...staff, ...roles.filter((r) => r.id === "client")]);
+  $("nu-client").innerHTML = '<option value="">Pick a client</option>' + clientOptions(Number($("nu-client").value));
+  updateNewUserRole();
   $("users").innerHTML = "<tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Status</th><th></th></tr>" +
     users.map((u) => `<tr data-user="${u.id}">
       <td>${esc(u.name)}${u.id === me.id ? ' <span class="muted">(you)</span>' : ""}</td><td>${esc(u.email)}</td>
-      <td><select class="map" data-role>${roleOptions(u.role)}</select></td>
+      <td>${u.role === "client"
+        ? `<label class="tag" for="uc-${u.id}">Client of</label><select class="map" id="uc-${u.id}" data-client>${u.client_id ? "" : '<option value="">No client</option>'}${clientOptions(u.client_id)}</select>`
+        : `<select class="map" data-role aria-label="Role">${roleOptions(u.role, staff)}</select>`}</td>
       <td class="nowrap">${esc(when(u.last_login_at)) || '<span class="muted">Never</span>'}</td>
       <td>${u.active ? "Active" : '<span class="muted">Deactivated</span>'}</td>
       <td><div class="cell-actions">
@@ -1270,12 +1487,20 @@ async function showUsers() {
       </div></td></tr>`).join("");
 }
 
+function updateNewUserRole() {
+  const client = $("nu-role").value === "client";
+  $("nu-client-wrap").hidden = !client;
+  $("nu-client").required = client;
+}
+$("nu-role").addEventListener("change", updateNewUserRole);
+
 $("users").addEventListener("change", (ev) => {
-  const sel = ev.target.closest("[data-role]");
-  if (!sel) return;
+  const sel = ev.target.closest("[data-role], [data-client]");
+  if (!sel || !sel.value) return;
   const id = sel.closest("[data-user]").dataset.user;
+  const body = "role" in sel.dataset ? { role: sel.value } : { client_id: Number(sel.value) };
   guard(async () => {
-    try { await sendJSON("PATCH", `/api/users/${id}`, { role: sel.value }); } finally { await showUsers(); }
+    try { await sendJSON("PATCH", `/api/users/${id}`, body); } finally { await showUsers(); }
   });
 });
 
@@ -1313,7 +1538,9 @@ $("reset-form").addEventListener("submit", async (ev) => {
 $("user-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
   guard(async () => {
-    await sendJSON("POST", "/api/users", formObject($("user-form")));
+    const body = formObject($("user-form"));
+    if (body.role === "client") body.client_id = Number(body.client_id); else delete body.client_id;
+    await sendJSON("POST", "/api/users", body);
     $("user-form").reset();
     await showUsers();
   });
@@ -1462,6 +1689,10 @@ function renderBenford() {
 // --- Start --------------------------------------------------------------------
 
 async function startApp() {
+  if (me.role === "client") {  // the rest is for the audit team, and refuses client users
+    route();
+    return;
+  }
   meta = await getJSON("/api/materiality/benchmarks");
   $("mat-benchmark").innerHTML = meta.benchmarks.map((b) => `<option value="${b.id}">${esc(b.label)}</option>`).join("");
   $("eng-framework").innerHTML = meta.frameworks.map((f) => `<option>${esc(f)}</option>`).join("");

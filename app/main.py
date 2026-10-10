@@ -21,6 +21,7 @@ from .engagements import router as engagements_router
 from .exports import attachment
 from .findings import router as findings_router
 from .leadsheets import router as leadsheets_router
+from .portal import router as portal_router
 from .review import router as review_router
 from .samples import router as samples_router
 from .uploads import parse_mapping, read_upload
@@ -41,6 +42,8 @@ app.include_router(accounts_router)
 for router in (engagements_router, comparisons_router, samples_router, findings_router,
                leadsheets_router, review_router):
     app.include_router(router, dependencies=[Depends(current_user)])
+# The document request portal is also open to client users; each endpoint checks access.
+app.include_router(portal_router)
 
 
 @dataclass

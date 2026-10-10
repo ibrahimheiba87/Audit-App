@@ -67,6 +67,13 @@ section; the preparer replies and a reviewer clears them. A section can't be sig
 reviewed while it has notes to clear, raising a note takes back its review sign-off, and a
 partner signs off completion once every other section is reviewed.
 
+**Client requests**: ask the client for documents (title, details for the client, due date).
+People at the client sign in with a **Client** account and see only their own company's
+requests, in a portal of their own: they upload files against each request and can message the
+team. The team downloads the files, accepts them, or sends the request back saying what's
+missing; accepted requests are locked. Overdue requests are flagged, and the request list
+downloads as Excel or CSV.
+
 The **Quick audit** tab runs the checks on a file without saving anything.
 
 ## Users, roles and the activity log
@@ -84,6 +91,10 @@ can:
   review notes, sign off sections as reviewed, and add or edit clients and engagements.
 - **Partner**: also set materiality, sign off completion, and delete clients and engagements.
 - **Admin**: also manage users and see the whole activity log.
+
+**Client** users are outside this list: an admin links each one to a client. They only see the
+document request portal for that client's engagements (upload files, remove their own files
+until a request is accepted, send messages), and every other part of the app refuses them.
 
 Every change and download is written to the activity log with who, when, the engagement, the
 file's SHA-256 and the settings used (run settings, sampling parameters and seed, comparison
@@ -160,7 +171,7 @@ All endpoints need a signed-in session cookie except `/api/health`, `GET /api/au
 
 - `GET /api/auth/status`, `POST /api/auth/setup` (first admin, only while there are no users),
   `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`
-- `GET|POST /api/users`, `PATCH /api/users/{id}` (`name`, `role`, `active`, `password`); admin only
+- `GET|POST /api/users`, `PATCH /api/users/{id}` (`name`, `role`, `active`, `password`, `client_id` for client users); admin only
 - `GET /api/activity?engagement_id=&user_id=&action=&limit=`; without `engagement_id`, admin only
 
 - `POST /api/preview`: multipart form with `file` and optional `sheet`. Returns the columns,
@@ -213,6 +224,13 @@ Engagement endpoints (JSON unless noted):
 - `POST /api/engagements/{id}/review-notes` (`section`, `text`),
   `POST /api/review-notes/{id}/replies` (`text`), `PATCH /api/review-notes/{id}`
   (`status=open|cleared`), `DELETE /api/review-notes/{id}`
+- `GET|POST /api/engagements/{id}/requests` (`title`, `details`, `due_date`),
+  `GET /api/engagements/{id}/requests/export?format=xlsx|csv`,
+  `PATCH|DELETE /api/requests/{id}`, `POST /api/requests/{id}/status`
+  (`status=accepted|returned`, `message`)
+- `POST /api/requests/{id}/files` (multipart `file`), `GET|DELETE /api/request-files/{id}`,
+  `POST /api/requests/{id}/messages` (`text`): for the team and the request's client users
+- `GET /api/portal/requests`: a client user's engagements and requests
 - `POST /api/sample`: draw a sample from a file without saving (multipart: `file`, the same
   fields as above, optional `mapping`, `sheet`, `format=json|xlsx`)
 

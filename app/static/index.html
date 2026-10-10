@@ -64,11 +64,20 @@
     </form>
   </dialog>
 
+  <!-- Client portal (client users) --------------------------------------->
+  <div id="view-portal" class="view" hidden>
+    <p class="lead" id="pt-lead">Documents your auditors have asked for. Upload a file against each request; they will accept it or tell you what else they need.</p>
+    <div class="filters">
+      <select id="pt-filter" aria-label="Show requests"><option value="todo">Still to send</option><option value="">All requests</option></select>
+    </div>
+    <div id="pt-list"></div>
+  </div>
+
   <!-- Users (admin) ------------------------------------------------------>
   <div id="view-users" class="view" hidden>
     <section class="panel">
       <h2>Users</h2>
-      <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts, post proposed adjusting entries, sign off sections as prepared and reply to review notes. Reviewers can also clear and reopen findings, change severity, remove evidence and files, post booked entries, mark proposed ones booked, delete adjusting entries, raise and clear review notes, sign off sections as reviewed, and add or edit clients and engagements. Partners can also set materiality, sign off completion and delete clients and engagements. Admins can also manage users and see the whole activity log.</p>
+      <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts, post proposed adjusting entries, sign off sections as prepared and reply to review notes. Reviewers can also clear and reopen findings, change severity, remove evidence and files, post booked entries, mark proposed ones booked, delete adjusting entries, raise and clear review notes, sign off sections as reviewed, and add or edit clients and engagements. Partners can also set materiality, sign off completion and delete clients and engagements. Admins can also manage users and see the whole activity log. Client users belong to one client and only see that client's document requests, where they upload files and message the team.</p>
       <div class="table-wrap"><table id="users"></table></div>
     </section>
     <section class="panel">
@@ -78,6 +87,7 @@
           <div><label for="nu-name">Name</label><input id="nu-name" name="name" required></div>
           <div><label for="nu-email">Email</label><input id="nu-email" name="email" type="email" required></div>
           <div><label for="nu-role">Role</label><select id="nu-role" name="role" class="map"></select></div>
+          <div id="nu-client-wrap" hidden><label for="nu-client">Client they work for</label><select id="nu-client" name="client_id" class="map"></select></div>
           <div><label for="nu-password">Temporary password</label><input id="nu-password" name="password" type="password" minlength="10" required autocomplete="new-password"></div>
         </div>
         <div class="actions"><button type="submit">Add user</button></div>
@@ -108,7 +118,7 @@
           <option value="finding.">Findings</option>
           <option value="evidence.">Evidence</option>
           <option value="signoff.">Sign-offs</option>
-          <option value="note.">Review notes</option>
+          <option value="request.">Client requests</option><option value="note.">Review notes</option>
           <option value="quick.">Quick audit</option>
         </select>
         <span class="muted">Latest 500 entries</span>
@@ -396,6 +406,35 @@
             </form>
             <h3>Review trail</h3>
             <ul class="trail" id="fd-trail"></ul>
+          </section>
+
+          <section class="panel" id="rq-panel">
+            <div class="row-between">
+              <h2>Client requests</h2>
+              <div class="cell-actions">
+                <button type="button" class="small secondary" data-rq-export="xlsx">Download Excel</button>
+                <button type="button" class="small secondary" data-rq-export="csv">Download CSV</button>
+              </div>
+            </div>
+            <p class="muted" style="margin-top:-6px">Ask the client for documents. People at the client with a Client account see everything on these requests, upload files in answer and can message you. Accept the files, or send the request back saying what's missing.</p>
+            <p class="tag" id="rq-contacts"></p>
+            <div class="cards" id="rq-cards"></div>
+            <details id="rq-new">
+              <summary>Ask for a document</summary>
+              <form id="rq-form" class="stack">
+                <div><label for="rq-title">Document</label><input id="rq-title" name="title" required maxlength="200" placeholder="e.g. December bank statements for every account"></div>
+                <div><label for="rq-details">Details for the client (optional)</label><textarea id="rq-details" name="details" rows="2" maxlength="5000"></textarea></div>
+                <div><label for="rq-due">Due (optional)</label><input id="rq-due" name="due_date" type="date" style="max-width:200px"></div>
+                <div><button type="submit" id="rq-submit">Send request</button></div>
+              </form>
+            </details>
+            <div class="filters" style="margin-top:12px">
+              <select id="rq-filter" aria-label="Show requests">
+                <option value="">All requests</option><option value="open,returned">Waiting for the client</option>
+                <option value="submitted">Submitted, to look at</option><option value="accepted">Accepted</option>
+              </select>
+            </div>
+            <div id="rq-list"></div>
           </section>
 
           <section class="panel" id="rv-panel">
