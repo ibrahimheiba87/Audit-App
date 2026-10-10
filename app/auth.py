@@ -19,7 +19,7 @@ import secrets
 from datetime import timedelta
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
@@ -164,15 +164,12 @@ def hold(session: Session, key: str) -> None:
     commits or rolls back. Call it before reading the data a check depends on, and before any
     other write in the transaction.
     """
-    dialect = session.get_bind().dialect.name
-    if dialect in ("sqlite", "postgresql"):
-        insert = sqlite.insert if dialect == "sqlite" else postgresql.insert
-        session.execute(insert(Guard).values(key=key, n=1).on_conflict_do_update(
-            index_elements=[Guard.key], set_={"n": Guard.n + 1}))
-    elif not session.execute(update(Guard).where(Guard.key == key)
-                             .values(n=Guard.n + 1)).rowcount:
-        session.add(Guard(key=key, n=1))
-        session.flush()
+    # One atomic upsert, so a key that doesn't exist yet can't be created twice. db.py only
+    # allows SQLite and PostgreSQL, which both have it.
+    insert = postgresql.insert if session.get_bind().dialect.name == "postgresql" \
+        else sqlite.insert
+    session.execute(insert(Guard).values(key=key, n=1).on_conflict_do_update(
+        index_elements=[Guard.key], set_={"n": Guard.n + 1}))
 
 
 def login_key(email: str) -> str:

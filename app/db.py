@@ -22,6 +22,7 @@ from sqlalchemy import (
     Text,
     create_engine,
 )
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -311,8 +312,16 @@ class Guard(Base):
     n: Mapped[int] = mapped_column(Integer, default=0)
 
 
+SUPPORTED_DIALECTS = ("sqlite", "postgresql")
+
+
 def _make_engine(url: str):
-    kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
+    # auth.hold() needs INSERT ... ON CONFLICT, so only databases that have it are allowed.
+    dialect = make_url(url).get_backend_name()
+    if dialect not in SUPPORTED_DIALECTS:
+        raise RuntimeError(f"AUDIT_DB_URL uses {dialect}; the app supports SQLite and "
+                           "PostgreSQL only.")
+    kwargs = {"connect_args": {"check_same_thread": False}} if dialect == "sqlite" else {}
     return create_engine(url, **kwargs)
 
 
