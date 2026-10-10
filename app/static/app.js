@@ -1363,25 +1363,34 @@ $("ai").addEventListener("click", (ev) => {
   const btn = ev.target.closest("[data-ai]");
   if (!btn) return;
   const id = currentFinding.id;
+  const buttons = [...$("ai").querySelectorAll("[data-ai]")];
+  buttons.forEach((b) => { b.disabled = true; });  // one question at a time
   busy(btn, async () => {
-    const r = await sendJSON("POST", `/api/findings/${id}/assistant`, { task: btn.dataset.ai });
-    if (currentFinding?.id !== id) return;  // the user has opened another finding
-    aiAnswer = { findingId: id, ...r };
-    renderAssistant();
-    loadEngagementActivity();
+    try {
+      const r = await sendJSON("POST", `/api/findings/${id}/assistant`, { task: btn.dataset.ai });
+      if (currentFinding?.id !== id) return;  // the user has opened another finding
+      aiAnswer = { findingId: id, ...r };
+      renderAssistant();
+    } finally {
+      buttons.forEach((b) => { if (b !== btn) b.disabled = false; });
+      loadEngagementActivity();  // failed requests are logged too
+    }
   });
 });
 
 $("ai-note").addEventListener("click", () => busy($("ai-note"), async () => {
   const a = aiAnswer;
-  const out = await sendJSON("POST", `/api/findings/${a.findingId}/notes`,
-    { text: `${a.label} drafted with the AI assistant (${a.model}):\n\n${a.text}` });
+  const out = await sendJSON("POST", `/api/findings/${a.findingId}/notes`, { text: aiNoteText(a) });
   aiAnswer = null;
   if (currentFinding?.id === a.findingId) await refreshFinding(out);
 }));
 
+function aiNoteText(a) {
+  return `${a.label} drafted with the AI assistant (${a.model}):\n\n${a.text}`;
+}
+
 $("ai-edit").addEventListener("click", () => {
-  $("fd-note").value = aiAnswer.text;
+  $("fd-note").value = aiNoteText(aiAnswer);
   $("fd-note").focus();
 });
 
@@ -1768,7 +1777,7 @@ async function startApp() {
   $("smp-confidence").innerHTML = samplingOptions.confidence_levels.map((c) => `<option value="${c}"${c === 95 ? " selected" : ""}>${c}%</option>`).join("");
   $("reg-status").innerHTML = '<option value="">All statuses</option>' +
     (await getJSON("/api/findings/options")).statuses.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join("");
-  assistant = await getJSON("/api/assistant/status");
+  try { assistant = await getJSON("/api/assistant/status"); } catch { assistant = { enabled: false }; }
   $("up-kind").innerHTML = meta.upload_kinds.map((k) => `<option value="${k.id}">${esc(k.label)}</option>`).join("");
   appStarted = true;
   route();

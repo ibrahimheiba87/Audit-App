@@ -76,16 +76,22 @@ flagged, and the request list downloads as Excel or CSV.
 
 **AI assistant** (optional): on any finding, ask Claude to explain why the entry was flagged
 and what to check, or to draft a write-up (condition, criteria, cause, effect,
-recommendation). It sends the finding, the engagement's framework and materiality, and up to
-50 ledger lines of the same entry; nothing is saved unless you add the answer as a note. It is
-off, and hidden, until the server has an API key:
+recommendation). Nothing is saved unless you add the answer as a note. Each request sends:
+
+- the finding: check, severity, status, entry, date, account, description, amount and detail;
+- the engagement's framework, period end and materiality figures (not the client's name);
+- up to 50 ledger lines of the same entry, always including the flagged line, with their
+  dates, accounts, descriptions, amounts and who posted them.
+
+It is off, and hidden, until the server has an API key:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...          # turns the assistant on
 export AUDIT_AI_MODEL=claude-opus-5-5         # optional; this is the default
 ```
 
-Each request is logged with the model and how many ledger lines were sent. Ledger data goes
+Each request is logged, including failed ones, with the model, how many ledger lines were sent
+and the outcome. At most four requests run at once; more get "busy, try again". Ledger data goes
 to the Claude API when someone uses the assistant, so only turn it on if your firm allows it.
 
 The **Quick audit** tab runs the checks on a file without saving anything.
@@ -246,7 +252,7 @@ Engagement endpoints (JSON unless noted):
   `POST /api/requests/{id}/messages` (`text`): for the team and the request's client users
 - `GET /api/portal/requests`: a client user's engagements and requests
 - `GET /api/assistant/status`, `POST /api/findings/{id}/assistant` (`task=explain|draft`):
-  the AI assistant; 503 while it is off
+  the AI assistant; 503 while it is off, 502 when the Claude API fails, 429 when busy
 - `POST /api/sample`: draw a sample from a file without saving (multipart: `file`, the same
   fields as above, optional `mapping`, `sheet`, `format=json|xlsx`)
 
