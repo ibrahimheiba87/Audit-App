@@ -1,0 +1,862 @@
+JE Number,Date,Posted Date,Account,Description,Debit,Credit,Created By
+JE1001,2026-05-21,2026-05-21,6400 Office Supplies,Office supplies,33.32,,asmith
+JE1001,2026-05-21,2026-05-21,1000 Cash,Office supplies,,33.32,asmith
+JE1002,2026-10-07,2026-10-07,1000 Cash,Customer receipt,36.15,,asmith
+JE1002,2026-10-07,2026-10-07,1200 Accounts Receivable,Customer receipt,,36.15,asmith
+JE1003,2026-01-16,2026-01-16,6300 Travel,Travel expense,139.27,,asmith
+JE1003,2026-01-16,2026-01-16,1000 Cash,Travel expense,,139.27,asmith
+JE1004,2026-11-05,2026-11-05,1000 Cash,Customer receipt,85.24,,asmith
+JE1004,2026-11-05,2026-11-05,1200 Accounts Receivable,Customer receipt,,85.24,asmith
+JE1005,2026-10-07,2026-10-07,6300 Travel,Travel expense,49.85,,bjones
+JE1005,2026-10-07,2026-10-07,1000 Cash,Travel expense,,49.85,bjones
+JE1006,2026-03-23,2026-03-23,1000 Cash,Customer receipt,626.38,,cnguyen
+JE1006,2026-03-23,2026-03-23,1200 Accounts Receivable,Customer receipt,,626.38,cnguyen
+JE1007,2026-04-21,2026-04-21,2000 Accounts Payable,Supplier payment,229.62,,bjones
+JE1007,2026-04-21,2026-04-21,1000 Cash,Supplier payment,,229.62,bjones
+JE1008,2026-02-19,2026-02-19,1200 Accounts Receivable,Invoice,23.5,,bjones
+JE1008,2026-02-19,2026-02-19,4000 Revenue,Invoice,,23.5,bjones
+JE1009,2026-01-23,2026-01-23,5000 Cost of Sales,Supplier bill,2599.59,,cnguyen
+JE1009,2026-01-23,2026-01-23,2000 Accounts Payable,Supplier bill,,2599.59,cnguyen
+JE1010,2026-07-13,2026-07-13,2000 Accounts Payable,Supplier payment,1396.09,,asmith
+JE1010,2026-07-13,2026-07-13,1000 Cash,Supplier payment,,1396.09,asmith
+JE1011,2026-11-18,2026-11-18,6300 Travel,Travel expense,76.98,,cnguyen
+JE1011,2026-11-18,2026-11-18,1000 Cash,Travel expense,,76.98,cnguyen
+JE1012,2026-02-05,2026-02-05,5000 Cost of Sales,Supplier bill,2038.96,,asmith
+JE1012,2026-02-05,2026-02-05,2000 Accounts Payable,Supplier bill,,2038.96,asmith
+JE1013,2026-05-29,2026-05-29,6400 Office Supplies,Office supplies,56.99,,asmith
+JE1013,2026-05-29,2026-05-29,1000 Cash,Office supplies,,56.99,asmith
+JE1014,2026-07-14,2026-07-14,1000 Cash,Customer receipt,29237.13,,bjones
+JE1014,2026-07-14,2026-07-14,1200 Accounts Receivable,Customer receipt,,29237.13,bjones
+JE1015,2026-07-06,2026-07-06,2000 Accounts Payable,Supplier payment,3489.3,,asmith
+JE1015,2026-07-06,2026-07-06,1000 Cash,Supplier payment,,3489.3,asmith
+JE1016,2026-12-10,2026-12-10,5000 Cost of Sales,Supplier bill,263.68,,bjones
+JE1016,2026-12-10,2026-12-10,2000 Accounts Payable,Supplier bill,,263.68,bjones
+JE1017,2026-02-06,2026-02-06,6400 Office Supplies,Office supplies,1490.42,,cnguyen
+JE1017,2026-02-06,2026-02-06,1000 Cash,Office supplies,,1490.42,cnguyen
+JE1018,2026-05-06,2026-05-06,6400 Office Supplies,Office supplies,43.88,,asmith
+JE1018,2026-05-06,2026-05-06,1000 Cash,Office supplies,,43.88,asmith
+JE1019,2026-11-24,2026-11-24,2000 Accounts Payable,Supplier payment,329.47,,cnguyen
+JE1019,2026-11-24,2026-11-24,1000 Cash,Supplier payment,,329.47,cnguyen
+JE1020,2026-06-16,2026-06-16,6300 Travel,Travel expense,54.86,,asmith
+JE1020,2026-06-16,2026-06-16,1000 Cash,Travel expense,,54.86,asmith
+JE1021,2026-06-11,2026-06-11,1000 Cash,Customer receipt,19373.6,,bjones
+JE1021,2026-06-11,2026-06-11,1200 Accounts Receivable,Customer receipt,,19373.6,bjones
+JE1022,2026-06-11,2026-06-11,5000 Cost of Sales,Supplier bill,18.4,,asmith
+JE1022,2026-06-11,2026-06-11,2000 Accounts Payable,Supplier bill,,18.4,asmith
+JE1023,2026-11-26,2026-11-26,6400 Office Supplies,Office supplies,198.82,,bjones
+JE1023,2026-11-26,2026-11-26,1000 Cash,Office supplies,,198.82,bjones
+JE1024,2026-05-07,2026-05-07,1000 Cash,Customer receipt,114.69,,cnguyen
+JE1024,2026-05-07,2026-05-07,1200 Accounts Receivable,Customer receipt,,114.69,cnguyen
+JE1025,2026-10-27,2026-10-27,6300 Travel,Travel expense,238.76,,bjones
+JE1025,2026-10-27,2026-10-27,1000 Cash,Travel expense,,238.76,bjones
+JE1026,2026-04-23,2026-04-23,6300 Travel,Travel expense,125.55,,asmith
+JE1026,2026-04-23,2026-04-23,1000 Cash,Travel expense,,125.55,asmith
+JE1027,2026-02-26,2026-02-26,6300 Travel,Travel expense,193.66,,asmith
+JE1027,2026-02-26,2026-02-26,1000 Cash,Travel expense,,193.66,asmith
+JE1028,2026-12-15,2026-12-15,6400 Office Supplies,Office supplies,41.68,,bjones
+JE1028,2026-12-15,2026-12-15,1000 Cash,Office supplies,,41.68,bjones
+JE1029,2026-07-15,2026-07-15,6300 Travel,Travel expense,26.73,,cnguyen
+JE1029,2026-07-15,2026-07-15,1000 Cash,Travel expense,,26.73,cnguyen
+JE1030,2026-01-06,2026-01-06,2000 Accounts Payable,Supplier payment,1307.55,,cnguyen
+JE1030,2026-01-06,2026-01-06,1000 Cash,Supplier payment,,1307.55,cnguyen
+JE1031,2026-10-02,2026-10-02,6400 Office Supplies,Office supplies,33.81,,bjones
+JE1031,2026-10-02,2026-10-02,1000 Cash,Office supplies,,33.81,bjones
+JE1032,2026-08-11,2026-08-11,6400 Office Supplies,Office supplies,95.58,,asmith
+JE1032,2026-08-11,2026-08-11,1000 Cash,Office supplies,,95.58,asmith
+JE1033,2026-05-15,2026-05-15,2000 Accounts Payable,Supplier payment,10.3,,cnguyen
+JE1033,2026-05-15,2026-05-15,1000 Cash,Supplier payment,,10.3,cnguyen
+JE1034,2026-02-24,2026-02-24,1000 Cash,Customer receipt,1073.31,,cnguyen
+JE1034,2026-02-24,2026-02-24,1200 Accounts Receivable,Customer receipt,,1073.31,cnguyen
+JE1035,2026-09-17,2026-09-17,5000 Cost of Sales,Supplier bill,23263.63,,cnguyen
+JE1035,2026-09-17,2026-09-17,2000 Accounts Payable,Supplier bill,,23263.63,cnguyen
+JE1036,2026-03-24,2026-03-24,1000 Cash,Customer receipt,40.87,,cnguyen
+JE1036,2026-03-24,2026-03-24,1200 Accounts Receivable,Customer receipt,,40.87,cnguyen
+JE1037,2026-11-03,2026-11-03,6300 Travel,Travel expense,1370.84,,bjones
+JE1037,2026-11-03,2026-11-03,1000 Cash,Travel expense,,1370.84,bjones
+JE1038,2026-01-30,2026-01-30,2000 Accounts Payable,Supplier payment,11.96,,asmith
+JE1038,2026-01-30,2026-01-30,1000 Cash,Supplier payment,,11.96,asmith
+JE1039,2026-02-13,2026-02-13,6300 Travel,Travel expense,1562.78,,cnguyen
+JE1039,2026-02-13,2026-02-13,1000 Cash,Travel expense,,1562.78,cnguyen
+JE1040,2026-09-30,2026-09-30,2000 Accounts Payable,Supplier payment,18369.32,,asmith
+JE1040,2026-09-30,2026-09-30,1000 Cash,Supplier payment,,18369.32,asmith
+JE1041,2026-10-09,2026-10-09,1000 Cash,Customer receipt,4355.15,,asmith
+JE1041,2026-10-09,2026-10-09,1200 Accounts Receivable,Customer receipt,,4355.15,asmith
+JE1042,2026-08-05,2026-08-05,5000 Cost of Sales,Supplier bill,1290.31,,asmith
+JE1042,2026-08-05,2026-08-05,2000 Accounts Payable,Supplier bill,,1290.31,asmith
+JE1043,2026-04-13,2026-04-13,6300 Travel,Travel expense,646.44,,cnguyen
+JE1043,2026-04-13,2026-04-13,1000 Cash,Travel expense,,646.44,cnguyen
+JE1044,2026-12-10,2026-12-10,5000 Cost of Sales,Supplier bill,394.43,,cnguyen
+JE1044,2026-12-10,2026-12-10,2000 Accounts Payable,Supplier bill,,394.43,cnguyen
+JE1045,2026-09-22,2026-09-22,5000 Cost of Sales,Supplier bill,565.46,,bjones
+JE1045,2026-09-22,2026-09-22,2000 Accounts Payable,Supplier bill,,565.46,bjones
+JE1046,2026-02-02,2026-02-02,1200 Accounts Receivable,Invoice,98.09,,bjones
+JE1046,2026-02-02,2026-02-02,4000 Revenue,Invoice,,98.09,bjones
+JE1047,2026-04-28,2026-04-28,1200 Accounts Receivable,Invoice,2255.46,,cnguyen
+JE1047,2026-04-28,2026-04-28,4000 Revenue,Invoice,,2255.46,cnguyen
+JE1048,2026-12-29,2026-12-29,1000 Cash,Customer receipt,10.68,,cnguyen
+JE1048,2026-12-29,2026-12-29,1200 Accounts Receivable,Customer receipt,,10.68,cnguyen
+JE1049,2026-06-19,2026-06-19,1200 Accounts Receivable,Invoice,82.37,,asmith
+JE1049,2026-06-19,2026-06-19,4000 Revenue,Invoice,,82.37,asmith
+JE1050,2026-12-09,2026-12-09,6300 Travel,Travel expense,59.7,,bjones
+JE1050,2026-12-09,2026-12-09,1000 Cash,Travel expense,,59.7,bjones
+JE1051,2026-10-20,2026-10-20,1000 Cash,Customer receipt,1435.28,,cnguyen
+JE1051,2026-10-20,2026-10-20,1200 Accounts Receivable,Customer receipt,,1435.28,cnguyen
+JE1052,2026-08-31,2026-08-31,2000 Accounts Payable,Supplier payment,93.75,,bjones
+JE1052,2026-08-31,2026-08-31,1000 Cash,Supplier payment,,93.75,bjones
+JE1053,2026-12-04,2026-12-04,1000 Cash,Customer receipt,23.84,,bjones
+JE1053,2026-12-04,2026-12-04,1200 Accounts Receivable,Customer receipt,,23.84,bjones
+JE1054,2026-08-28,2026-08-28,5000 Cost of Sales,Supplier bill,494.67,,cnguyen
+JE1054,2026-08-28,2026-08-28,2000 Accounts Payable,Supplier bill,,494.67,cnguyen
+JE1055,2026-11-27,2026-11-27,1200 Accounts Receivable,Invoice,4936.94,,asmith
+JE1055,2026-11-27,2026-11-27,4000 Revenue,Invoice,,4936.94,asmith
+JE1056,2026-06-23,2026-06-23,1200 Accounts Receivable,Invoice,407.84,,asmith
+JE1056,2026-06-23,2026-06-23,4000 Revenue,Invoice,,407.84,asmith
+JE1057,2026-10-02,2026-10-02,1000 Cash,Customer receipt,58.39,,bjones
+JE1057,2026-10-02,2026-10-02,1200 Accounts Receivable,Customer receipt,,58.39,bjones
+JE1058,2026-08-25,2026-08-25,1000 Cash,Customer receipt,487.0,,asmith
+JE1058,2026-08-25,2026-08-25,1200 Accounts Receivable,Customer receipt,,487.0,asmith
+JE1059,2026-10-09,2026-10-09,1200 Accounts Receivable,Invoice,592.27,,asmith
+JE1059,2026-10-09,2026-10-09,4000 Revenue,Invoice,,592.27,asmith
+JE1060,2026-01-08,2026-01-08,1200 Accounts Receivable,Invoice,4060.5,,asmith
+JE1060,2026-01-08,2026-01-08,4000 Revenue,Invoice,,4060.5,asmith
+JE1061,2026-09-04,2026-09-04,1000 Cash,Customer receipt,46.26,,asmith
+JE1061,2026-09-04,2026-09-04,1200 Accounts Receivable,Customer receipt,,46.26,asmith
+JE1062,2026-03-26,2026-03-26,2000 Accounts Payable,Supplier payment,40716.6,,bjones
+JE1062,2026-03-26,2026-03-26,1000 Cash,Supplier payment,,40716.6,bjones
+JE1063,2026-08-21,2026-08-21,1200 Accounts Receivable,Invoice,87344.46,,bjones
+JE1063,2026-08-21,2026-08-21,4000 Revenue,Invoice,,87344.46,bjones
+JE1064,2026-10-12,2026-10-12,2000 Accounts Payable,Supplier payment,6114.57,,cnguyen
+JE1064,2026-10-12,2026-10-12,1000 Cash,Supplier payment,,6114.57,cnguyen
+JE1065,2026-04-08,2026-04-08,6400 Office Supplies,Office supplies,187.65,,bjones
+JE1065,2026-04-08,2026-04-08,1000 Cash,Office supplies,,187.65,bjones
+JE1066,2026-10-05,2026-10-05,1000 Cash,Customer receipt,74961.36,,asmith
+JE1066,2026-10-05,2026-10-05,1200 Accounts Receivable,Customer receipt,,74961.36,asmith
+JE1067,2026-01-26,2026-01-26,6400 Office Supplies,Office supplies,84.57,,cnguyen
+JE1067,2026-01-26,2026-01-26,1000 Cash,Office supplies,,84.57,cnguyen
+JE1068,2026-09-29,2026-09-29,2000 Accounts Payable,Supplier payment,1026.6,,asmith
+JE1068,2026-09-29,2026-09-29,1000 Cash,Supplier payment,,1026.6,asmith
+JE1069,2026-02-11,2026-02-11,1200 Accounts Receivable,Invoice,69681.2,,asmith
+JE1069,2026-02-11,2026-02-11,4000 Revenue,Invoice,,69681.2,asmith
+JE1070,2026-05-01,2026-05-01,1200 Accounts Receivable,Invoice,2399.61,,bjones
+JE1070,2026-05-01,2026-05-01,4000 Revenue,Invoice,,2399.61,bjones
+JE1071,2026-10-19,2026-10-19,1200 Accounts Receivable,Invoice,58396.19,,asmith
+JE1071,2026-10-19,2026-10-19,4000 Revenue,Invoice,,58396.19,asmith
+JE1072,2026-02-11,2026-02-11,6300 Travel,Travel expense,308.35,,bjones
+JE1072,2026-02-11,2026-02-11,1000 Cash,Travel expense,,308.35,bjones
+JE1073,2026-09-25,2026-09-25,6400 Office Supplies,Office supplies,293.32,,bjones
+JE1073,2026-09-25,2026-09-25,1000 Cash,Office supplies,,293.32,bjones
+JE1074,2026-06-10,2026-06-10,5000 Cost of Sales,Supplier bill,65.62,,asmith
+JE1074,2026-06-10,2026-06-10,2000 Accounts Payable,Supplier bill,,65.62,asmith
+JE1075,2026-12-10,2026-12-10,5000 Cost of Sales,Supplier bill,382.95,,cnguyen
+JE1075,2026-12-10,2026-12-10,2000 Accounts Payable,Supplier bill,,382.95,cnguyen
+JE1076,2026-01-05,2026-01-05,5000 Cost of Sales,Supplier bill,674.37,,bjones
+JE1076,2026-01-05,2026-01-05,2000 Accounts Payable,Supplier bill,,674.37,bjones
+JE1077,2026-04-20,2026-04-20,6300 Travel,Travel expense,1981.11,,cnguyen
+JE1077,2026-04-20,2026-04-20,1000 Cash,Travel expense,,1981.11,cnguyen
+JE1078,2026-02-05,2026-02-05,5000 Cost of Sales,Supplier bill,33.87,,asmith
+JE1078,2026-02-05,2026-02-05,2000 Accounts Payable,Supplier bill,,33.87,asmith
+JE1079,2026-08-13,2026-08-13,5000 Cost of Sales,Supplier bill,138.02,,cnguyen
+JE1079,2026-08-13,2026-08-13,2000 Accounts Payable,Supplier bill,,138.02,cnguyen
+JE1080,2026-12-01,2026-12-01,6400 Office Supplies,Office supplies,80.36,,cnguyen
+JE1080,2026-12-01,2026-12-01,1000 Cash,Office supplies,,80.36,cnguyen
+JE1081,2026-06-03,2026-06-03,1200 Accounts Receivable,Invoice,4693.02,,cnguyen
+JE1081,2026-06-03,2026-06-03,4000 Revenue,Invoice,,4693.02,cnguyen
+JE1082,2026-03-10,2026-03-10,1200 Accounts Receivable,Invoice,56979.68,,bjones
+JE1082,2026-03-10,2026-03-10,4000 Revenue,Invoice,,56979.68,bjones
+JE1083,2026-05-20,2026-05-20,1200 Accounts Receivable,Invoice,36211.86,,bjones
+JE1083,2026-05-20,2026-05-20,4000 Revenue,Invoice,,36211.86,bjones
+JE1084,2026-06-25,2026-06-25,6300 Travel,Travel expense,52.63,,asmith
+JE1084,2026-06-25,2026-06-25,1000 Cash,Travel expense,,52.63,asmith
+JE1085,2026-09-16,2026-09-16,6400 Office Supplies,Office supplies,370.23,,bjones
+JE1085,2026-09-16,2026-09-16,1000 Cash,Office supplies,,370.23,bjones
+JE1086,2026-01-27,2026-01-27,5000 Cost of Sales,Supplier bill,41816.33,,asmith
+JE1086,2026-01-27,2026-01-27,2000 Accounts Payable,Supplier bill,,41816.33,asmith
+JE1087,2026-05-22,2026-05-22,6400 Office Supplies,Office supplies,140.33,,asmith
+JE1087,2026-05-22,2026-05-22,1000 Cash,Office supplies,,140.33,asmith
+JE1088,2026-11-23,2026-11-23,1200 Accounts Receivable,Invoice,215.89,,bjones
+JE1088,2026-11-23,2026-11-23,4000 Revenue,Invoice,,215.89,bjones
+JE1089,2026-12-28,2026-12-28,1000 Cash,Customer receipt,9224.09,,bjones
+JE1089,2026-12-28,2026-12-28,1200 Accounts Receivable,Customer receipt,,9224.09,bjones
+JE1090,2026-03-18,2026-03-18,6300 Travel,Travel expense,20.86,,cnguyen
+JE1090,2026-03-18,2026-03-18,1000 Cash,Travel expense,,20.86,cnguyen
+JE1091,2026-10-26,2026-10-26,1200 Accounts Receivable,Invoice,21796.16,,cnguyen
+JE1091,2026-10-26,2026-10-26,4000 Revenue,Invoice,,21796.16,cnguyen
+JE1092,2026-01-22,2026-01-22,1000 Cash,Customer receipt,523.78,,bjones
+JE1092,2026-01-22,2026-01-22,1200 Accounts Receivable,Customer receipt,,523.78,bjones
+JE1093,2026-01-21,2026-01-21,5000 Cost of Sales,Supplier bill,39439.01,,bjones
+JE1093,2026-01-21,2026-01-21,2000 Accounts Payable,Supplier bill,,39439.01,bjones
+JE1094,2026-12-08,2026-12-08,1000 Cash,Customer receipt,5348.93,,asmith
+JE1094,2026-12-08,2026-12-08,1200 Accounts Receivable,Customer receipt,,5348.93,asmith
+JE1095,2026-07-28,2026-07-28,5000 Cost of Sales,Supplier bill,13196.69,,cnguyen
+JE1095,2026-07-28,2026-07-28,2000 Accounts Payable,Supplier bill,,13196.69,cnguyen
+JE1096,2026-03-25,2026-03-25,6400 Office Supplies,Office supplies,40.65,,asmith
+JE1096,2026-03-25,2026-03-25,1000 Cash,Office supplies,,40.65,asmith
+JE1097,2026-07-30,2026-07-30,2000 Accounts Payable,Supplier payment,12.56,,cnguyen
+JE1097,2026-07-30,2026-07-30,1000 Cash,Supplier payment,,12.56,cnguyen
+JE1098,2026-03-23,2026-03-23,6400 Office Supplies,Office supplies,834.64,,cnguyen
+JE1098,2026-03-23,2026-03-23,1000 Cash,Office supplies,,834.64,cnguyen
+JE1099,2026-01-20,2026-01-20,1200 Accounts Receivable,Invoice,338.97,,bjones
+JE1099,2026-01-20,2026-01-20,4000 Revenue,Invoice,,338.97,bjones
+JE1100,2026-08-24,2026-08-24,1000 Cash,Customer receipt,62.85,,bjones
+JE1100,2026-08-24,2026-08-24,1200 Accounts Receivable,Customer receipt,,62.85,bjones
+JE1101,2026-04-27,2026-04-27,5000 Cost of Sales,Supplier bill,19148.97,,asmith
+JE1101,2026-04-27,2026-04-27,2000 Accounts Payable,Supplier bill,,19148.97,asmith
+JE1102,2026-07-24,2026-07-24,1200 Accounts Receivable,Invoice,4366.49,,bjones
+JE1102,2026-07-24,2026-07-24,4000 Revenue,Invoice,,4366.49,bjones
+JE1103,2026-06-29,2026-06-29,5000 Cost of Sales,Supplier bill,28668.95,,cnguyen
+JE1103,2026-06-29,2026-06-29,2000 Accounts Payable,Supplier bill,,28668.95,cnguyen
+JE1104,2026-10-02,2026-10-02,6300 Travel,Travel expense,125.71,,bjones
+JE1104,2026-10-02,2026-10-02,1000 Cash,Travel expense,,125.71,bjones
+JE1105,2026-05-14,2026-05-14,1200 Accounts Receivable,Invoice,28.93,,asmith
+JE1105,2026-05-14,2026-05-14,4000 Revenue,Invoice,,28.93,asmith
+JE1106,2026-01-20,2026-01-20,6300 Travel,Travel expense,1679.07,,asmith
+JE1106,2026-01-20,2026-01-20,1000 Cash,Travel expense,,1679.07,asmith
+JE1107,2026-06-10,2026-06-10,6300 Travel,Travel expense,147.61,,bjones
+JE1107,2026-06-10,2026-06-10,1000 Cash,Travel expense,,147.61,bjones
+JE1108,2026-07-17,2026-07-17,6300 Travel,Travel expense,1855.55,,cnguyen
+JE1108,2026-07-17,2026-07-17,1000 Cash,Travel expense,,1855.55,cnguyen
+JE1109,2026-12-29,2026-12-29,1000 Cash,Customer receipt,104.45,,bjones
+JE1109,2026-12-29,2026-12-29,1200 Accounts Receivable,Customer receipt,,104.45,bjones
+JE1110,2026-12-18,2026-12-18,1200 Accounts Receivable,Invoice,1201.38,,cnguyen
+JE1110,2026-12-18,2026-12-18,4000 Revenue,Invoice,,1201.38,cnguyen
+JE1111,2026-07-06,2026-07-06,6400 Office Supplies,Office supplies,594.4,,bjones
+JE1111,2026-07-06,2026-07-06,1000 Cash,Office supplies,,594.4,bjones
+JE1112,2026-06-19,2026-06-19,1200 Accounts Receivable,Invoice,62445.04,,cnguyen
+JE1112,2026-06-19,2026-06-19,4000 Revenue,Invoice,,62445.04,cnguyen
+JE1113,2026-03-05,2026-03-05,5000 Cost of Sales,Supplier bill,4503.5,,cnguyen
+JE1113,2026-03-05,2026-03-05,2000 Accounts Payable,Supplier bill,,4503.5,cnguyen
+JE1114,2026-12-08,2026-12-08,5000 Cost of Sales,Supplier bill,1067.8,,bjones
+JE1114,2026-12-08,2026-12-08,2000 Accounts Payable,Supplier bill,,1067.8,bjones
+JE1115,2026-06-01,2026-06-01,5000 Cost of Sales,Supplier bill,407.01,,cnguyen
+JE1115,2026-06-01,2026-06-01,2000 Accounts Payable,Supplier bill,,407.01,cnguyen
+JE1116,2026-12-07,2026-12-07,1000 Cash,Customer receipt,58.53,,bjones
+JE1116,2026-12-07,2026-12-07,1200 Accounts Receivable,Customer receipt,,58.53,bjones
+JE1117,2026-03-31,2026-03-31,6400 Office Supplies,Office supplies,625.56,,cnguyen
+JE1117,2026-03-31,2026-03-31,1000 Cash,Office supplies,,625.56,cnguyen
+JE1118,2026-10-08,2026-10-08,6300 Travel,Travel expense,79.78,,asmith
+JE1118,2026-10-08,2026-10-08,1000 Cash,Travel expense,,79.78,asmith
+JE1119,2026-12-02,2026-12-02,5000 Cost of Sales,Supplier bill,140.49,,bjones
+JE1119,2026-12-02,2026-12-02,2000 Accounts Payable,Supplier bill,,140.49,bjones
+JE1120,2026-04-20,2026-04-20,2000 Accounts Payable,Supplier payment,584.98,,cnguyen
+JE1120,2026-04-20,2026-04-20,1000 Cash,Supplier payment,,584.98,cnguyen
+JE1121,2026-12-04,2026-12-04,2000 Accounts Payable,Supplier payment,14960.34,,asmith
+JE1121,2026-12-04,2026-12-04,1000 Cash,Supplier payment,,14960.34,asmith
+JE1122,2026-02-17,2026-02-17,5000 Cost of Sales,Supplier bill,1152.94,,asmith
+JE1122,2026-02-17,2026-02-17,2000 Accounts Payable,Supplier bill,,1152.94,asmith
+JE1123,2026-03-17,2026-03-17,6400 Office Supplies,Office supplies,83.34,,asmith
+JE1123,2026-03-17,2026-03-17,1000 Cash,Office supplies,,83.34,asmith
+JE1124,2026-09-01,2026-09-01,1200 Accounts Receivable,Invoice,95.36,,cnguyen
+JE1124,2026-09-01,2026-09-01,4000 Revenue,Invoice,,95.36,cnguyen
+JE1125,2026-11-19,2026-11-19,1200 Accounts Receivable,Invoice,663.23,,cnguyen
+JE1125,2026-11-19,2026-11-19,4000 Revenue,Invoice,,663.23,cnguyen
+JE1126,2026-07-16,2026-07-16,1000 Cash,Customer receipt,7471.08,,bjones
+JE1126,2026-07-16,2026-07-16,1200 Accounts Receivable,Customer receipt,,7471.08,bjones
+JE1127,2026-12-02,2026-12-02,2000 Accounts Payable,Supplier payment,94.61,,cnguyen
+JE1127,2026-12-02,2026-12-02,1000 Cash,Supplier payment,,94.61,cnguyen
+JE1128,2026-02-24,2026-02-24,1200 Accounts Receivable,Invoice,37208.26,,bjones
+JE1128,2026-02-24,2026-02-24,4000 Revenue,Invoice,,37208.26,bjones
+JE1129,2026-12-23,2026-12-23,1000 Cash,Customer receipt,50.53,,cnguyen
+JE1129,2026-12-23,2026-12-23,1200 Accounts Receivable,Customer receipt,,50.53,cnguyen
+JE1130,2026-05-08,2026-05-08,2000 Accounts Payable,Supplier payment,15.88,,asmith
+JE1130,2026-05-08,2026-05-08,1000 Cash,Supplier payment,,15.88,asmith
+JE1131,2026-08-26,2026-08-26,2000 Accounts Payable,Supplier payment,34.15,,cnguyen
+JE1131,2026-08-26,2026-08-26,1000 Cash,Supplier payment,,34.15,cnguyen
+JE1132,2026-06-12,2026-06-12,6300 Travel,Travel expense,1887.06,,bjones
+JE1132,2026-06-12,2026-06-12,1000 Cash,Travel expense,,1887.06,bjones
+JE1133,2026-09-16,2026-09-16,6300 Travel,Travel expense,851.16,,bjones
+JE1133,2026-09-16,2026-09-16,1000 Cash,Travel expense,,851.16,bjones
+JE1134,2026-03-23,2026-03-23,6300 Travel,Travel expense,155.53,,cnguyen
+JE1134,2026-03-23,2026-03-23,1000 Cash,Travel expense,,155.53,cnguyen
+JE1135,2026-05-07,2026-05-07,2000 Accounts Payable,Supplier payment,631.36,,cnguyen
+JE1135,2026-05-07,2026-05-07,1000 Cash,Supplier payment,,631.36,cnguyen
+JE1136,2026-09-24,2026-09-24,5000 Cost of Sales,Supplier bill,11567.91,,bjones
+JE1136,2026-09-24,2026-09-24,2000 Accounts Payable,Supplier bill,,11567.91,bjones
+JE1137,2026-08-14,2026-08-14,6400 Office Supplies,Office supplies,60.05,,asmith
+JE1137,2026-08-14,2026-08-14,1000 Cash,Office supplies,,60.05,asmith
+JE1138,2026-05-20,2026-05-20,6400 Office Supplies,Office supplies,74.38,,bjones
+JE1138,2026-05-20,2026-05-20,1000 Cash,Office supplies,,74.38,bjones
+JE1139,2026-02-11,2026-02-11,5000 Cost of Sales,Supplier bill,37334.24,,asmith
+JE1139,2026-02-11,2026-02-11,2000 Accounts Payable,Supplier bill,,37334.24,asmith
+JE1140,2026-12-22,2026-12-22,1000 Cash,Customer receipt,84.15,,asmith
+JE1140,2026-12-22,2026-12-22,1200 Accounts Receivable,Customer receipt,,84.15,asmith
+JE1141,2026-07-28,2026-07-28,6400 Office Supplies,Office supplies,53.44,,bjones
+JE1141,2026-07-28,2026-07-28,1000 Cash,Office supplies,,53.44,bjones
+JE1142,2026-04-16,2026-04-16,6300 Travel,Travel expense,170.55,,bjones
+JE1142,2026-04-16,2026-04-16,1000 Cash,Travel expense,,170.55,bjones
+JE1143,2026-10-27,2026-10-27,2000 Accounts Payable,Supplier payment,41624.97,,cnguyen
+JE1143,2026-10-27,2026-10-27,1000 Cash,Supplier payment,,41624.97,cnguyen
+JE1144,2026-10-22,2026-10-22,1200 Accounts Receivable,Invoice,26725.64,,bjones
+JE1144,2026-10-22,2026-10-22,4000 Revenue,Invoice,,26725.64,bjones
+JE1145,2026-06-30,2026-06-30,2000 Accounts Payable,Supplier payment,10.56,,bjones
+JE1145,2026-06-30,2026-06-30,1000 Cash,Supplier payment,,10.56,bjones
+JE1146,2026-08-03,2026-08-03,2000 Accounts Payable,Supplier payment,25929.36,,cnguyen
+JE1146,2026-08-03,2026-08-03,1000 Cash,Supplier payment,,25929.36,cnguyen
+JE1147,2026-11-05,2026-11-05,6400 Office Supplies,Office supplies,587.85,,asmith
+JE1147,2026-11-05,2026-11-05,1000 Cash,Office supplies,,587.85,asmith
+JE1148,2026-08-12,2026-08-12,2000 Accounts Payable,Supplier payment,75.45,,bjones
+JE1148,2026-08-12,2026-08-12,1000 Cash,Supplier payment,,75.45,bjones
+JE1149,2026-12-09,2026-12-09,1200 Accounts Receivable,Invoice,359.28,,cnguyen
+JE1149,2026-12-09,2026-12-09,4000 Revenue,Invoice,,359.28,cnguyen
+JE1150,2026-08-28,2026-08-28,2000 Accounts Payable,Supplier payment,7883.62,,asmith
+JE1150,2026-08-28,2026-08-28,1000 Cash,Supplier payment,,7883.62,asmith
+JE1151,2026-07-21,2026-07-21,6300 Travel,Travel expense,233.48,,cnguyen
+JE1151,2026-07-21,2026-07-21,1000 Cash,Travel expense,,233.48,cnguyen
+JE1152,2026-02-12,2026-02-12,6300 Travel,Travel expense,422.67,,cnguyen
+JE1152,2026-02-12,2026-02-12,1000 Cash,Travel expense,,422.67,cnguyen
+JE1153,2026-08-25,2026-08-25,2000 Accounts Payable,Supplier payment,34.9,,asmith
+JE1153,2026-08-25,2026-08-25,1000 Cash,Supplier payment,,34.9,asmith
+JE1154,2026-06-17,2026-06-17,1200 Accounts Receivable,Invoice,109.81,,asmith
+JE1154,2026-06-17,2026-06-17,4000 Revenue,Invoice,,109.81,asmith
+JE1155,2026-07-14,2026-07-14,2000 Accounts Payable,Supplier payment,202.95,,bjones
+JE1155,2026-07-14,2026-07-14,1000 Cash,Supplier payment,,202.95,bjones
+JE1156,2026-02-11,2026-02-11,2000 Accounts Payable,Supplier payment,102.11,,bjones
+JE1156,2026-02-11,2026-02-11,1000 Cash,Supplier payment,,102.11,bjones
+JE1157,2026-01-27,2026-01-27,1200 Accounts Receivable,Invoice,9910.53,,bjones
+JE1157,2026-01-27,2026-01-27,4000 Revenue,Invoice,,9910.53,bjones
+JE1158,2026-11-30,2026-11-30,1000 Cash,Customer receipt,3986.36,,asmith
+JE1158,2026-11-30,2026-11-30,1200 Accounts Receivable,Customer receipt,,3986.36,asmith
+JE1159,2026-04-13,2026-04-13,1200 Accounts Receivable,Invoice,62870.5,,asmith
+JE1159,2026-04-13,2026-04-13,4000 Revenue,Invoice,,62870.5,asmith
+JE1160,2026-03-06,2026-03-06,6300 Travel,Travel expense,40.25,,bjones
+JE1160,2026-03-06,2026-03-06,1000 Cash,Travel expense,,40.25,bjones
+JE1161,2026-04-22,2026-04-22,6400 Office Supplies,Office supplies,33.79,,bjones
+JE1161,2026-04-22,2026-04-22,1000 Cash,Office supplies,,33.79,bjones
+JE1162,2026-07-08,2026-07-08,6400 Office Supplies,Office supplies,64.94,,asmith
+JE1162,2026-07-08,2026-07-08,1000 Cash,Office supplies,,64.94,asmith
+JE1163,2026-03-25,2026-03-25,6300 Travel,Travel expense,326.96,,bjones
+JE1163,2026-03-25,2026-03-25,1000 Cash,Travel expense,,326.96,bjones
+JE1164,2026-06-09,2026-06-09,1200 Accounts Receivable,Invoice,2064.14,,cnguyen
+JE1164,2026-06-09,2026-06-09,4000 Revenue,Invoice,,2064.14,cnguyen
+JE1165,2026-07-23,2026-07-23,6400 Office Supplies,Office supplies,1306.33,,cnguyen
+JE1165,2026-07-23,2026-07-23,1000 Cash,Office supplies,,1306.33,cnguyen
+JE1166,2026-11-18,2026-11-18,1000 Cash,Customer receipt,20.14,,asmith
+JE1166,2026-11-18,2026-11-18,1200 Accounts Receivable,Customer receipt,,20.14,asmith
+JE1167,2026-06-04,2026-06-04,1200 Accounts Receivable,Invoice,6148.54,,cnguyen
+JE1167,2026-06-04,2026-06-04,4000 Revenue,Invoice,,6148.54,cnguyen
+JE1168,2026-01-22,2026-01-22,6300 Travel,Travel expense,814.81,,bjones
+JE1168,2026-01-22,2026-01-22,1000 Cash,Travel expense,,814.81,bjones
+JE1169,2026-07-09,2026-07-09,6300 Travel,Travel expense,143.47,,asmith
+JE1169,2026-07-09,2026-07-09,1000 Cash,Travel expense,,143.47,asmith
+JE1170,2026-01-07,2026-01-07,6300 Travel,Travel expense,393.63,,bjones
+JE1170,2026-01-07,2026-01-07,1000 Cash,Travel expense,,393.63,bjones
+JE1171,2026-08-24,2026-08-24,2000 Accounts Payable,Supplier payment,26.43,,cnguyen
+JE1171,2026-08-24,2026-08-24,1000 Cash,Supplier payment,,26.43,cnguyen
+JE1172,2026-09-25,2026-09-25,1000 Cash,Customer receipt,552.01,,cnguyen
+JE1172,2026-09-25,2026-09-25,1200 Accounts Receivable,Customer receipt,,552.01,cnguyen
+JE1173,2026-08-27,2026-08-27,5000 Cost of Sales,Supplier bill,2908.37,,bjones
+JE1173,2026-08-27,2026-08-27,2000 Accounts Payable,Supplier bill,,2908.37,bjones
+JE1174,2026-06-15,2026-06-15,6400 Office Supplies,Office supplies,305.46,,asmith
+JE1174,2026-06-15,2026-06-15,1000 Cash,Office supplies,,305.46,asmith
+JE1175,2026-08-19,2026-08-19,1200 Accounts Receivable,Invoice,130.53,,asmith
+JE1175,2026-08-19,2026-08-19,4000 Revenue,Invoice,,130.53,asmith
+JE1176,2026-12-09,2026-12-09,2000 Accounts Payable,Supplier payment,1902.82,,bjones
+JE1176,2026-12-09,2026-12-09,1000 Cash,Supplier payment,,1902.82,bjones
+JE1177,2026-06-16,2026-06-16,5000 Cost of Sales,Supplier bill,13.03,,asmith
+JE1177,2026-06-16,2026-06-16,2000 Accounts Payable,Supplier bill,,13.03,asmith
+JE1178,2026-05-13,2026-05-13,2000 Accounts Payable,Supplier payment,70.55,,bjones
+JE1178,2026-05-13,2026-05-13,1000 Cash,Supplier payment,,70.55,bjones
+JE1179,2026-05-22,2026-05-22,5000 Cost of Sales,Supplier bill,33210.84,,cnguyen
+JE1179,2026-05-22,2026-05-22,2000 Accounts Payable,Supplier bill,,33210.84,cnguyen
+JE1180,2026-04-08,2026-04-08,1200 Accounts Receivable,Invoice,1165.49,,asmith
+JE1180,2026-04-08,2026-04-08,4000 Revenue,Invoice,,1165.49,asmith
+JE1181,2026-09-08,2026-09-08,1000 Cash,Customer receipt,7590.99,,cnguyen
+JE1181,2026-09-08,2026-09-08,1200 Accounts Receivable,Customer receipt,,7590.99,cnguyen
+JE1182,2026-11-27,2026-11-27,1000 Cash,Customer receipt,5786.79,,cnguyen
+JE1182,2026-11-27,2026-11-27,1200 Accounts Receivable,Customer receipt,,5786.79,cnguyen
+JE1183,2026-01-09,2026-01-09,2000 Accounts Payable,Supplier payment,620.44,,asmith
+JE1183,2026-01-09,2026-01-09,1000 Cash,Supplier payment,,620.44,asmith
+JE1184,2026-12-21,2026-12-21,5000 Cost of Sales,Supplier bill,76.98,,asmith
+JE1184,2026-12-21,2026-12-21,2000 Accounts Payable,Supplier bill,,76.98,asmith
+JE1185,2026-07-08,2026-07-08,5000 Cost of Sales,Supplier bill,4527.31,,bjones
+JE1185,2026-07-08,2026-07-08,2000 Accounts Payable,Supplier bill,,4527.31,bjones
+JE1186,2026-08-06,2026-08-06,6300 Travel,Travel expense,230.06,,cnguyen
+JE1186,2026-08-06,2026-08-06,1000 Cash,Travel expense,,230.06,cnguyen
+JE1187,2026-08-21,2026-08-21,6300 Travel,Travel expense,91.53,,bjones
+JE1187,2026-08-21,2026-08-21,1000 Cash,Travel expense,,91.53,bjones
+JE1188,2026-03-03,2026-03-03,5000 Cost of Sales,Supplier bill,101.3,,cnguyen
+JE1188,2026-03-03,2026-03-03,2000 Accounts Payable,Supplier bill,,101.3,cnguyen
+JE1189,2026-10-02,2026-10-02,1000 Cash,Customer receipt,182.89,,cnguyen
+JE1189,2026-10-02,2026-10-02,1200 Accounts Receivable,Customer receipt,,182.89,cnguyen
+JE1190,2026-05-22,2026-05-22,1000 Cash,Customer receipt,58.37,,cnguyen
+JE1190,2026-05-22,2026-05-22,1200 Accounts Receivable,Customer receipt,,58.37,cnguyen
+JE1191,2026-11-02,2026-11-02,6300 Travel,Travel expense,1791.49,,bjones
+JE1191,2026-11-02,2026-11-02,1000 Cash,Travel expense,,1791.49,bjones
+JE1192,2026-06-01,2026-06-01,1200 Accounts Receivable,Invoice,21404.91,,asmith
+JE1192,2026-06-01,2026-06-01,4000 Revenue,Invoice,,21404.91,asmith
+JE1193,2026-01-08,2026-01-08,5000 Cost of Sales,Supplier bill,52.21,,cnguyen
+JE1193,2026-01-08,2026-01-08,2000 Accounts Payable,Supplier bill,,52.21,cnguyen
+JE1194,2026-01-28,2026-01-28,6300 Travel,Travel expense,35.74,,cnguyen
+JE1194,2026-01-28,2026-01-28,1000 Cash,Travel expense,,35.74,cnguyen
+JE1195,2026-03-06,2026-03-06,5000 Cost of Sales,Supplier bill,6161.26,,cnguyen
+JE1195,2026-03-06,2026-03-06,2000 Accounts Payable,Supplier bill,,6161.26,cnguyen
+JE1196,2026-01-07,2026-01-07,2000 Accounts Payable,Supplier payment,25.72,,cnguyen
+JE1196,2026-01-07,2026-01-07,1000 Cash,Supplier payment,,25.72,cnguyen
+JE1197,2026-08-14,2026-08-14,5000 Cost of Sales,Supplier bill,754.38,,bjones
+JE1197,2026-08-14,2026-08-14,2000 Accounts Payable,Supplier bill,,754.38,bjones
+JE1198,2026-09-02,2026-09-02,1000 Cash,Customer receipt,72776.4,,asmith
+JE1198,2026-09-02,2026-09-02,1200 Accounts Receivable,Customer receipt,,72776.4,asmith
+JE1199,2026-10-23,2026-10-23,1200 Accounts Receivable,Invoice,400.71,,cnguyen
+JE1199,2026-10-23,2026-10-23,4000 Revenue,Invoice,,400.71,cnguyen
+JE1200,2026-03-18,2026-03-18,6400 Office Supplies,Office supplies,25.54,,cnguyen
+JE1200,2026-03-18,2026-03-18,1000 Cash,Office supplies,,25.54,cnguyen
+JE1201,2026-05-08,2026-05-08,5000 Cost of Sales,Supplier bill,21.91,,asmith
+JE1201,2026-05-08,2026-05-08,2000 Accounts Payable,Supplier bill,,21.91,asmith
+JE1202,2026-11-02,2026-11-02,6300 Travel,Travel expense,674.35,,cnguyen
+JE1202,2026-11-02,2026-11-02,1000 Cash,Travel expense,,674.35,cnguyen
+JE1203,2026-07-14,2026-07-14,1000 Cash,Customer receipt,12669.93,,bjones
+JE1203,2026-07-14,2026-07-14,1200 Accounts Receivable,Customer receipt,,12669.93,bjones
+JE1204,2026-10-29,2026-10-29,2000 Accounts Payable,Supplier payment,154.67,,bjones
+JE1204,2026-10-29,2026-10-29,1000 Cash,Supplier payment,,154.67,bjones
+JE1205,2026-11-09,2026-11-09,5000 Cost of Sales,Supplier bill,1881.56,,cnguyen
+JE1205,2026-11-09,2026-11-09,2000 Accounts Payable,Supplier bill,,1881.56,cnguyen
+JE1206,2026-04-17,2026-04-17,1200 Accounts Receivable,Invoice,61710.75,,cnguyen
+JE1206,2026-04-17,2026-04-17,4000 Revenue,Invoice,,61710.75,cnguyen
+JE1207,2026-02-11,2026-02-11,1000 Cash,Customer receipt,114.44,,asmith
+JE1207,2026-02-11,2026-02-11,1200 Accounts Receivable,Customer receipt,,114.44,asmith
+JE1208,2026-01-02,2026-01-02,1000 Cash,Customer receipt,49.57,,bjones
+JE1208,2026-01-02,2026-01-02,1200 Accounts Receivable,Customer receipt,,49.57,bjones
+JE1209,2026-04-29,2026-04-29,2000 Accounts Payable,Supplier payment,5721.17,,bjones
+JE1209,2026-04-29,2026-04-29,1000 Cash,Supplier payment,,5721.17,bjones
+JE1210,2026-08-21,2026-08-21,6400 Office Supplies,Office supplies,73.36,,asmith
+JE1210,2026-08-21,2026-08-21,1000 Cash,Office supplies,,73.36,asmith
+JE1211,2026-11-17,2026-11-17,6400 Office Supplies,Office supplies,58.46,,cnguyen
+JE1211,2026-11-17,2026-11-17,1000 Cash,Office supplies,,58.46,cnguyen
+JE1212,2026-08-06,2026-08-06,6400 Office Supplies,Office supplies,808.74,,asmith
+JE1212,2026-08-06,2026-08-06,1000 Cash,Office supplies,,808.74,asmith
+JE1213,2026-03-18,2026-03-18,6300 Travel,Travel expense,56.18,,bjones
+JE1213,2026-03-18,2026-03-18,1000 Cash,Travel expense,,56.18,bjones
+JE1214,2026-03-26,2026-03-26,1000 Cash,Customer receipt,19.3,,bjones
+JE1214,2026-03-26,2026-03-26,1200 Accounts Receivable,Customer receipt,,19.3,bjones
+JE1215,2026-10-19,2026-10-19,6300 Travel,Travel expense,627.94,,bjones
+JE1215,2026-10-19,2026-10-19,1000 Cash,Travel expense,,627.94,bjones
+JE1216,2026-06-05,2026-06-05,2000 Accounts Payable,Supplier payment,31.44,,cnguyen
+JE1216,2026-06-05,2026-06-05,1000 Cash,Supplier payment,,31.44,cnguyen
+JE1217,2026-09-14,2026-09-14,2000 Accounts Payable,Supplier payment,58980.03,,cnguyen
+JE1217,2026-09-14,2026-09-14,1000 Cash,Supplier payment,,58980.03,cnguyen
+JE1218,2026-11-03,2026-11-03,2000 Accounts Payable,Supplier payment,563.68,,asmith
+JE1218,2026-11-03,2026-11-03,1000 Cash,Supplier payment,,563.68,asmith
+JE1219,2026-11-06,2026-11-06,2000 Accounts Payable,Supplier payment,8672.33,,bjones
+JE1219,2026-11-06,2026-11-06,1000 Cash,Supplier payment,,8672.33,bjones
+JE1220,2026-10-22,2026-10-22,1200 Accounts Receivable,Invoice,23.19,,cnguyen
+JE1220,2026-10-22,2026-10-22,4000 Revenue,Invoice,,23.19,cnguyen
+JE1221,2026-12-11,2026-12-11,1200 Accounts Receivable,Invoice,99606.96,,bjones
+JE1221,2026-12-11,2026-12-11,4000 Revenue,Invoice,,99606.96,bjones
+JE1222,2026-03-31,2026-03-31,6300 Travel,Travel expense,24.01,,bjones
+JE1222,2026-03-31,2026-03-31,1000 Cash,Travel expense,,24.01,bjones
+JE1223,2026-04-03,2026-04-03,6300 Travel,Travel expense,400.88,,cnguyen
+JE1223,2026-04-03,2026-04-03,1000 Cash,Travel expense,,400.88,cnguyen
+JE1224,2026-09-09,2026-09-09,2000 Accounts Payable,Supplier payment,3460.5,,asmith
+JE1224,2026-09-09,2026-09-09,1000 Cash,Supplier payment,,3460.5,asmith
+JE1225,2026-12-10,2026-12-10,2000 Accounts Payable,Supplier payment,246.52,,asmith
+JE1225,2026-12-10,2026-12-10,1000 Cash,Supplier payment,,246.52,asmith
+JE1226,2026-12-22,2026-12-22,1000 Cash,Customer receipt,208.55,,bjones
+JE1226,2026-12-22,2026-12-22,1200 Accounts Receivable,Customer receipt,,208.55,bjones
+JE1227,2026-10-09,2026-10-09,5000 Cost of Sales,Supplier bill,4470.27,,asmith
+JE1227,2026-10-09,2026-10-09,2000 Accounts Payable,Supplier bill,,4470.27,asmith
+JE1228,2026-06-15,2026-06-15,2000 Accounts Payable,Supplier payment,22.5,,asmith
+JE1228,2026-06-15,2026-06-15,1000 Cash,Supplier payment,,22.5,asmith
+JE1229,2026-01-01,2026-01-01,2000 Accounts Payable,Supplier payment,28816.57,,cnguyen
+JE1229,2026-01-01,2026-01-01,1000 Cash,Supplier payment,,28816.57,cnguyen
+JE1230,2026-01-28,2026-01-28,6300 Travel,Travel expense,167.48,,asmith
+JE1230,2026-01-28,2026-01-28,1000 Cash,Travel expense,,167.48,asmith
+JE1231,2026-11-17,2026-11-17,6300 Travel,Travel expense,105.57,,bjones
+JE1231,2026-11-17,2026-11-17,1000 Cash,Travel expense,,105.57,bjones
+JE1232,2026-10-09,2026-10-09,1200 Accounts Receivable,Invoice,65.2,,asmith
+JE1232,2026-10-09,2026-10-09,4000 Revenue,Invoice,,65.2,asmith
+JE1233,2026-12-24,2026-12-24,5000 Cost of Sales,Supplier bill,565.54,,bjones
+JE1233,2026-12-24,2026-12-24,2000 Accounts Payable,Supplier bill,,565.54,bjones
+JE1234,2026-11-19,2026-11-19,1200 Accounts Receivable,Invoice,13.05,,cnguyen
+JE1234,2026-11-19,2026-11-19,4000 Revenue,Invoice,,13.05,cnguyen
+JE1235,2026-06-09,2026-06-09,1000 Cash,Customer receipt,6904.49,,cnguyen
+JE1235,2026-06-09,2026-06-09,1200 Accounts Receivable,Customer receipt,,6904.49,cnguyen
+JE1236,2026-02-17,2026-02-17,1200 Accounts Receivable,Invoice,1618.1,,asmith
+JE1236,2026-02-17,2026-02-17,4000 Revenue,Invoice,,1618.1,asmith
+JE1237,2026-03-02,2026-03-02,1200 Accounts Receivable,Invoice,701.12,,cnguyen
+JE1237,2026-03-02,2026-03-02,4000 Revenue,Invoice,,701.12,cnguyen
+JE1238,2026-09-18,2026-09-18,1000 Cash,Customer receipt,985.15,,cnguyen
+JE1238,2026-09-18,2026-09-18,1200 Accounts Receivable,Customer receipt,,985.15,cnguyen
+JE1239,2026-05-05,2026-05-05,5000 Cost of Sales,Supplier bill,459.16,,bjones
+JE1239,2026-05-05,2026-05-05,2000 Accounts Payable,Supplier bill,,459.16,bjones
+JE1240,2026-04-08,2026-04-08,6300 Travel,Travel expense,38.84,,cnguyen
+JE1240,2026-04-08,2026-04-08,1000 Cash,Travel expense,,38.84,cnguyen
+JE1241,2026-03-11,2026-03-11,6300 Travel,Travel expense,620.28,,asmith
+JE1241,2026-03-11,2026-03-11,1000 Cash,Travel expense,,620.28,asmith
+JE1242,2026-06-24,2026-06-24,5000 Cost of Sales,Supplier bill,12322.55,,cnguyen
+JE1242,2026-06-24,2026-06-24,2000 Accounts Payable,Supplier bill,,12322.55,cnguyen
+JE1243,2026-05-25,2026-05-25,5000 Cost of Sales,Supplier bill,19151.28,,cnguyen
+JE1243,2026-05-25,2026-05-25,2000 Accounts Payable,Supplier bill,,19151.28,cnguyen
+JE1244,2026-12-04,2026-12-04,5000 Cost of Sales,Supplier bill,22382.25,,bjones
+JE1244,2026-12-04,2026-12-04,2000 Accounts Payable,Supplier bill,,22382.25,bjones
+JE1245,2026-06-26,2026-06-26,1000 Cash,Customer receipt,611.21,,bjones
+JE1245,2026-06-26,2026-06-26,1200 Accounts Receivable,Customer receipt,,611.21,bjones
+JE1246,2026-07-13,2026-07-13,6300 Travel,Travel expense,669.49,,bjones
+JE1246,2026-07-13,2026-07-13,1000 Cash,Travel expense,,669.49,bjones
+JE1247,2026-12-24,2026-12-24,5000 Cost of Sales,Supplier bill,30088.93,,asmith
+JE1247,2026-12-24,2026-12-24,2000 Accounts Payable,Supplier bill,,30088.93,asmith
+JE1248,2026-07-30,2026-07-30,6300 Travel,Travel expense,116.4,,asmith
+JE1248,2026-07-30,2026-07-30,1000 Cash,Travel expense,,116.4,asmith
+JE1249,2026-12-28,2026-12-28,5000 Cost of Sales,Supplier bill,9524.03,,bjones
+JE1249,2026-12-28,2026-12-28,2000 Accounts Payable,Supplier bill,,9524.03,bjones
+JE1250,2026-11-30,2026-11-30,2000 Accounts Payable,Supplier payment,89878.54,,asmith
+JE1250,2026-11-30,2026-11-30,1000 Cash,Supplier payment,,89878.54,asmith
+JE1251,2026-03-06,2026-03-06,2000 Accounts Payable,Supplier payment,72326.55,,cnguyen
+JE1251,2026-03-06,2026-03-06,1000 Cash,Supplier payment,,72326.55,cnguyen
+JE1252,2026-08-14,2026-08-14,6300 Travel,Travel expense,92.04,,asmith
+JE1252,2026-08-14,2026-08-14,1000 Cash,Travel expense,,92.04,asmith
+JE1253,2026-01-08,2026-01-08,6300 Travel,Travel expense,1320.94,,cnguyen
+JE1253,2026-01-08,2026-01-08,1000 Cash,Travel expense,,1320.94,cnguyen
+JE1254,2026-12-02,2026-12-02,1000 Cash,Customer receipt,436.43,,asmith
+JE1254,2026-12-02,2026-12-02,1200 Accounts Receivable,Customer receipt,,436.43,asmith
+JE1255,2026-06-23,2026-06-23,1200 Accounts Receivable,Invoice,755.03,,cnguyen
+JE1255,2026-06-23,2026-06-23,4000 Revenue,Invoice,,755.03,cnguyen
+JE1256,2026-02-11,2026-02-11,6400 Office Supplies,Office supplies,124.44,,bjones
+JE1256,2026-02-11,2026-02-11,1000 Cash,Office supplies,,124.44,bjones
+JE1257,2026-07-14,2026-07-14,6400 Office Supplies,Office supplies,1043.96,,bjones
+JE1257,2026-07-14,2026-07-14,1000 Cash,Office supplies,,1043.96,bjones
+JE1258,2026-09-07,2026-09-07,6400 Office Supplies,Office supplies,546.3,,cnguyen
+JE1258,2026-09-07,2026-09-07,1000 Cash,Office supplies,,546.3,cnguyen
+JE1259,2026-05-01,2026-05-01,1200 Accounts Receivable,Invoice,2950.11,,cnguyen
+JE1259,2026-05-01,2026-05-01,4000 Revenue,Invoice,,2950.11,cnguyen
+JE1260,2026-04-27,2026-04-27,6400 Office Supplies,Office supplies,1386.3,,cnguyen
+JE1260,2026-04-27,2026-04-27,1000 Cash,Office supplies,,1386.3,cnguyen
+JE1261,2026-02-20,2026-02-20,1200 Accounts Receivable,Invoice,544.36,,cnguyen
+JE1261,2026-02-20,2026-02-20,4000 Revenue,Invoice,,544.36,cnguyen
+JE1262,2026-03-27,2026-03-27,6400 Office Supplies,Office supplies,1109.58,,cnguyen
+JE1262,2026-03-27,2026-03-27,1000 Cash,Office supplies,,1109.58,cnguyen
+JE1263,2026-06-16,2026-06-16,5000 Cost of Sales,Supplier bill,41086.23,,asmith
+JE1263,2026-06-16,2026-06-16,2000 Accounts Payable,Supplier bill,,41086.23,asmith
+JE1264,2026-03-16,2026-03-16,5000 Cost of Sales,Supplier bill,271.55,,asmith
+JE1264,2026-03-16,2026-03-16,2000 Accounts Payable,Supplier bill,,271.55,asmith
+JE1265,2026-12-16,2026-12-16,6300 Travel,Travel expense,133.08,,asmith
+JE1265,2026-12-16,2026-12-16,1000 Cash,Travel expense,,133.08,asmith
+JE1266,2026-11-09,2026-11-09,1000 Cash,Customer receipt,50.15,,bjones
+JE1266,2026-11-09,2026-11-09,1200 Accounts Receivable,Customer receipt,,50.15,bjones
+JE1267,2026-10-26,2026-10-26,6300 Travel,Travel expense,463.73,,asmith
+JE1267,2026-10-26,2026-10-26,1000 Cash,Travel expense,,463.73,asmith
+JE1268,2026-05-11,2026-05-11,1000 Cash,Customer receipt,699.2,,bjones
+JE1268,2026-05-11,2026-05-11,1200 Accounts Receivable,Customer receipt,,699.2,bjones
+JE1269,2026-08-27,2026-08-27,5000 Cost of Sales,Supplier bill,4649.04,,bjones
+JE1269,2026-08-27,2026-08-27,2000 Accounts Payable,Supplier bill,,4649.04,bjones
+JE1270,2026-06-26,2026-06-26,6400 Office Supplies,Office supplies,247.28,,cnguyen
+JE1270,2026-06-26,2026-06-26,1000 Cash,Office supplies,,247.28,cnguyen
+JE1271,2026-08-06,2026-08-06,5000 Cost of Sales,Supplier bill,3595.46,,cnguyen
+JE1271,2026-08-06,2026-08-06,2000 Accounts Payable,Supplier bill,,3595.46,cnguyen
+JE1272,2026-06-04,2026-06-04,5000 Cost of Sales,Supplier bill,671.96,,asmith
+JE1272,2026-06-04,2026-06-04,2000 Accounts Payable,Supplier bill,,671.96,asmith
+JE1273,2026-02-24,2026-02-24,2000 Accounts Payable,Supplier payment,25902.51,,asmith
+JE1273,2026-02-24,2026-02-24,1000 Cash,Supplier payment,,25902.51,asmith
+JE1274,2026-10-22,2026-10-22,2000 Accounts Payable,Supplier payment,1939.5,,bjones
+JE1274,2026-10-22,2026-10-22,1000 Cash,Supplier payment,,1939.5,bjones
+JE1275,2026-12-04,2026-12-04,6400 Office Supplies,Office supplies,77.71,,bjones
+JE1275,2026-12-04,2026-12-04,1000 Cash,Office supplies,,77.71,bjones
+JE1276,2026-12-18,2026-12-18,5000 Cost of Sales,Supplier bill,10.77,,cnguyen
+JE1276,2026-12-18,2026-12-18,2000 Accounts Payable,Supplier bill,,10.77,cnguyen
+JE1277,2026-05-27,2026-05-27,1200 Accounts Receivable,Invoice,43900.33,,asmith
+JE1277,2026-05-27,2026-05-27,4000 Revenue,Invoice,,43900.33,asmith
+JE1278,2026-04-23,2026-04-23,6300 Travel,Travel expense,801.43,,cnguyen
+JE1278,2026-04-23,2026-04-23,1000 Cash,Travel expense,,801.43,cnguyen
+JE1279,2026-12-14,2026-12-14,1000 Cash,Customer receipt,3044.84,,cnguyen
+JE1279,2026-12-14,2026-12-14,1200 Accounts Receivable,Customer receipt,,3044.84,cnguyen
+JE1280,2026-03-12,2026-03-12,6400 Office Supplies,Office supplies,458.89,,cnguyen
+JE1280,2026-03-12,2026-03-12,1000 Cash,Office supplies,,458.89,cnguyen
+JE1281,2026-11-27,2026-11-27,1200 Accounts Receivable,Invoice,41078.52,,asmith
+JE1281,2026-11-27,2026-11-27,4000 Revenue,Invoice,,41078.52,asmith
+JE1282,2026-07-06,2026-07-06,5000 Cost of Sales,Supplier bill,14270.59,,cnguyen
+JE1282,2026-07-06,2026-07-06,2000 Accounts Payable,Supplier bill,,14270.59,cnguyen
+JE1283,2026-06-01,2026-06-01,1000 Cash,Customer receipt,22.94,,bjones
+JE1283,2026-06-01,2026-06-01,1200 Accounts Receivable,Customer receipt,,22.94,bjones
+JE1284,2026-04-13,2026-04-13,6400 Office Supplies,Office supplies,135.21,,asmith
+JE1284,2026-04-13,2026-04-13,1000 Cash,Office supplies,,135.21,asmith
+JE1285,2026-07-07,2026-07-07,6300 Travel,Travel expense,1129.59,,cnguyen
+JE1285,2026-07-07,2026-07-07,1000 Cash,Travel expense,,1129.59,cnguyen
+JE1286,2026-03-26,2026-03-26,6300 Travel,Travel expense,1339.6,,bjones
+JE1286,2026-03-26,2026-03-26,1000 Cash,Travel expense,,1339.6,bjones
+JE1287,2026-06-01,2026-06-01,2000 Accounts Payable,Supplier payment,74051.92,,cnguyen
+JE1287,2026-06-01,2026-06-01,1000 Cash,Supplier payment,,74051.92,cnguyen
+JE1288,2026-08-28,2026-08-28,5000 Cost of Sales,Supplier bill,16478.97,,asmith
+JE1288,2026-08-28,2026-08-28,2000 Accounts Payable,Supplier bill,,16478.97,asmith
+JE1289,2026-07-23,2026-07-23,1000 Cash,Customer receipt,10389.77,,cnguyen
+JE1289,2026-07-23,2026-07-23,1200 Accounts Receivable,Customer receipt,,10389.77,cnguyen
+JE1290,2026-07-22,2026-07-22,5000 Cost of Sales,Supplier bill,22.97,,asmith
+JE1290,2026-07-22,2026-07-22,2000 Accounts Payable,Supplier bill,,22.97,asmith
+JE1291,2026-08-21,2026-08-21,5000 Cost of Sales,Supplier bill,1400.52,,bjones
+JE1291,2026-08-21,2026-08-21,2000 Accounts Payable,Supplier bill,,1400.52,bjones
+JE1292,2026-05-15,2026-05-15,6400 Office Supplies,Office supplies,628.09,,cnguyen
+JE1292,2026-05-15,2026-05-15,1000 Cash,Office supplies,,628.09,cnguyen
+JE1293,2026-07-10,2026-07-10,2000 Accounts Payable,Supplier payment,19483.6,,asmith
+JE1293,2026-07-10,2026-07-10,1000 Cash,Supplier payment,,19483.6,asmith
+JE1294,2026-01-13,2026-01-13,6400 Office Supplies,Office supplies,58.57,,cnguyen
+JE1294,2026-01-13,2026-01-13,1000 Cash,Office supplies,,58.57,cnguyen
+JE1295,2026-11-09,2026-11-09,6300 Travel,Travel expense,90.37,,asmith
+JE1295,2026-11-09,2026-11-09,1000 Cash,Travel expense,,90.37,asmith
+JE1296,2026-08-26,2026-08-26,6400 Office Supplies,Office supplies,26.7,,cnguyen
+JE1296,2026-08-26,2026-08-26,1000 Cash,Office supplies,,26.7,cnguyen
+JE1297,2026-03-13,2026-03-13,5000 Cost of Sales,Supplier bill,3953.28,,asmith
+JE1297,2026-03-13,2026-03-13,2000 Accounts Payable,Supplier bill,,3953.28,asmith
+JE1298,2026-09-10,2026-09-10,1200 Accounts Receivable,Invoice,164.99,,asmith
+JE1298,2026-09-10,2026-09-10,4000 Revenue,Invoice,,164.99,asmith
+JE1299,2026-03-11,2026-03-11,1200 Accounts Receivable,Invoice,86.94,,bjones
+JE1299,2026-03-11,2026-03-11,4000 Revenue,Invoice,,86.94,bjones
+JE1300,2026-12-23,2026-12-23,2000 Accounts Payable,Supplier payment,304.82,,cnguyen
+JE1300,2026-12-23,2026-12-23,1000 Cash,Supplier payment,,304.82,cnguyen
+JE1301,2026-12-02,2026-12-02,2000 Accounts Payable,Supplier payment,2235.43,,asmith
+JE1301,2026-12-02,2026-12-02,1000 Cash,Supplier payment,,2235.43,asmith
+JE1302,2026-07-09,2026-07-09,2000 Accounts Payable,Supplier payment,2901.41,,asmith
+JE1302,2026-07-09,2026-07-09,1000 Cash,Supplier payment,,2901.41,asmith
+JE1303,2026-05-01,2026-05-01,2000 Accounts Payable,Supplier payment,600.87,,bjones
+JE1303,2026-05-01,2026-05-01,1000 Cash,Supplier payment,,600.87,bjones
+JE1304,2026-07-08,2026-07-08,1200 Accounts Receivable,Invoice,83890.13,,cnguyen
+JE1304,2026-07-08,2026-07-08,4000 Revenue,Invoice,,83890.13,cnguyen
+JE1305,2026-07-23,2026-07-23,6400 Office Supplies,Office supplies,104.08,,bjones
+JE1305,2026-07-23,2026-07-23,1000 Cash,Office supplies,,104.08,bjones
+JE1306,2026-08-21,2026-08-21,1000 Cash,Customer receipt,74615.23,,asmith
+JE1306,2026-08-21,2026-08-21,1200 Accounts Receivable,Customer receipt,,74615.23,asmith
+JE1307,2026-11-24,2026-11-24,6400 Office Supplies,Office supplies,52.99,,cnguyen
+JE1307,2026-11-24,2026-11-24,1000 Cash,Office supplies,,52.99,cnguyen
+JE1308,2026-05-05,2026-05-05,1200 Accounts Receivable,Invoice,15.93,,asmith
+JE1308,2026-05-05,2026-05-05,4000 Revenue,Invoice,,15.93,asmith
+JE1309,2026-04-17,2026-04-17,6300 Travel,Travel expense,51.33,,cnguyen
+JE1309,2026-04-17,2026-04-17,1000 Cash,Travel expense,,51.33,cnguyen
+JE1310,2026-04-30,2026-04-30,1000 Cash,Customer receipt,17873.6,,bjones
+JE1310,2026-04-30,2026-04-30,1200 Accounts Receivable,Customer receipt,,17873.6,bjones
+JE1311,2026-11-02,2026-11-02,1000 Cash,Customer receipt,14274.96,,asmith
+JE1311,2026-11-02,2026-11-02,1200 Accounts Receivable,Customer receipt,,14274.96,asmith
+JE1312,2026-03-16,2026-03-16,5000 Cost of Sales,Supplier bill,27140.92,,asmith
+JE1312,2026-03-16,2026-03-16,2000 Accounts Payable,Supplier bill,,27140.92,asmith
+JE1313,2026-03-31,2026-03-31,6300 Travel,Travel expense,63.29,,asmith
+JE1313,2026-03-31,2026-03-31,1000 Cash,Travel expense,,63.29,asmith
+JE1314,2026-03-09,2026-03-09,6400 Office Supplies,Office supplies,1078.69,,asmith
+JE1314,2026-03-09,2026-03-09,1000 Cash,Office supplies,,1078.69,asmith
+JE1315,2026-10-29,2026-10-29,5000 Cost of Sales,Supplier bill,14452.36,,bjones
+JE1315,2026-10-29,2026-10-29,2000 Accounts Payable,Supplier bill,,14452.36,bjones
+JE1316,2026-01-27,2026-01-27,1200 Accounts Receivable,Invoice,49.77,,asmith
+JE1316,2026-01-27,2026-01-27,4000 Revenue,Invoice,,49.77,asmith
+JE1317,2026-02-02,2026-02-02,6400 Office Supplies,Office supplies,138.65,,bjones
+JE1317,2026-02-02,2026-02-02,1000 Cash,Office supplies,,138.65,bjones
+JE1318,2026-02-25,2026-02-25,2000 Accounts Payable,Supplier payment,12943.99,,bjones
+JE1318,2026-02-25,2026-02-25,1000 Cash,Supplier payment,,12943.99,bjones
+JE1319,2026-11-11,2026-11-11,6300 Travel,Travel expense,55.35,,asmith
+JE1319,2026-11-11,2026-11-11,1000 Cash,Travel expense,,55.35,asmith
+JE1320,2026-12-04,2026-12-04,6400 Office Supplies,Office supplies,735.28,,cnguyen
+JE1320,2026-12-04,2026-12-04,1000 Cash,Office supplies,,735.28,cnguyen
+JE1321,2026-01-16,2026-01-16,5000 Cost of Sales,Supplier bill,679.47,,asmith
+JE1321,2026-01-16,2026-01-16,2000 Accounts Payable,Supplier bill,,679.47,asmith
+JE1322,2026-08-07,2026-08-07,2000 Accounts Payable,Supplier payment,24501.58,,cnguyen
+JE1322,2026-08-07,2026-08-07,1000 Cash,Supplier payment,,24501.58,cnguyen
+JE1323,2026-02-11,2026-02-11,1200 Accounts Receivable,Invoice,914.27,,bjones
+JE1323,2026-02-11,2026-02-11,4000 Revenue,Invoice,,914.27,bjones
+JE1324,2026-03-06,2026-03-06,6300 Travel,Travel expense,39.51,,bjones
+JE1324,2026-03-06,2026-03-06,1000 Cash,Travel expense,,39.51,bjones
+JE1325,2026-10-08,2026-10-08,6300 Travel,Travel expense,368.26,,cnguyen
+JE1325,2026-10-08,2026-10-08,1000 Cash,Travel expense,,368.26,cnguyen
+JE1326,2026-11-02,2026-11-02,5000 Cost of Sales,Supplier bill,333.9,,cnguyen
+JE1326,2026-11-02,2026-11-02,2000 Accounts Payable,Supplier bill,,333.9,cnguyen
+JE1327,2026-11-06,2026-11-06,5000 Cost of Sales,Supplier bill,652.92,,bjones
+JE1327,2026-11-06,2026-11-06,2000 Accounts Payable,Supplier bill,,652.92,bjones
+JE1328,2026-12-02,2026-12-02,1200 Accounts Receivable,Invoice,14872.51,,cnguyen
+JE1328,2026-12-02,2026-12-02,4000 Revenue,Invoice,,14872.51,cnguyen
+JE1329,2026-04-21,2026-04-21,6300 Travel,Travel expense,551.67,,bjones
+JE1329,2026-04-21,2026-04-21,1000 Cash,Travel expense,,551.67,bjones
+JE1330,2026-07-31,2026-07-31,2000 Accounts Payable,Supplier payment,35675.01,,bjones
+JE1330,2026-07-31,2026-07-31,1000 Cash,Supplier payment,,35675.01,bjones
+JE1331,2026-02-18,2026-02-18,2000 Accounts Payable,Supplier payment,393.48,,bjones
+JE1331,2026-02-18,2026-02-18,1000 Cash,Supplier payment,,393.48,bjones
+JE1332,2026-05-11,2026-05-11,2000 Accounts Payable,Supplier payment,177.87,,bjones
+JE1332,2026-05-11,2026-05-11,1000 Cash,Supplier payment,,177.87,bjones
+JE1333,2026-08-31,2026-08-31,1000 Cash,Customer receipt,5588.36,,asmith
+JE1333,2026-08-31,2026-08-31,1200 Accounts Receivable,Customer receipt,,5588.36,asmith
+JE1334,2026-02-17,2026-02-17,1200 Accounts Receivable,Invoice,21236.73,,bjones
+JE1334,2026-02-17,2026-02-17,4000 Revenue,Invoice,,21236.73,bjones
+JE1335,2026-07-10,2026-07-10,1200 Accounts Receivable,Invoice,9513.84,,asmith
+JE1335,2026-07-10,2026-07-10,4000 Revenue,Invoice,,9513.84,asmith
+JE1336,2026-10-15,2026-10-15,6300 Travel,Travel expense,26.3,,cnguyen
+JE1336,2026-10-15,2026-10-15,1000 Cash,Travel expense,,26.3,cnguyen
+JE1337,2026-07-30,2026-07-30,5000 Cost of Sales,Supplier bill,4786.89,,bjones
+JE1337,2026-07-30,2026-07-30,2000 Accounts Payable,Supplier bill,,4786.89,bjones
+JE1338,2026-08-05,2026-08-05,6400 Office Supplies,Office supplies,1521.46,,cnguyen
+JE1338,2026-08-05,2026-08-05,1000 Cash,Office supplies,,1521.46,cnguyen
+JE1339,2026-11-04,2026-11-04,1200 Accounts Receivable,Invoice,74747.13,,bjones
+JE1339,2026-11-04,2026-11-04,4000 Revenue,Invoice,,74747.13,bjones
+JE1340,2026-09-17,2026-09-17,5000 Cost of Sales,Supplier bill,25.97,,asmith
+JE1340,2026-09-17,2026-09-17,2000 Accounts Payable,Supplier bill,,25.97,asmith
+JE1341,2026-02-25,2026-02-25,1000 Cash,Customer receipt,4235.9,,bjones
+JE1341,2026-02-25,2026-02-25,1200 Accounts Receivable,Customer receipt,,4235.9,bjones
+JE1342,2026-10-21,2026-10-21,6300 Travel,Travel expense,108.42,,asmith
+JE1342,2026-10-21,2026-10-21,1000 Cash,Travel expense,,108.42,asmith
+JE1343,2026-11-11,2026-11-11,2000 Accounts Payable,Supplier payment,24022.64,,cnguyen
+JE1343,2026-11-11,2026-11-11,1000 Cash,Supplier payment,,24022.64,cnguyen
+JE1344,2026-12-03,2026-12-03,6400 Office Supplies,Office supplies,259.11,,cnguyen
+JE1344,2026-12-03,2026-12-03,1000 Cash,Office supplies,,259.11,cnguyen
+JE1345,2026-05-20,2026-05-20,5000 Cost of Sales,Supplier bill,13.06,,cnguyen
+JE1345,2026-05-20,2026-05-20,2000 Accounts Payable,Supplier bill,,13.06,cnguyen
+JE1346,2026-06-29,2026-06-29,5000 Cost of Sales,Supplier bill,48545.62,,asmith
+JE1346,2026-06-29,2026-06-29,2000 Accounts Payable,Supplier bill,,48545.62,asmith
+JE1347,2026-12-03,2026-12-03,1000 Cash,Customer receipt,30161.35,,bjones
+JE1347,2026-12-03,2026-12-03,1200 Accounts Receivable,Customer receipt,,30161.35,bjones
+JE1348,2026-01-16,2026-01-16,1200 Accounts Receivable,Invoice,36.94,,asmith
+JE1348,2026-01-16,2026-01-16,4000 Revenue,Invoice,,36.94,asmith
+JE1349,2026-08-03,2026-08-03,6400 Office Supplies,Office supplies,229.6,,bjones
+JE1349,2026-08-03,2026-08-03,1000 Cash,Office supplies,,229.6,bjones
+JE1350,2026-06-09,2026-06-09,5000 Cost of Sales,Supplier bill,42.62,,cnguyen
+JE1350,2026-06-09,2026-06-09,2000 Accounts Payable,Supplier bill,,42.62,cnguyen
+JE1351,2026-11-02,2026-11-02,5000 Cost of Sales,Supplier bill,12803.91,,asmith
+JE1351,2026-11-02,2026-11-02,2000 Accounts Payable,Supplier bill,,12803.91,asmith
+JE1352,2026-11-13,2026-11-13,1200 Accounts Receivable,Invoice,41.91,,asmith
+JE1352,2026-11-13,2026-11-13,4000 Revenue,Invoice,,41.91,asmith
+JE1353,2026-08-06,2026-08-06,6400 Office Supplies,Office supplies,29.05,,bjones
+JE1353,2026-08-06,2026-08-06,1000 Cash,Office supplies,,29.05,bjones
+JE1354,2026-05-20,2026-05-20,6300 Travel,Travel expense,152.79,,asmith
+JE1354,2026-05-20,2026-05-20,1000 Cash,Travel expense,,152.79,asmith
+JE1355,2026-02-26,2026-02-26,6300 Travel,Travel expense,33.7,,bjones
+JE1355,2026-02-26,2026-02-26,1000 Cash,Travel expense,,33.7,bjones
+JE1356,2026-09-07,2026-09-07,6400 Office Supplies,Office supplies,453.91,,cnguyen
+JE1356,2026-09-07,2026-09-07,1000 Cash,Office supplies,,453.91,cnguyen
+JE1357,2026-04-23,2026-04-23,6400 Office Supplies,Office supplies,82.57,,bjones
+JE1357,2026-04-23,2026-04-23,1000 Cash,Office supplies,,82.57,bjones
+JE1358,2026-04-15,2026-04-15,6300 Travel,Travel expense,25.68,,bjones
+JE1358,2026-04-15,2026-04-15,1000 Cash,Travel expense,,25.68,bjones
+JE1359,2026-05-11,2026-05-11,1000 Cash,Customer receipt,11732.7,,bjones
+JE1359,2026-05-11,2026-05-11,1200 Accounts Receivable,Customer receipt,,11732.7,bjones
+JE1360,2026-03-31,2026-03-31,5000 Cost of Sales,Supplier bill,30.2,,asmith
+JE1360,2026-03-31,2026-03-31,2000 Accounts Payable,Supplier bill,,30.2,asmith
+JE1361,2026-04-28,2026-04-28,2000 Accounts Payable,Supplier payment,1349.99,,cnguyen
+JE1361,2026-04-28,2026-04-28,1000 Cash,Supplier payment,,1349.99,cnguyen
+JE1362,2026-07-01,2026-07-01,6300 Travel,Travel expense,926.21,,asmith
+JE1362,2026-07-01,2026-07-01,1000 Cash,Travel expense,,926.21,asmith
+JE1363,2026-01-22,2026-01-22,2000 Accounts Payable,Supplier payment,27993.52,,bjones
+JE1363,2026-01-22,2026-01-22,1000 Cash,Supplier payment,,27993.52,bjones
+JE1364,2026-02-09,2026-02-09,1200 Accounts Receivable,Invoice,690.27,,bjones
+JE1364,2026-02-09,2026-02-09,4000 Revenue,Invoice,,690.27,bjones
+JE1365,2026-07-27,2026-07-27,6300 Travel,Travel expense,144.07,,cnguyen
+JE1365,2026-07-27,2026-07-27,1000 Cash,Travel expense,,144.07,cnguyen
+JE1366,2026-07-27,2026-07-27,6400 Office Supplies,Office supplies,136.58,,asmith
+JE1366,2026-07-27,2026-07-27,1000 Cash,Office supplies,,136.58,asmith
+JE1367,2026-11-13,2026-11-13,5000 Cost of Sales,Supplier bill,48.7,,bjones
+JE1367,2026-11-13,2026-11-13,2000 Accounts Payable,Supplier bill,,48.7,bjones
+JE1368,2026-08-12,2026-08-12,6400 Office Supplies,Office supplies,1378.92,,asmith
+JE1368,2026-08-12,2026-08-12,1000 Cash,Office supplies,,1378.92,asmith
+JE1369,2026-02-10,2026-02-10,1000 Cash,Customer receipt,552.98,,bjones
+JE1369,2026-02-10,2026-02-10,1200 Accounts Receivable,Customer receipt,,552.98,bjones
+JE1370,2026-04-24,2026-04-24,5000 Cost of Sales,Supplier bill,9620.98,,bjones
+JE1370,2026-04-24,2026-04-24,2000 Accounts Payable,Supplier bill,,9620.98,bjones
+JE1371,2026-09-29,2026-09-29,1000 Cash,Customer receipt,20.21,,cnguyen
+JE1371,2026-09-29,2026-09-29,1200 Accounts Receivable,Customer receipt,,20.21,cnguyen
+JE1372,2026-06-29,2026-06-29,1000 Cash,Customer receipt,42042.73,,cnguyen
+JE1372,2026-06-29,2026-06-29,1200 Accounts Receivable,Customer receipt,,42042.73,cnguyen
+JE1373,2026-05-01,2026-05-01,6400 Office Supplies,Office supplies,851.28,,asmith
+JE1373,2026-05-01,2026-05-01,1000 Cash,Office supplies,,851.28,asmith
+JE1374,2026-03-30,2026-03-30,1000 Cash,Customer receipt,105.65,,cnguyen
+JE1374,2026-03-30,2026-03-30,1200 Accounts Receivable,Customer receipt,,105.65,cnguyen
+JE1375,2026-12-02,2026-12-02,1000 Cash,Customer receipt,10986.55,,asmith
+JE1375,2026-12-02,2026-12-02,1200 Accounts Receivable,Customer receipt,,10986.55,asmith
+JE1376,2026-11-18,2026-11-18,1000 Cash,Customer receipt,63851.13,,bjones
+JE1376,2026-11-18,2026-11-18,1200 Accounts Receivable,Customer receipt,,63851.13,bjones
+JE1377,2026-08-18,2026-08-18,2000 Accounts Payable,Supplier payment,10417.97,,cnguyen
+JE1377,2026-08-18,2026-08-18,1000 Cash,Supplier payment,,10417.97,cnguyen
+JE1378,2026-11-16,2026-11-16,6300 Travel,Travel expense,385.46,,bjones
+JE1378,2026-11-16,2026-11-16,1000 Cash,Travel expense,,385.46,bjones
+JE1379,2026-08-14,2026-08-14,6400 Office Supplies,Office supplies,85.56,,asmith
+JE1379,2026-08-14,2026-08-14,1000 Cash,Office supplies,,85.56,asmith
+JE1380,2026-06-05,2026-06-05,2000 Accounts Payable,Supplier payment,587.26,,bjones
+JE1380,2026-06-05,2026-06-05,1000 Cash,Supplier payment,,587.26,bjones
+JE1381,2026-09-17,2026-09-17,6300 Travel,Travel expense,25.84,,asmith
+JE1381,2026-09-17,2026-09-17,1000 Cash,Travel expense,,25.84,asmith
+JE1382,2026-01-20,2026-01-20,5000 Cost of Sales,Supplier bill,703.02,,asmith
+JE1382,2026-01-20,2026-01-20,2000 Accounts Payable,Supplier bill,,703.02,asmith
+JE1383,2026-02-09,2026-02-09,5000 Cost of Sales,Supplier bill,21222.01,,cnguyen
+JE1383,2026-02-09,2026-02-09,2000 Accounts Payable,Supplier bill,,21222.01,cnguyen
+JE1384,2026-09-17,2026-09-17,1200 Accounts Receivable,Invoice,2884.25,,bjones
+JE1384,2026-09-17,2026-09-17,4000 Revenue,Invoice,,2884.25,bjones
+JE1385,2026-01-22,2026-01-22,2000 Accounts Payable,Supplier payment,2095.64,,bjones
+JE1385,2026-01-22,2026-01-22,1000 Cash,Supplier payment,,2095.64,bjones
+JE1386,2026-11-06,2026-11-06,6300 Travel,Travel expense,401.49,,bjones
+JE1386,2026-11-06,2026-11-06,1000 Cash,Travel expense,,401.49,bjones
+JE1387,2026-08-19,2026-08-19,6300 Travel,Travel expense,39.97,,asmith
+JE1387,2026-08-19,2026-08-19,1000 Cash,Travel expense,,39.97,asmith
+JE1388,2026-02-13,2026-02-13,5000 Cost of Sales,Supplier bill,85024.15,,cnguyen
+JE1388,2026-02-13,2026-02-13,2000 Accounts Payable,Supplier bill,,85024.15,cnguyen
+JE1389,2026-05-07,2026-05-07,6400 Office Supplies,Office supplies,44.17,,cnguyen
+JE1389,2026-05-07,2026-05-07,1000 Cash,Office supplies,,44.17,cnguyen
+JE1390,2026-09-25,2026-09-25,2000 Accounts Payable,Supplier payment,92033.11,,cnguyen
+JE1390,2026-09-25,2026-09-25,1000 Cash,Supplier payment,,92033.11,cnguyen
+JE1391,2026-05-25,2026-05-25,1000 Cash,Customer receipt,285.49,,bjones
+JE1391,2026-05-25,2026-05-25,1200 Accounts Receivable,Customer receipt,,285.49,bjones
+JE1392,2026-12-14,2026-12-14,2000 Accounts Payable,Supplier payment,12527.35,,cnguyen
+JE1392,2026-12-14,2026-12-14,1000 Cash,Supplier payment,,12527.35,cnguyen
+JE1393,2026-02-03,2026-02-03,1200 Accounts Receivable,Invoice,14351.84,,bjones
+JE1393,2026-02-03,2026-02-03,4000 Revenue,Invoice,,14351.84,bjones
+JE1394,2026-07-17,2026-07-17,1200 Accounts Receivable,Invoice,1705.5,,bjones
+JE1394,2026-07-17,2026-07-17,4000 Revenue,Invoice,,1705.5,bjones
+JE1395,2026-12-03,2026-12-03,5000 Cost of Sales,Supplier bill,7851.17,,cnguyen
+JE1395,2026-12-03,2026-12-03,2000 Accounts Payable,Supplier bill,,7851.17,cnguyen
+JE1396,2026-10-26,2026-10-26,1000 Cash,Customer receipt,215.5,,cnguyen
+JE1396,2026-10-26,2026-10-26,1200 Accounts Receivable,Customer receipt,,215.5,cnguyen
+JE1397,2026-06-08,2026-06-08,1000 Cash,Customer receipt,46450.01,,cnguyen
+JE1397,2026-06-08,2026-06-08,1200 Accounts Receivable,Customer receipt,,46450.01,cnguyen
+JE1398,2026-12-29,2026-12-29,6400 Office Supplies,Office supplies,420.99,,asmith
+JE1398,2026-12-29,2026-12-29,1000 Cash,Office supplies,,420.99,asmith
+JE1399,2026-11-26,2026-11-26,5000 Cost of Sales,Supplier bill,1720.63,,bjones
+JE1399,2026-11-26,2026-11-26,2000 Accounts Payable,Supplier bill,,1720.63,bjones
+JE1400,2026-12-17,2026-12-17,1000 Cash,Customer receipt,4791.43,,cnguyen
+JE1400,2026-12-17,2026-12-17,1200 Accounts Receivable,Customer receipt,,4791.43,cnguyen
+JE1401,2026-01-01,2026-01-01,6100 Rent,Monthly rent,4250.0,,asmith
+JE1401,2026-01-01,2026-01-01,1000 Cash,Monthly rent,,4250.0,asmith
+JE1402,2026-01-23,2026-01-23,6200 Salaries,Payroll,39938.07,,bjones
+JE1402,2026-01-23,2026-01-23,1000 Cash,Payroll,,39938.07,bjones
+JE1403,2026-02-02,2026-02-02,6100 Rent,Monthly rent,4250.0,,cnguyen
+JE1403,2026-02-02,2026-02-02,1000 Cash,Monthly rent,,4250.0,cnguyen
+JE1404,2026-02-25,2026-02-25,6200 Salaries,Payroll,39085.48,,bjones
+JE1404,2026-02-25,2026-02-25,1000 Cash,Payroll,,39085.48,bjones
+JE1405,2026-03-02,2026-03-02,6100 Rent,Monthly rent,4250.0,,bjones
+JE1405,2026-03-02,2026-03-02,1000 Cash,Monthly rent,,4250.0,bjones
+JE1406,2026-03-25,2026-03-25,6200 Salaries,Payroll,38540.79,,asmith
+JE1406,2026-03-25,2026-03-25,1000 Cash,Payroll,,38540.79,asmith
+JE1407,2026-04-01,2026-04-01,6100 Rent,Monthly rent,4250.0,,bjones
+JE1407,2026-04-01,2026-04-01,1000 Cash,Monthly rent,,4250.0,bjones
+JE1408,2026-04-24,2026-04-24,6200 Salaries,Payroll,40843.0,,bjones
+JE1408,2026-04-24,2026-04-24,1000 Cash,Payroll,,40843.0,bjones
+JE1409,2026-05-01,2026-05-01,6100 Rent,Monthly rent,4250.0,,asmith
+JE1409,2026-05-01,2026-05-01,1000 Cash,Monthly rent,,4250.0,asmith
+JE1410,2026-05-25,2026-05-25,6200 Salaries,Payroll,38679.63,,asmith
+JE1410,2026-05-25,2026-05-25,1000 Cash,Payroll,,38679.63,asmith
+JE1411,2026-06-01,2026-06-01,6100 Rent,Monthly rent,4250.0,,asmith
+JE1411,2026-06-01,2026-06-01,1000 Cash,Monthly rent,,4250.0,asmith
+JE1412,2026-06-25,2026-06-25,6200 Salaries,Payroll,38231.5,,asmith
+JE1412,2026-06-25,2026-06-25,1000 Cash,Payroll,,38231.5,asmith
+JE1413,2026-07-01,2026-07-01,6100 Rent,Monthly rent,4250.0,,cnguyen
+JE1413,2026-07-01,2026-07-01,1000 Cash,Monthly rent,,4250.0,cnguyen
+JE1414,2026-07-24,2026-07-24,6200 Salaries,Payroll,40312.62,,cnguyen
+JE1414,2026-07-24,2026-07-24,1000 Cash,Payroll,,40312.62,cnguyen
+JE1415,2026-08-03,2026-08-03,6100 Rent,Monthly rent,4250.0,,cnguyen
+JE1415,2026-08-03,2026-08-03,1000 Cash,Monthly rent,,4250.0,cnguyen
+JE1416,2026-08-25,2026-08-25,6200 Salaries,Payroll,38113.24,,bjones
+JE1416,2026-08-25,2026-08-25,1000 Cash,Payroll,,38113.24,bjones
+JE1417,2026-09-01,2026-09-01,6100 Rent,Monthly rent,4250.0,,cnguyen
+JE1417,2026-09-01,2026-09-01,1000 Cash,Monthly rent,,4250.0,cnguyen
+JE1418,2026-09-25,2026-09-25,6200 Salaries,Payroll,38393.15,,bjones
+JE1418,2026-09-25,2026-09-25,1000 Cash,Payroll,,38393.15,bjones
+JE1419,2026-10-01,2026-10-01,6100 Rent,Monthly rent,4250.0,,asmith
+JE1419,2026-10-01,2026-10-01,1000 Cash,Monthly rent,,4250.0,asmith
+JE1420,2026-10-23,2026-10-23,6200 Salaries,Payroll,38486.74,,cnguyen
+JE1420,2026-10-23,2026-10-23,1000 Cash,Payroll,,38486.74,cnguyen
+JE1421,2026-11-02,2026-11-02,6100 Rent,Monthly rent,4250.0,,cnguyen
+JE1421,2026-11-02,2026-11-02,1000 Cash,Monthly rent,,4250.0,cnguyen
+JE1422,2026-11-25,2026-11-25,6200 Salaries,Payroll,40427.13,,asmith
+JE1422,2026-11-25,2026-11-25,1000 Cash,Payroll,,40427.13,asmith
+JE1423,2026-12-01,2026-12-01,6100 Rent,Monthly rent,4250.0,,cnguyen
+JE1423,2026-12-01,2026-12-01,1000 Cash,Monthly rent,,4250.0,cnguyen
+JE1424,2026-12-25,2026-12-25,6200 Salaries,Payroll,39313.02,,bjones
+JE1424,2026-12-25,2026-12-25,1000 Cash,Payroll,,39313.02,bjones
+JE1425,2026-03-14,2026-03-14,6300 Travel,Conference travel,2480.17,,bjones
+JE1425,2026-03-14,2026-03-14,1000 Cash,Conference travel,,2480.17,bjones
+JE1426,2026-06-10,2026-06-10,6400 Office Supplies,Printer toner,389.99,,cnguyen
+JE1426,2026-06-10,2026-06-10,1000 Cash,Printer toner,,389.99,cnguyen
+JE1427,2026-06-10,2026-06-10,6400 Office Supplies,Printer toner,389.99,,cnguyen
+JE1427,2026-06-10,2026-06-10,1000 Cash,Printer toner,,389.99,cnguyen
+JE1428,2026-08-31,2026-08-31,6300 Travel,Misc adjustment,15000.0,,admin
+JE1428,2026-08-31,2026-08-31,1000 Cash,Misc adjustment,,15000.0,admin
+JE1429,2026-12-30,2027-01-06,1200 Accounts Receivable,Year-end sale,48750.0,,asmith
+JE1429,2026-12-30,2027-01-06,4000 Revenue,Year-end sale,,48750.0,asmith
+JE1430,2026-11-20,2026-11-20,6300 Travel,Travel reimbursement,96500.0,,bjones
+JE1430,2026-11-20,2026-11-20,1000 Cash,Travel reimbursement,,96500.0,bjones
+JE9999,2026-12-31,2026-12-31,4000 Revenue,Manual top-side entry,,12000.0,admin

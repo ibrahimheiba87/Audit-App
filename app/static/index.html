@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit App</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #5d6676; --border: #dde1e7;
+    --accent: #2457c5; --high: #c0392b; --medium: #b9770e; --low: #5d6676;
+    --high-bg: #fdecea; --medium-bg: #fdf3e2; --low-bg: #eef0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c; --panel: #1d2128; --text: #e6e8ec; --muted: #9aa3b2; --border: #2d333d;
+      --accent: #6d9bff; --high: #ff7b6e; --medium: #f0b54a; --low: #9aa3b2;
+      --high-bg: #3a1f1d; --medium-bg: #3a2f1a; --low-bg: #262b33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+           padding: 18px; margin-bottom: 18px; }
+  form .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;
+          background: var(--bg); color: var(--text); font: inherit; }
+  button { padding: 9px 16px; border-radius: 6px; border: 1px solid var(--accent);
+           background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .error { color: var(--high); margin-top: 10px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .card .v { font-size: 22px; font-weight: 600; }
+  .card .k { font-size: 13px; color: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 13px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sev { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+  .sev.high { color: var(--high); background: var(--high-bg); }
+  .sev.medium { color: var(--medium); background: var(--medium-bg); }
+  .sev.low { color: var(--low); background: var(--low-bg); }
+  .muted { color: var(--muted); }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .filters select { padding: 6px; border-radius: 6px; border: 1px solid var(--border);
+                    background: var(--bg); color: var(--text); font: inherit; }
+  .bars { display: grid; grid-template-columns: 24px 1fr 110px; gap: 6px 10px; align-items: center; font-size: 13px; }
+  .bar { position: relative; height: 16px; background: var(--low-bg); border-radius: 3px; }
+  .bar .a { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 3px; }
+  .bar .e { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); }
+  .bar.sig .a { background: var(--high); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Audit App</h1>
+  <p class="lead">Upload a general ledger or trial balance (CSV or Excel) to run audit checks and export the findings.</p>
+
+  <section class="panel">
+    <form id="form">
+      <div class="grid">
+        <div>
+          <label for="file">Ledger file</label>
+          <input id="file" name="file" type="file" accept=".csv,.txt,.xlsx,.xlsm,.xls" required>
+        </div>
+        <div>
+          <label for="period_end">Period end (optional)</label>
+          <input id="period_end" name="period_end" type="date">
+        </div>
+        <div>
+          <label for="cutoff_days">Cutoff window (days)</label>
+          <input id="cutoff_days" name="cutoff_days" type="number" min="0" value="5">
+        </div>
+        <div>
+          <label for="round_threshold">Round amount threshold</label>
+          <input id="round_threshold" name="round_threshold" type="number" min="1" step="any" value="1000">
+        </div>
+      </div>
+      <div class="actions">
+        <button type="submit" id="run">Run audit</button>
+        <button type="button" class="secondary" id="dl-xlsx" disabled>Download Excel report</button>
+        <button type="button" class="secondary" id="dl-csv" disabled>Download findings CSV</button>
+      </div>
+      <div class="error" id="error" hidden></div>
+    </form>
+  </section>
+
+  <div id="results" hidden>
+    <section class="panel">
+      <h2>Summary</h2>
+      <div class="cards" id="cards"></div>
+    </section>
+    <section class="panel">
+      <h2>Checks</h2>
+      <div class="table-wrap"><table id="checks"></table></div>
+    </section>
+    <section class="panel">
+      <h2>Findings</h2>
+      <div class="filters">
+        <select id="f-sev"><option value="">All severities</option><option>high</option><option>medium</option><option>low</option></select>
+        <select id="f-check"><option value="">All checks</option></select>
+        <span class="muted" id="f-count"></span>
+      </div>
+      <div class="table-wrap"><table id="findings"></table></div>
+    </section>
+    <section class="panel">
+      <h2>Benford's law, first digit</h2>
+      <p class="muted" id="benford-note"></p>
+      <div class="bars" id="benford"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => v == null ? "" : String(v).replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (n) => n == null ? "" : Number(n).toLocaleString(undefined,
+  { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const MAX_ROWS = 1000;
+let result = null;
+let checkNames = {};
+
+function formData(extra = {}) {
+  const fd = new FormData($("form"));
+  for (const [k, v] of Object.entries(extra)) fd.append(k, v);
+  return fd;
+}
+
+async function post(url, fd) {
+  const res = await fetch(url, { method: "POST", body: fd });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).detail || msg; } catch {}
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+  return res;
+}
+
+function showError(msg) {
+  $("error").textContent = msg || "";
+  $("error").hidden = !msg;
+}
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  showError("");
+  $("run").disabled = true;
+  $("run").textContent = "Running…";
+  try {
+    result = await (await post("/api/audit", formData())).json();
+    render();
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    $("run").disabled = false;
+    $("run").textContent = "Run audit";
+  }
+});
+
+$("file").addEventListener("change", () => {
+  $("dl-xlsx").disabled = $("dl-csv").disabled = true;
+});
+
+async function download(format) {
+  showError("");
+  try {
+    const res = await post("/api/report", formData({ format }));
+    const name = (res.headers.get("Content-Disposition") || "").match(/filename="(.+)"/)?.[1]
+      || `audit-report.${format}`;
+    const url = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    showError(err.message);
+  }
+}
+$("dl-xlsx").addEventListener("click", () => download("xlsx"));
+$("dl-csv").addEventListener("click", () => download("csv"));
+
+function render() {
+  const s = result.summary;
+  checkNames = Object.fromEntries(result.checks.map((c) => [c.id, c.name]));
+  $("results").hidden = false;
+  $("dl-xlsx").disabled = $("dl-csv").disabled = false;
+
+  const cards = [
+    ["Rows analysed", s.rows.toLocaleString()],
+    ["Total debits", money(s.total_debits)],
+    ["Total credits", money(s.total_credits)],
+    ["Rows with findings", s.flagged_rows.toLocaleString()],
+    ["High", s.findings_by_severity.high],
+    ["Medium", s.findings_by_severity.medium],
+    ["Low", s.findings_by_severity.low],
+  ];
+  $("cards").innerHTML = cards.map(([k, v]) =>
+    `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+
+  $("checks").innerHTML = "<tr><th>Check</th><th>Status</th><th>Flagged</th><th>Notes</th></tr>" +
+    result.checks.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.status)}</td>
+      <td class="num">${c.status === "ran" ? c.flagged : "–"}</td><td class="muted">${esc(c.note)}</td></tr>`).join("");
+
+  $("f-check").innerHTML = '<option value="">All checks</option>' +
+    result.checks.filter((c) => c.flagged).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  renderFindings();
+  renderBenford();
+}
+
+function renderFindings() {
+  const sev = $("f-sev").value, chk = $("f-check").value;
+  const rows = result.findings.filter((f) => (!sev || f.severity === sev) && (!chk || f.check === chk));
+  const shown = rows.slice(0, MAX_ROWS);
+  $("f-count").textContent = rows.length > MAX_ROWS
+    ? `Showing ${MAX_ROWS} of ${rows.length}; download the report for all.`
+    : `${rows.length} findings`;
+  $("findings").innerHTML = "<tr><th>Severity</th><th>Check</th><th>Row</th><th>Entry</th><th>Date</th>" +
+    "<th>Account</th><th>Description</th><th>Amount</th><th>Detail</th></tr>" +
+    shown.map((f) => `<tr><td><span class="sev ${esc(f.severity)}">${esc(f.severity)}</span></td>
+      <td>${esc(checkNames[f.check] || f.check)}</td><td class="num">${esc(f.row)}</td><td>${esc(f.entry_id)}</td>
+      <td>${esc(f.date)}</td><td>${esc(f.account)}</td><td>${esc(f.description)}</td>
+      <td class="num">${money(f.amount)}</td><td>${esc(f.detail)}</td></tr>`).join("");
+}
+$("f-sev").addEventListener("change", renderFindings);
+$("f-check").addEventListener("change", renderFindings);
+
+function renderBenford() {
+  const b = result.benford;
+  $("benford-note").textContent = b.n < 100
+    ? `Only ${b.n} amounts of 10 or more, so this is shown for reference only.`
+    : `${b.conformity}, MAD ${b.mad.toFixed(4)} across ${b.n.toLocaleString()} amounts. ` +
+      "Bars are actual frequency; the line marks the expected frequency.";
+  const max = Math.max(...b.digits.map((d) => Math.max(d.actual, d.expected)), 0.01);
+  $("benford").innerHTML = b.digits.map((d) => `
+    <div>${d.digit}</div>
+    <div class="bar ${d.significant ? "sig" : ""}" title="z = ${d.z}">
+      <div class="a" style="width:${(d.actual / max) * 100}%"></div>
+      <div class="e" style="left:${(d.expected / max) * 100}%"></div>
+    </div>
+    <div class="muted">${(d.actual * 100).toFixed(1)}% vs ${(d.expected * 100).toFixed(1)}%</div>`).join("");
+}
+</script>
+</body>
+</html>
