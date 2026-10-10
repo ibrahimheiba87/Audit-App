@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import checks, db, loader, report
 from .comparisons import router as comparisons_router
 from .engagements import router as engagements_router
+from .findings import router as findings_router
 from .samples import router as samples_router
 from .uploads import parse_mapping, read_upload
 
@@ -31,6 +32,7 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 app.include_router(engagements_router)
 app.include_router(comparisons_router)
 app.include_router(samples_router)
+app.include_router(findings_router)
 
 
 @dataclass

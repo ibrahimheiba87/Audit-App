@@ -154,6 +154,72 @@
             <h2>Audit runs</h2>
             <div class="table-wrap"><table id="runs"></table></div>
           </section>
+
+          <section class="panel">
+            <div class="row-between">
+              <div>
+                <h2>Findings register</h2>
+                <p class="muted" style="margin-top:-6px">Every audit run adds its findings here. Running the checks again on the same file keeps the review work already done.</p>
+              </div>
+              <a class="button" id="reg-export" href="#">Download register</a>
+            </div>
+            <div class="cards" id="reg-cards"></div>
+            <div class="filters" style="margin-top:12px">
+              <select id="reg-status"><option value="">All statuses</option></select>
+              <select id="reg-sev"><option value="">All severities</option><option>high</option><option>medium</option><option>low</option></select>
+              <select id="reg-check"><option value="">All checks</option></select>
+              <span class="muted" id="reg-count"></span>
+              <span class="spacer"></span>
+              <label class="inline" for="reg-author">Your name <input id="reg-author" placeholder="Shown on notes"></label>
+            </div>
+            <div class="bulk" id="reg-bulk" hidden>
+              <span id="reg-selected"></span>
+              <button type="button" class="small secondary" data-bulk="reviewed">Mark reviewed</button>
+              <button type="button" class="small secondary" data-bulk="open">Reopen</button>
+              <input id="reg-bulk-note" placeholder="Note (needed to clear)">
+              <button type="button" class="small" data-bulk="cleared">Clear</button>
+            </div>
+            <div class="table-wrap"><table id="reg-table"></table></div>
+            <details id="reg-new">
+              <summary>Add a finding by hand</summary>
+              <form id="reg-form" class="stack">
+                <div class="grid">
+                  <div><label for="nf-severity">Severity</label><select id="nf-severity" name="severity" class="map"><option>high</option><option selected>medium</option><option>low</option></select></div>
+                  <div><label for="nf-account">Account</label><input id="nf-account" name="account"></div>
+                  <div><label for="nf-entry">Entry / document</label><input id="nf-entry" name="entry_id"></div>
+                  <div><label for="nf-date">Date</label><input id="nf-date" name="date" type="date"></div>
+                  <div><label for="nf-amount">Amount</label><input id="nf-amount" name="amount" type="number" step="any"></div>
+                </div>
+                <div><label for="nf-detail">What was found</label><textarea id="nf-detail" name="detail" rows="2" required placeholder="e.g. Sample item 12: no supporting invoice"></textarea></div>
+                <div><button type="submit">Add finding</button></div>
+              </form>
+            </details>
+          </section>
+
+          <section class="panel" id="fd" hidden>
+            <div class="row-between">
+              <div>
+                <h2 id="fd-title"></h2>
+                <p class="muted" id="fd-meta"></p>
+              </div>
+              <button type="button" class="small secondary" id="fd-close">Close</button>
+            </div>
+            <p id="fd-detail"></p>
+            <div class="grid">
+              <div><label for="fd-status">Status</label><select id="fd-status" class="map"></select></div>
+              <div><label for="fd-severity">Severity</label><select id="fd-severity" class="map"><option>high</option><option>medium</option><option>low</option></select></div>
+            </div>
+            <div style="margin-top:12px"><label for="fd-note">Note</label><textarea id="fd-note" rows="2" placeholder="What you did or found. Needed to clear."></textarea></div>
+            <div class="actions"><button type="button" id="fd-save">Save</button><button type="button" class="secondary danger" id="fd-delete" hidden>Delete finding</button></div>
+            <h3>Evidence</h3>
+            <div class="table-wrap"><table id="fd-evidence"></table></div>
+            <form id="fd-ev-form" class="actions" style="align-items:center">
+              <input id="fd-ev-file" type="file" required style="width:auto">
+              <button type="submit" class="small">Attach</button>
+            </form>
+            <h3>Review trail</h3>
+            <ul class="trail" id="fd-trail"></ul>
+          </section>
         </div>
       </section>
     </div>

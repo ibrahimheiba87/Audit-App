@@ -88,6 +88,9 @@ class Engagement(Base):
     samples: Mapped[list[Sample]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Sample.id"
     )
+    findings: Mapped[list[Finding]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Finding.id"
+    )
 
 
 class Upload(Base):
@@ -160,6 +163,78 @@ class Sample(Base):
 
     engagement: Mapped[Engagement] = relationship(back_populates="samples")
     upload: Mapped[Upload] = relationship()
+
+
+class Finding(Base):
+    """An item on the engagement's findings register, raised by a check run or added by hand.
+
+    A finding raised by a run is keyed by (upload, check, row, entry), so running the checks
+    again on the same file keeps its status, notes and evidence instead of duplicating it.
+    """
+
+    __tablename__ = "findings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"))
+    upload_id: Mapped[int | None] = mapped_column(ForeignKey("uploads.id"), nullable=True)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("runs.id"), nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="manual")  # run | manual
+    check: Mapped[str] = mapped_column(String(50), default="manual")
+    check_name: Mapped[str] = mapped_column(String(200), default="Added by hand")
+    severity: Mapped[str] = mapped_column(String(10))
+    row: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    entry_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    account: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    detail: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="findings")
+    upload: Mapped[Upload | None] = relationship()
+    notes: Mapped[list[FindingNote]] = relationship(
+        back_populates="finding", cascade="all, delete-orphan", order_by="FindingNote.id"
+    )
+    evidence: Mapped[list[Evidence]] = relationship(
+        back_populates="finding", cascade="all, delete-orphan", order_by="Evidence.id"
+    )
+
+
+class FindingNote(Base):
+    """A comment on a finding, or a record of a status change (status_from/status_to set)."""
+
+    __tablename__ = "finding_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    finding_id: Mapped[int] = mapped_column(ForeignKey("findings.id"))
+    text: Mapped[str] = mapped_column(Text, default="")
+    author: Mapped[str] = mapped_column(String(200), default="")
+    status_from: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    status_to: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    finding: Mapped[Finding] = relationship(back_populates="notes")
+
+
+class Evidence(Base):
+    """A file attached to a finding (invoice, confirmation, screenshot...)."""
+
+    __tablename__ = "evidence"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    finding_id: Mapped[int] = mapped_column(ForeignKey("findings.id"))
+    filename: Mapped[str] = mapped_column(String(500))
+    content_type: Mapped[str] = mapped_column(String(200), default="application/octet-stream")
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    author: Mapped[str] = mapped_column(String(200), default="")
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    finding: Mapped[Finding] = relationship(back_populates="evidence")
 
 
 def _make_engine(url: str):
