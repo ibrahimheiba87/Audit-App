@@ -42,14 +42,38 @@ the parameters and blank columns for the test results.
 **Findings register**: every audit run adds its findings to the engagement's register.
 Running the checks again on the same file keeps the work already done instead of adding
 duplicates. Each finding moves from Open to Reviewed to Cleared; clearing needs a note saying
-why. Notes, status and severity changes are kept in a review trail with who and when (type your
-name in the register; it is remembered in your browser). Evidence files (up to 20 MB each) can
+why. Notes, status and severity changes are kept in a review trail with who and when. Evidence files (up to 20 MB each) can
 be attached to a finding and are stored with their SHA-256. Select several findings to mark
 them reviewed or clear them at once, add findings by hand (for example sample exceptions), and
 download the register to Excel with the review trail and evidence list. A file whose findings
 have been worked on can't be deleted, so the support stays with the engagement.
 
 The **Quick audit** tab runs the checks on a file without saving anything.
+
+## Users, roles and the activity log
+
+Everyone signs in with an email and password. The first time the app opens it asks for the
+first account, which becomes an admin; the admin then adds the team under **Users** with a
+temporary password and a role. Each role can do everything the roles above it in this list
+can:
+
+- **Preparer**: upload files, run the checks, comparisons and samples, add findings, notes and
+  evidence, and mark findings reviewed.
+- **Reviewer**: also clear and reopen findings, change severity, remove evidence and files, and
+  add or edit clients and engagements.
+- **Partner**: also set materiality and delete clients and engagements.
+- **Admin**: also manage users and see the whole activity log.
+
+Every change and download is written to the activity log with who, when, the engagement, the
+file's SHA-256 and the settings used (run settings, sampling parameters and seed, comparison
+thresholds, materiality). Sign-ins, failed sign-ins and user changes are logged with the IP
+address. Each engagement page shows its own log; admins see everything under **Activity**. The
+log keeps names, so it survives deleting users' work or whole engagements.
+
+Passwords are hashed with scrypt; sessions last 12 hours in an HttpOnly, SameSite=Lax cookie.
+Five failed sign-ins for an email lock it for 15 minutes. Deactivating a user or resetting
+their password signs them out. Behind an HTTPS proxy, set `AUDIT_SECURE_COOKIES=1` so the
+cookie is only sent over HTTPS.
 
 Data is stored in SQLite (`audit.db` in the working directory). Set `AUDIT_DB_URL` to use
 another database supported by SQLAlchemy.
@@ -109,6 +133,13 @@ uvicorn app.main:app --reload
 Then open http://127.0.0.1:8000 and upload `sample_data/sample_gl.csv` to try it.
 
 ## API
+
+All endpoints except `/api/health` and `/api/auth/*` need a signed-in session cookie.
+
+- `GET /api/auth/status`, `POST /api/auth/setup` (first admin, only while there are no users),
+  `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`
+- `GET|POST /api/users`, `PATCH /api/users/{id}` (`name`, `role`, `active`, `password`); admin only
+- `GET /api/activity?engagement_id=&user_id=&action=&limit=`; without `engagement_id`, admin only
 
 - `POST /api/preview`: multipart form with `file` and optional `sheet`. Returns the columns,
   sheet names, first rows and a suggested mapping.
