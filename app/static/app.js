@@ -199,6 +199,8 @@ async function openEngagement(id) {
   renderRuns(e.runs);
   renderComparisonForm(e);
   renderComparisons(e.comparisons);
+  renderSampleForm(e);
+  renderSamples(e.samples);
 }
 
 $("eng-delete").addEventListener("click", () => {
@@ -431,6 +433,104 @@ function renderComparisonTable() {
 }
 $("cmp-flagged-only").addEventListener("change", renderComparisonTable);
 
+// Sampling
+
+let samplingOptions = null;
+
+function renderSampleForm(e) {
+  $("smp-upload").innerHTML = e.uploads.filter((u) => u.kind !== "prior_tb")
+    .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
+    .join("") || '<option value="">Upload a file first</option>';
+  const pm = e.materiality?.performance_materiality;
+  $("smp-tm").placeholder = pm ? `${money(pm)} (performance materiality)` : "Amount";
+  $("smp-result").hidden = true;
+  updateSampleMethod();
+}
+
+function updateSampleMethod() {
+  const mus = $("smp-method").value === "mus";
+  document.querySelectorAll(".mus-only").forEach((el) => { el.hidden = !mus; });
+  $("smp-size").required = !mus;
+  $("smp-size-hint").textContent = mus ? "(blank to calculate)" : "";
+}
+$("smp-method").addEventListener("change", updateSampleMethod);
+
+$("smp-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const num = (id) => $(id).value === "" ? null : Number($(id).value);
+  guard(async () => {
+    const body = {
+      upload_id: Number($("smp-upload").value),
+      method: $("smp-method").value,
+      population: $("smp-population").value,
+      min_amount: num("smp-min") || 0,
+      sample_size: num("smp-size"),
+      seed: num("smp-seed"),
+    };
+    if (body.method === "mus") {
+      Object.assign(body, {
+        confidence: Number($("smp-confidence").value),
+        tolerable_misstatement: num("smp-tm"),
+        expected_misstatement: num("smp-em") || 0,
+      });
+    }
+    const s = await sendJSON("POST", `/api/engagements/${currentEngagement.id}/samples`, body);
+    await openEngagement(currentEngagement.id);
+    showSample(s);
+  });
+});
+
+function renderSamples(list) {
+  $("samples").innerHTML = list.length ? "<tr><th>#</th><th>When</th><th>File</th><th>Method</th><th>Items</th><th>Value</th><th>Seed</th><th></th></tr>" +
+    list.map((s) => `<tr><td>${s.id}</td><td class="nowrap">${esc(when(s.created_at))}</td>
+      <td>${esc(s.filename)}</td><td>${esc(s.method_label)}</td>
+      <td class="num">${s.sample_size} of ${s.population.lines}</td>
+      <td class="num">${money(s.sample_value)}</td><td class="num">${s.seed}</td>
+      <td><div class="cell-actions">
+        <button type="button" class="small secondary" data-view-smp="${s.id}">View</button>
+        <a class="button" href="/api/samples/${s.id}/export">Excel</a>
+      </div></td></tr>`).join("") : "";
+}
+
+$("samples").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-view-smp]");
+  if (btn) guard(async () => showSample(await getJSON(`/api/samples/${btn.dataset.viewSmp}`)));
+});
+
+function showSample(s) {
+  const r = s.result;
+  const d = r.details;
+  $("smp-result").hidden = false;
+  $("smp-title").textContent = `Sample #${s.id}: ${r.method_label} from ${s.filename}`;
+  $("smp-actions").innerHTML = `<a class="button" href="/api/samples/${s.id}/export">Download workpaper</a>`;
+  const cards = [
+    ["Items selected", r.sample_size], ["Value selected", money(r.sample_value)],
+    ["Population lines", r.population.lines.toLocaleString()], ["Population value", money(r.population.value)],
+    ["Seed", r.seed],
+  ];
+  if (d.interval != null) cards.push(["Interval", r.method === "mus" ? money(d.interval) : d.interval]);
+  if (r.method === "mus") cards.push(["Top stratum items", d.top_stratum_items]);
+  $("smp-cards").innerHTML = cards.map(([k, v]) =>
+    `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  const notes = [r.population.label];
+  if (r.params.min_amount) notes.push(`lines of at least ${money(r.params.min_amount)}`);
+  if (r.method === "mus") {
+    notes.push(`${r.params.confidence}% confidence`);
+    if (r.params.tolerable_misstatement) notes.push(`tolerable misstatement ${money(r.params.tolerable_misstatement)}`);
+    if (r.params.expected_misstatement) notes.push(`expected misstatement ${money(r.params.expected_misstatement)}`);
+    if (d.monetary_units !== r.sample_size) notes.push(`${d.monetary_units} monetary units landed on ${r.sample_size} lines`);
+  }
+  if (d.note) notes.push(d.note);
+  $("smp-note").textContent = notes.join(" · ");
+  const hits = r.method === "mus";
+  $("smp-table").innerHTML = `<tr><th>Row</th><th>Entry</th><th>Date</th><th>Account</th><th>Description</th><th>Amount</th>${hits ? "<th>Hits</th>" : ""}<th>Why selected</th></tr>` +
+    r.items.map((i) => `<tr><td class="num">${i.row}</td><td>${esc(i.entry_id)}</td>
+      <td class="nowrap">${esc(i.date)}</td><td>${esc(i.account)}</td><td>${esc(i.description)}</td>
+      <td class="num">${money(i.amount)}</td>${hits ? `<td class="num">${i.hits}</td>` : ""}
+      <td>${esc(i.reason)}</td></tr>`).join("");
+  $("smp-result").scrollIntoView({ behavior: "smooth" });
+}
+
 // --- Quick audit view ---------------------------------------------------------
 
 const quickMapper = Mapper($("quick-mapper"), () => { $("dl-xlsx").disabled = $("dl-csv").disabled = true; });
@@ -543,6 +643,10 @@ function renderBenford() {
   meta = await getJSON("/api/materiality/benchmarks");
   $("mat-benchmark").innerHTML = meta.benchmarks.map((b) => `<option value="${b.id}">${esc(b.label)}</option>`).join("");
   $("eng-framework").innerHTML = meta.frameworks.map((f) => `<option>${esc(f)}</option>`).join("");
+  samplingOptions = await getJSON("/api/sampling/options");
+  $("smp-method").innerHTML = samplingOptions.methods.map((m) => `<option value="${m.id}">${esc(m.label)}</option>`).join("");
+  $("smp-population").innerHTML = samplingOptions.populations.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join("");
+  $("smp-confidence").innerHTML = samplingOptions.confidence_levels.map((c) => `<option value="${c}"${c === 95 ? " selected" : ""}>${c}%</option>`).join("");
   $("up-kind").innerHTML = meta.upload_kinds.map((k) => `<option value="${k.id}">${esc(k.label)}</option>`).join("");
   route();
 })();
