@@ -56,6 +56,8 @@ class Client(Base):
 
 class Engagement(Base):
     __tablename__ = "engagements"
+    # Never reuse a deleted engagement's id: the activity log keeps it (SQLite only).
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"))
@@ -229,7 +231,7 @@ class Evidence(Base):
     finding_id: Mapped[int] = mapped_column(ForeignKey("findings.id"))
     filename: Mapped[str] = mapped_column(String(500))
     content_type: Mapped[str] = mapped_column(String(200), default="application/octet-stream")
-    content: Mapped[bytes] = mapped_column(LargeBinary)
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)  # loaded on download
     size: Mapped[int] = mapped_column(Integer)
     sha256: Mapped[str] = mapped_column(String(64))
     author: Mapped[str] = mapped_column(String(200), default="")
@@ -281,6 +283,20 @@ class Activity(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     ip: Mapped[str] = mapped_column(String(64), default="")
+
+
+class Guard(Base):
+    """A row per invariant that requests must check and change one at a time.
+
+    Writing to a guard row inside a transaction holds a database write lock on it until the
+    commit, so concurrent requests that guard the same key run one after another.
+    See auth.hold().
+    """
+
+    __tablename__ = "guards"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    n: Mapped[int] = mapped_column(Integer, default=0)
 
 
 def _make_engine(url: str):

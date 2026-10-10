@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from .exports import finish_workbook
+
 
 @dataclass
 class CompareSettings:
@@ -111,8 +113,5 @@ def to_excel(result: dict, context: dict | None = None) -> bytes:
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
         pd.DataFrame(summary, columns=["Item", "Value"]).to_excel(xl, sheet_name="Summary", index=False)
         table.to_excel(xl, sheet_name="Comparison", index=False)
-        for ws in xl.book.worksheets:
-            for column in ws.columns:
-                width = max(len(str(c.value or "")) for c in column)
-                ws.column_dimensions[column[0].column_letter].width = min(max(width + 2, 10), 60)
+        finish_workbook(xl.book)
     return buf.getvalue()

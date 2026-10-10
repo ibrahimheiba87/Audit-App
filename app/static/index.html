@@ -54,6 +54,16 @@
     </form>
   </dialog>
 
+  <dialog id="reset-dialog">
+    <form id="reset-form" class="stack">
+      <h2>Reset password for <span id="reset-who"></span></h2>
+      <p class="muted">They will be signed out everywhere and need this password to sign in again.</p>
+      <div><label for="reset-password">New temporary password (at least 10 characters)</label><input id="reset-password" name="password" type="password" autocomplete="new-password" minlength="10" required></div>
+      <div class="actions"><button type="submit">Reset password</button><button type="button" class="secondary" id="reset-cancel">Cancel</button></div>
+      <div class="error" id="reset-error" hidden></div>
+    </form>
+  </dialog>
+
   <!-- Users (admin) ------------------------------------------------------>
   <div id="view-users" class="view" hidden>
     <section class="panel">
@@ -68,7 +78,7 @@
           <div><label for="nu-name">Name</label><input id="nu-name" name="name" required></div>
           <div><label for="nu-email">Email</label><input id="nu-email" name="email" type="email" required></div>
           <div><label for="nu-role">Role</label><select id="nu-role" name="role" class="map"></select></div>
-          <div><label for="nu-password">Temporary password</label><input id="nu-password" name="password" minlength="10" required autocomplete="new-password"></div>
+          <div><label for="nu-password">Temporary password</label><input id="nu-password" name="password" type="password" minlength="10" required autocomplete="new-password"></div>
         </div>
         <div class="actions"><button type="submit">Add user</button></div>
       </form>
@@ -263,6 +273,10 @@
               <button type="button" class="small min-2" data-bulk="cleared">Clear</button>
             </div>
             <div class="table-wrap"><table id="reg-table"></table></div>
+            <div class="actions" style="margin-top:8px">
+              <button type="button" class="small secondary" id="reg-prev" hidden>Previous</button>
+              <button type="button" class="small secondary" id="reg-next" hidden>Next</button>
+            </div>
             <details id="reg-new">
               <summary>Add a finding by hand</summary>
               <form id="reg-form" class="stack">

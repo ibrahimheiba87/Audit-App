@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
-from sqlalchemy import select
+from pydantic import BaseModel, Field, StringConstraints
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import auth, register
 from .auth import current_user, log, require
 from .db import Engagement, Evidence, Finding, FindingNote, User, get_session
 from .engagements import get_or_404, safe_stem
+from .exports import attachment
 from .register import STATUSES
 
 router = APIRouter(prefix="/api")
@@ -24,11 +25,13 @@ MAX_EVIDENCE_BYTES = 20 * 1024 * 1024
 
 Status = Literal["open", "reviewed", "cleared"]
 Severity = Literal["high", "medium", "low"]
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
+MAX_PAGE = 1000
 
 
 class FindingIn(BaseModel):
     severity: Severity = "medium"
-    detail: str = Field(min_length=1, max_length=5000)
+    detail: Text
     account: str | None = None
     description: str | None = None
     entry_id: str | None = None
@@ -43,7 +46,7 @@ class FindingPatch(BaseModel):
 
 
 class NoteIn(BaseModel):
-    text: str = Field(min_length=1, max_length=5000)
+    text: Text
 
 
 class BulkIn(BaseModel):
@@ -105,7 +108,8 @@ def set_status(f: Finding, status: str, note: str, user: User) -> bool:
 
 def engagement_findings(session: Session, e: Engagement) -> list[Finding]:
     register.sync_engagement(session, e)
-    return list(e.findings)
+    q = select(Finding).where(Finding.engagement_id == e.id).order_by(Finding.id)
+    return list(session.scalars(register.with_details(q)))
 
 
 # --- Endpoints --------------------------------------------------------------
@@ -119,22 +123,35 @@ def options() -> dict:
 
 @router.get("/engagements/{engagement_id}/findings")
 def list_findings(engagement_id: int, status: str = "", severity: str = "", check: str = "",
+                  offset: int = 0, limit: int = 200,
                   session: Session = Depends(get_session)) -> dict:
+    """One page of the register (filtered), plus totals for the whole engagement."""
     e = get_or_404(session, Engagement, engagement_id)
-    every = engagement_findings(session, e)
-    shown = [f for f in every if (not status or f.status == status)
-             and (not severity or f.severity == severity) and (not check or f.check == check)]
-    checks = {f.check: f.check_name for f in every}
-    return {"summary": register.summary(every),
-            "checks": [{"id": k, "name": v} for k, v in checks.items()],
-            "findings": [finding_brief(f) for f in shown]}
+    register.sync_engagement(session, e)
+    offset, limit = max(offset, 0), min(max(limit, 1), MAX_PAGE)
+    where = [Finding.engagement_id == e.id]
+    if status:
+        where.append(Finding.status == status)
+    if severity:
+        where.append(Finding.severity == severity)
+    if check:
+        where.append(Finding.check == check)
+    matching = session.scalar(select(func.count(Finding.id)).where(*where))
+    page = session.scalars(register.with_details(
+        select(Finding).where(*where).order_by(Finding.id).offset(offset).limit(limit)))
+    checks = session.execute(select(Finding.check, Finding.check_name)
+                             .where(Finding.engagement_id == e.id).distinct())
+    return {"summary": register.summary_counts(session, e.id),
+            "checks": [{"id": k, "name": v} for k, v in checks],
+            "matching": matching, "offset": offset, "limit": limit,
+            "findings": [finding_brief(f) for f in page]}
 
 
 @router.post("/engagements/{engagement_id}/findings", status_code=201)
 def create_finding(engagement_id: int, body: FindingIn, user: User = Depends(require("prepare")),
                    session: Session = Depends(get_session)) -> dict:
     e = get_or_404(session, Engagement, engagement_id)
-    f = Finding(engagement=e, source="manual", severity=body.severity, detail=body.detail.strip(),
+    f = Finding(engagement=e, source="manual", severity=body.severity, detail=body.detail,
                 account=body.account or None, description=body.description or None,
                 entry_id=body.entry_id or None, amount=body.amount,
                 date=body.date.isoformat() if body.date else None)
@@ -160,7 +177,7 @@ def bulk_update(engagement_id: int, body: BulkIn, user: User = Depends(require("
             f"{STATUSES[body.status].lower()}" + (f": {body.note.strip()}" if body.note.strip() else ""),
             e, details={"finding_ids": changed, "status": body.status})
     session.commit()
-    return {"changed": len(changed), "summary": register.summary(list(e.findings))}
+    return {"changed": len(changed), "summary": register.summary_counts(session, e.id)}
 
 
 @router.get("/engagements/{engagement_id}/findings/export")
@@ -174,7 +191,7 @@ def export_findings(engagement_id: int, user: User = Depends(current_user),
                "Period end": e.period_end.isoformat(), "Framework": e.framework}
     stem = safe_stem(f"{e.client.name}-{e.name}-findings")
     return Response(register.to_excel(findings, context), media_type=XLSX,
-                    headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'})
+                    headers=attachment(f"{stem}.xlsx"))
 
 
 @router.get("/findings/{finding_id}")
@@ -222,8 +239,8 @@ def delete_finding(finding_id: int, user: User = Depends(require("review")),
 def add_note(finding_id: int, body: NoteIn, user: User = Depends(require("prepare")),
              session: Session = Depends(get_session)) -> dict:
     f = get_or_404(session, Finding, finding_id)
-    f.notes.append(FindingNote(text=body.text.strip(), author=user.name))
-    log(session, user, "finding.note", f"Note on finding #{f.id}: {body.text.strip()}",
+    f.notes.append(FindingNote(text=body.text, author=user.name))
+    log(session, user, "finding.note", f"Note on finding #{f.id}: {body.text}",
         f.engagement, details={"finding_id": f.id})
     register.touch(f)
     session.commit()
@@ -259,13 +276,12 @@ def download_evidence(evidence_id: int, user: User = Depends(current_user),
                       session: Session = Depends(get_session)) -> Response:
     ev = get_or_404(session, Evidence, evidence_id)
     log(session, user, "evidence.download", f"Downloaded {ev.filename} from finding "
-        f"#{ev.finding_id}", ev.finding.engagement, details={"evidence_id": ev.id})
+        f"#{ev.finding_id}", ev.finding.engagement,
+        details={"evidence_id": ev.id, "finding_id": ev.finding_id, "sha256": ev.sha256,
+                 "size": ev.size})
     session.commit()
-    name = ev.filename.replace('"', "").replace("\r", "").replace("\n", "")
-    return Response(ev.content, media_type=ev.content_type, headers={
-        "Content-Disposition": f'attachment; filename="{safe_stem(name) or "evidence"}"',
-        "X-Content-Type-Options": "nosniff",
-    })
+    return Response(ev.content, media_type=ev.content_type,
+                    headers={**attachment(ev.filename), "X-Content-Type-Options": "nosniff"})
 
 
 @router.delete("/evidence/{evidence_id}", status_code=204)

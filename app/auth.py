@@ -19,10 +19,11 @@ import secrets
 from datetime import timedelta
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
-from .db import Activity, AuthSession, Engagement, User, get_session, utcnow
+from .db import Activity, AuthSession, Engagement, Guard, User, get_session, utcnow
 
 ROLES = {"preparer": "Preparer", "reviewer": "Reviewer", "partner": "Partner", "admin": "Admin"}
 RANK = {role: i for i, role in enumerate(ROLES, start=1)}
@@ -151,6 +152,32 @@ def log(session: Session, user: User | None, action: str, summary: str,
         summary=summary, details=details or {},
         ip=(request.client.host if request and request.client else "")[:64],
     ))
+
+
+# --- Serializing checks -------------------------------------------------------
+
+
+def hold(session: Session, key: str) -> None:
+    """Make concurrent requests that hold the same key run one at a time.
+
+    Writes the guard row for `key`, which keeps a write lock on it until this transaction
+    commits or rolls back. Call it before reading the data a check depends on, and before any
+    other write in the transaction.
+    """
+    dialect = session.get_bind().dialect.name
+    if dialect in ("sqlite", "postgresql"):
+        insert = sqlite.insert if dialect == "sqlite" else postgresql.insert
+        session.execute(insert(Guard).values(key=key, n=1).on_conflict_do_update(
+            index_elements=[Guard.key], set_={"n": Guard.n + 1}))
+    elif not session.execute(update(Guard).where(Guard.key == key)
+                             .values(n=Guard.n + 1)).rowcount:
+        session.add(Guard(key=key, n=1))
+        session.flush()
+
+
+def login_key(email: str) -> str:
+    """Guard key for sign-ins to `email`. Bucketed so failed guesses can't grow the table."""
+    return f"login:{hashlib.sha256(email.encode()).hexdigest()[:2]}"
 
 
 def recent_failed_logins(session: Session, email: str) -> int:

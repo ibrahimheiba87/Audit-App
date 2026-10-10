@@ -14,6 +14,7 @@ from . import loader, sampling
 from .auth import current_user, log, require
 from .db import Engagement, Sample, Upload, User, get_session
 from .engagements import get_or_404, load_upload, safe_stem, sample_brief
+from .exports import attachment
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
@@ -84,7 +85,8 @@ def export_sample(sample_id: int, user: User = Depends(current_user),
     x = get_or_404(session, Sample, sample_id)
     e = x.engagement
     log(session, user, "sample.download", f"Downloaded sample #{x.id} workpaper", e,
-        details={"sample_id": x.id})
+        details={"sample_id": x.id, "upload_id": x.upload_id, "sha256": x.upload.sha256,
+                 "seed": x.seed, "params": x.params})
     session.commit()
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(),
@@ -92,7 +94,7 @@ def export_sample(sample_id: int, user: User = Depends(current_user),
                "Drawn": f"{x.created_at:%Y-%m-%d %H:%M} UTC"}
     stem = safe_stem(f"{e.client.name}-{e.name}-sample{x.id}")
     return Response(sampling.to_excel(x.result, context), media_type=XLSX,
-                    headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'})
+                    headers=attachment(f"{stem}.xlsx"))
 
 
 @router.post("/sample")
@@ -127,5 +129,5 @@ async def sample_file(
     session.commit()
     if format == "xlsx":
         return Response(sampling.to_excel(result, {"File": file.filename}), media_type=XLSX,
-                        headers={"Content-Disposition": 'attachment; filename="sample.xlsx"'})
+                        headers=attachment("sample.xlsx"))
     return result

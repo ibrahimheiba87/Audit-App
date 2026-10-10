@@ -85,9 +85,10 @@ def status(request: Request, session: Session = Depends(get_session)) -> dict:
 @router.post("/auth/setup", status_code=201)
 def setup(body: SetupIn, request: Request, session: Session = Depends(get_session)) -> Response:
     """Create the first admin. Only works while there are no users."""
+    auth.check_password_strength(body.password)
+    auth.hold(session, "setup")  # so two first-run requests can't both create an admin
     if session.scalar(select(func.count(User.id))):
         raise HTTPException(409, "The app is already set up. Sign in instead.")
-    auth.check_password_strength(body.password)
     user = User(email=clean_email(body.email), name=body.name.strip(), role="admin",
                 password_hash=auth.hash_password(body.password))
     session.add(user)
@@ -99,7 +100,10 @@ def setup(body: SetupIn, request: Request, session: Session = Depends(get_sessio
 @router.post("/auth/login")
 def login(body: LoginIn, request: Request, session: Session = Depends(get_session)) -> Response:
     email = body.email.strip().lower()
+    # One attempt at a time per account, so parallel guesses can't get past the limit.
+    auth.hold(session, auth.login_key(email))
     if auth.recent_failed_logins(session, email) >= auth.MAX_FAILED_LOGINS:
+        session.rollback()
         raise HTTPException(429, f"Too many failed sign-ins. Try again in "
                                  f"{auth.LOCKOUT_MINUTES} minutes.")
     user = session.scalar(select(User).where(User.email == email))
@@ -176,10 +180,12 @@ def update_user(user_id: int, body: UserPatch, request: Request,
     if user is None:
         raise HTTPException(404, "User not found.")
     changes = []
-    losing_admin = user.role == "admin" and user.active and (
-        (body.role and body.role != "admin") or body.active is False)
-    if losing_admin and active_admins(session) <= 1:
-        raise HTTPException(400, "Keep at least one active admin.")
+    if (body.role and body.role != "admin") or body.active is False:
+        # Two admins demoting each other at once must not leave no admin.
+        auth.hold(session, "admins")
+        session.refresh(user)
+        if user.role == "admin" and user.active and active_admins(session) <= 1:
+            raise HTTPException(400, "Keep at least one active admin.")
     if body.name and body.name.strip() != user.name:
         changes.append(f"name to {body.name.strip()}")
         user.name = body.name.strip()
@@ -211,13 +217,20 @@ def activity(engagement_id: int | None = None, user_id: int | None = None, actio
              limit: int = 200, user: User = Depends(current_user),
              session: Session = Depends(get_session)) -> list[dict]:
     """The activity log. Anyone can see an engagement's log; the full log is for admins."""
+    engagement = None
     if engagement_id is None:
         auth.ensure(user, "admin")
-    elif session.get(Engagement, engagement_id) is None and not auth.can(user, "admin"):
-        raise HTTPException(404, "Engagement not found.")
+    else:
+        engagement = session.get(Engagement, engagement_id)
+        if engagement is None and not auth.can(user, "admin"):
+            raise HTTPException(404, "Engagement not found.")
     q = select(Activity).order_by(Activity.id.desc()).limit(max(1, min(limit, 1000)))
     if engagement_id is not None:
         q = q.where(Activity.engagement_id == engagement_id)
+    if engagement is not None:
+        # Databases created before ids stopped being reused can hand a deleted engagement's
+        # id to a new one; its history starts when it was created.
+        q = q.where(Activity.at >= engagement.created_at)
     if user_id is not None:
         q = q.where(Activity.user_id == user_id)
     if action:

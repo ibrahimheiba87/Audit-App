@@ -13,6 +13,7 @@ from . import compare, loader
 from .auth import current_user, log, require
 from .db import Comparison, Engagement, Upload, User, get_session
 from .engagements import comparison_brief, get_or_404, load_upload, safe_stem
+from .exports import attachment
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
@@ -76,7 +77,8 @@ def comparison_report(comparison_id: int, user: User = Depends(current_user),
     c = get_or_404(session, Comparison, comparison_id)
     e = c.engagement
     log(session, user, "comparison.download", f"Downloaded comparison #{c.id}", e,
-        details={"comparison_id": c.id})
+        details={"comparison_id": c.id, "current_sha256": c.current_upload.sha256,
+                 "prior_sha256": c.prior_upload.sha256, "settings": c.settings})
     session.commit()
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(),
@@ -85,7 +87,7 @@ def comparison_report(comparison_id: int, user: User = Depends(current_user),
                "Compared": f"{c.created_at:%Y-%m-%d %H:%M} UTC"}
     stem = safe_stem(f"{e.client.name}-{e.name}-comparison{c.id}")
     return Response(compare.to_excel(c.result, context), media_type=XLSX,
-                    headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'})
+                    headers=attachment(f"{stem}.xlsx"))
 
 
 @router.post("/compare")
@@ -121,5 +123,5 @@ async def compare_files(
     if format == "xlsx":
         context = {"This year's file": current.filename, "Prior year's file": prior.filename}
         return Response(compare.to_excel(result, context), media_type=XLSX,
-                        headers={"Content-Disposition": 'attachment; filename="comparison.xlsx"'})
+                        headers=attachment("comparison.xlsx"))
     return result

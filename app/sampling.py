@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 
+from .exports import finish_workbook
+
 METHODS = {
     "random": "Simple random",
     "systematic": "Systematic (fixed interval)",
@@ -29,6 +31,8 @@ CONFIDENCE = {
     99: (4.61, 1.9),
 }
 POPULATIONS = {"all": "All lines", "debits": "Debits only", "credits": "Credits only"}
+MAX_SAMPLE_SIZE = 100_000
+MAX_SEED = 2**31 - 1
 
 
 class SamplingError(ValueError):
@@ -71,6 +75,8 @@ def mus_sample_size(book_value: float, p: SampleParams) -> int:
         raise SamplingError(f"Confidence must be one of: {', '.join(map(str, CONFIDENCE))}.")
     if not p.tolerable_misstatement or p.tolerable_misstatement <= 0:
         raise SamplingError("MUS needs a tolerable misstatement (or a sample size).")
+    if p.expected_misstatement < 0:
+        raise SamplingError("Expected misstatement can't be negative.")
     rf, ef = CONFIDENCE[p.confidence]
     room = p.tolerable_misstatement - p.expected_misstatement * ef
     if room <= 0:
@@ -78,7 +84,13 @@ def mus_sample_size(book_value: float, p: SampleParams) -> int:
             "Expected misstatement is too high for the tolerable misstatement; "
             "reduce it or raise tolerable misstatement."
         )
-    return max(1, math.ceil(book_value * rf / room))
+    n = max(1, math.ceil(book_value * rf / room))
+    if n > MAX_SAMPLE_SIZE:
+        raise SamplingError(
+            f"That needs a sample of {n:,} monetary units, over the {MAX_SAMPLE_SIZE:,} limit. "
+            "Raise tolerable misstatement or narrow the population."
+        )
+    return n
 
 
 def _item(row: pd.Series, reason: str) -> dict:
@@ -100,6 +112,12 @@ def _item(row: pd.Series, reason: str) -> dict:
 def draw(df: pd.DataFrame, p: SampleParams) -> dict:
     if p.method not in METHODS:
         raise SamplingError(f"Method must be one of: {', '.join(METHODS)}.")
+    if p.seed is not None and not 0 <= p.seed <= MAX_SEED:
+        raise SamplingError(f"Seed must be a whole number from 0 to {MAX_SEED:,}.")
+    if p.sample_size is not None and not 1 <= p.sample_size <= MAX_SAMPLE_SIZE:
+        raise SamplingError(f"Sample size must be from 1 to {MAX_SAMPLE_SIZE:,}.")
+    if p.min_amount < 0:
+        raise SamplingError("Minimum amount can't be negative.")
     seed = p.seed if p.seed is not None else secrets.randbelow(2**31)
     rng = np.random.default_rng(seed)
     pop = select_population(df, p)
@@ -190,8 +208,5 @@ def to_excel(result: dict, context: dict | None = None) -> bytes:
         pd.DataFrame(rows, columns=["Item", "Value"]).to_excel(xl, sheet_name="Parameters",
                                                                index=False)
         items.to_excel(xl, sheet_name="Sample", index=False)
-        for ws in xl.book.worksheets:
-            for column in ws.columns:
-                width = max(len(str(c.value or "")) for c in column)
-                ws.column_dimensions[column[0].column_letter].width = min(max(width + 2, 10), 60)
+        finish_workbook(xl.book)
     return buf.getvalue()

@@ -6,6 +6,8 @@ import io
 
 import pandas as pd
 
+from .exports import csv_safe_frame, finish_workbook
+
 FINDING_COLUMNS = ["severity", "check", "row", "entry_id", "date", "account",
                    "description", "amount", "detail"]
 
@@ -15,7 +17,7 @@ def findings_frame(result: dict) -> pd.DataFrame:
 
 
 def to_csv(result: dict) -> bytes:
-    return findings_frame(result).to_csv(index=False).encode("utf-8")
+    return csv_safe_frame(findings_frame(result)).to_csv(index=False).encode("utf-8")
 
 
 def to_excel(result: dict, source_name: str = "", context: dict | None = None) -> bytes:
@@ -56,8 +58,5 @@ def to_excel(result: dict, source_name: str = "", context: dict | None = None) -
         checks.to_excel(xl, sheet_name="Summary", index=False, startrow=len(summary_rows) + 2)
         findings_frame(result).to_excel(xl, sheet_name="Findings", index=False)
         benford.to_excel(xl, sheet_name="Benford", index=False)
-        for ws in xl.book.worksheets:
-            for column in ws.columns:
-                width = max(len(str(c.value or "")) for c in column)
-                ws.column_dimensions[column[0].column_letter].width = min(max(width + 2, 10), 60)
+        finish_workbook(xl.book)
     return buf.getvalue()
