@@ -48,10 +48,14 @@ async function guard(fn) {
 }
 
 // Like guard, with the button disabled until the request finishes, so a double-click
-// doesn't send it twice.
-async function busy(button, fn) {
+// doesn't send it twice. `ready` says whether the button should be enabled afterwards.
+async function busy(button, fn, ready = () => true) {
+  button.busy = (button.busy || 0) + 1;
   button.disabled = true;
-  try { return await guard(fn); } finally { button.disabled = false; }
+  try { return await guard(fn); } finally {
+    button.busy -= 1;
+    if (!button.busy) button.disabled = !ready();
+  }
 }
 
 function formObject(form) {
@@ -566,7 +570,7 @@ function renderMapping() {
         <td class="num">${drcr(a.adjusted)}</td>
         <td><select class="map" aria-label="Line for account ${esc(a.account)}">${lineOptions(value)}</select>${hint}</td></tr>`;
     }).join("");
-  $("fs-save-map").disabled = !Object.keys(fsMapEdits).length;
+  $("fs-save-map").disabled = !canSaveMapping() || $("fs-save-map").busy > 0;
 }
 
 $("fs-map").addEventListener("change", (ev) => {
@@ -576,7 +580,7 @@ $("fs-map").addEventListener("change", (ev) => {
   const saved = fs.accounts.find((a) => a.account === account).line || "";
   if (ev.target.value === saved) delete fsMapEdits[account]; else fsMapEdits[account] = ev.target.value;
   row.classList.toggle("changed", account in fsMapEdits);
-  $("fs-save-map").disabled = !Object.keys(fsMapEdits).length;
+  $("fs-save-map").disabled = !canSaveMapping() || $("fs-save-map").busy > 0;
 });
 $("fs-unmapped-only").addEventListener("change", renderMapping);
 $("fs-accept").addEventListener("click", () => {
@@ -584,14 +588,17 @@ $("fs-accept").addEventListener("click", () => {
     .forEach((a) => { fsMapEdits[a.account] = a.suggested; });
   renderMapping();
 });
+const canSaveMapping = () => Object.keys(fsMapEdits).length > 0;
 $("fs-save-map").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
-  if (fsEngagementId !== currentEngagement.id) return;
+  const id = fsEngagementId;
+  if (id !== currentEngagement.id) return;
   const mappings = Object.fromEntries(Object.entries(fsMapEdits).map(([k, v]) => [k, v || null]));
-  await sendJSON("PUT", `/api/engagements/${fsEngagementId}/mapping`, { mappings });
+  await sendJSON("PUT", `/api/engagements/${id}/mapping`, { mappings });
+  if (currentEngagement.id !== id) return;  // the user has opened another engagement
   fsMapEdits = {};
   await loadStatements();
   await loadEngagementActivity();
-}));
+}, canSaveMapping));
 
 // Adjusting entries
 
@@ -661,8 +668,10 @@ $("aje-form").addEventListener("submit", (ev) => {
   busy($("aje-post"), async () => {
     const o = formObject($("aje-form"));
     const lines = entryLines().filter((l) => l.account || l.debit || l.credit);
-    await sendJSON("POST", `/api/engagements/${currentEngagement.id}/adjusting-entries`,
+    const id = currentEngagement.id;
+    await sendJSON("POST", `/api/engagements/${id}/adjusting-entries`,
       { kind: o.kind, description: o.description, date: o.date || null, lines });
+    if (currentEngagement.id !== id) return;  // the user has opened another engagement
     resetEntryForm();
     await loadStatements();
     await loadEngagementActivity();
