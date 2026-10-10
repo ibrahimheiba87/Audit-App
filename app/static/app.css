@@ -19,7 +19,7 @@ h2 { font-size: 17px; margin: 0 0 12px; }
 p.lead { color: var(--muted); margin: 0 0 20px; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
          padding: 18px; margin-bottom: 18px; }
-form .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 input { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;
         background: var(--bg); color: var(--text); font: inherit; }
@@ -58,3 +58,28 @@ select.map { width: 100%; padding: 7px; border: 1px solid var(--border); border-
 .preview-table td { white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .warnings { margin: 10px 0 0; padding-left: 20px; color: var(--medium); }
 td.nowrap { white-space: nowrap; }
+header.top { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+             flex-wrap: wrap; margin-bottom: 18px; }
+header.top h1 { margin: 0; }
+nav { display: flex; gap: 6px; }
+nav a { padding: 7px 14px; border-radius: 6px; color: var(--muted); text-decoration: none; }
+nav a.active { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+.layout { display: grid; grid-template-columns: 260px 1fr; gap: 18px; align-items: start; }
+@media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+.side h2 { margin-bottom: 8px; }
+.client { margin-bottom: 12px; }
+.client-name { font-weight: 600; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.client ul { list-style: none; margin: 4px 0 0; padding: 0; }
+.client li a { display: block; padding: 4px 8px; border-radius: 5px; color: var(--text); text-decoration: none; font-size: 14px; }
+.client li a.active, .client li a:hover { background: var(--low-bg); }
+button.link { background: none; border: none; color: var(--accent); padding: 2px 0; font-size: 13px; cursor: pointer; }
+.stack { display: grid; gap: 10px; margin-top: 10px; }
+details summary { cursor: pointer; color: var(--accent); margin-top: 8px; }
+textarea { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;
+           background: var(--bg); color: var(--text); font: inherit; }
+.row-between { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+button.danger { color: var(--high); border-color: var(--high); }
+button.small, a.small { padding: 4px 10px; font-size: 13px; }
+a.button { display: inline-block; padding: 4px 10px; font-size: 13px; border-radius: 6px;
+           border: 1px solid var(--accent); color: var(--accent); text-decoration: none; }
+.cell-actions { display: flex; gap: 6px; flex-wrap: wrap; }

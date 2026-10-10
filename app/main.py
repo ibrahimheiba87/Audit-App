@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -11,35 +11,22 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import checks, loader, report
+from . import checks, db, loader, report
+from .engagements import router as engagements_router
+from .uploads import parse_mapping, read_upload
 
 STATIC = Path(__file__).parent / "static"
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
-app = FastAPI(title="Audit App")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    db.init()
+    yield
+
+
+app = FastAPI(title="Audit App", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
-
-
-async def read_upload(file: UploadFile) -> bytes:
-    content = await file.read()
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "File is larger than 50 MB.")
-    return content
-
-
-def parse_mapping(mapping: str) -> dict[str, str] | None:
-    """The mapping form field is JSON like {"date": "Txn Date", ...}; empty means guess."""
-    if not mapping:
-        return None
-    try:
-        value = json.loads(mapping)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(400, "Mapping must be a JSON object.") from exc
-    if not isinstance(value, dict) or not all(
-        isinstance(k, str) and isinstance(v, str | None) for k, v in value.items()
-    ):
-        raise HTTPException(400, "Mapping must be a JSON object of field to column name.")
-    return value
+app.include_router(engagements_router)
 
 
 @dataclass
@@ -50,6 +37,7 @@ class AuditForm:
     round_threshold: float
     mapping: str
     sheet: str
+    performance_materiality: float | None
 
 
 def audit_form(
@@ -59,8 +47,10 @@ def audit_form(
     round_threshold: float = Form(1000.0),
     mapping: str = Form(""),
     sheet: str = Form(""),
+    performance_materiality: float | None = Form(None),
 ) -> AuditForm:
-    return AuditForm(file, period_end, cutoff_days, round_threshold, mapping, sheet)
+    return AuditForm(file, period_end, cutoff_days, round_threshold, mapping, sheet,
+                     performance_materiality)
 
 
 async def run_audit(form: AuditForm) -> dict:
@@ -76,6 +66,7 @@ async def run_audit(form: AuditForm) -> dict:
         raise HTTPException(400, "Period end must be a date like 2026-12-31.") from exc
     settings = checks.Settings(
         period_end=end, cutoff_days=form.cutoff_days, round_threshold=form.round_threshold,
+        performance_materiality=form.performance_materiality or None,
     )
     return checks.run_all(loaded.df, settings, loaded.report.to_dict())
 

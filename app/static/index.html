@@ -8,54 +8,144 @@
 </head>
 <body>
 <main>
-  <h1>Audit App</h1>
-  <p class="lead">Upload a general ledger or trial balance (CSV or Excel) to run audit checks and export the findings.</p>
+  <header class="top">
+    <h1>Audit App</h1>
+    <nav>
+      <a href="#/engagements" data-view="engagements">Engagements</a>
+      <a href="#/quick" data-view="quick">Quick audit</a>
+    </nav>
+  </header>
+  <div class="error" id="error" hidden></div>
 
-  <section class="panel">
-    <form id="form">
-      <div class="grid">
-        <div>
-          <label for="file">Ledger file</label>
-          <input id="file" name="file" type="file" accept=".csv,.txt,.xlsx,.xlsm,.xls" required>
-        </div>
-        <div id="sheet-wrap" hidden>
-          <label for="sheet">Sheet</label>
-          <select id="sheet" name="sheet" class="map"></select>
-        </div>
-        <div>
-          <label for="period_end">Period end (optional)</label>
-          <input id="period_end" name="period_end" type="date">
-        </div>
-        <div>
-          <label for="cutoff_days">Cutoff window (days)</label>
-          <input id="cutoff_days" name="cutoff_days" type="number" min="0" value="5">
-        </div>
-        <div>
-          <label for="round_threshold">Round amount threshold</label>
-          <input id="round_threshold" name="round_threshold" type="number" min="1" step="any" value="1000">
-        </div>
-      </div>
+  <!-- Engagements -------------------------------------------------------->
+  <div id="view-engagements" class="view" hidden>
+    <div class="layout">
+      <aside class="panel side">
+        <h2>Clients</h2>
+        <div id="client-list"></div>
+        <details id="new-client">
+          <summary>New client</summary>
+          <form id="client-form" class="stack">
+            <div><label for="client-name">Name</label><input id="client-name" name="name" required></div>
+            <div><label for="client-industry">Industry</label><input id="client-industry" name="industry"></div>
+            <button type="submit">Add client</button>
+          </form>
+        </details>
+      </aside>
 
-      <div id="mapping-panel" hidden>
-        <h2 style="margin-top:18px">Column mapping</h2>
-        <p class="muted">Check which column in your file holds each field. Map either a signed Amount column, or Debit and Credit columns.</p>
-        <div class="mapping" id="mapping"></div>
-        <p class="muted" id="preview-note"></p>
-        <div class="table-wrap"><table class="preview-table" id="preview"></table></div>
-      </div>
+      <section class="content">
+        <div id="eng-empty" class="panel muted">Pick an engagement on the left, or add a client and an engagement to start.</div>
 
-      <div class="actions">
-        <button type="submit" id="run">Run audit</button>
-        <button type="button" class="secondary" id="dl-xlsx" disabled>Download Excel report</button>
-        <button type="button" class="secondary" id="dl-csv" disabled>Download findings CSV</button>
-      </div>
-      <div class="error" id="error" hidden></div>
-    </form>
-  </section>
+        <section class="panel" id="eng-new" hidden>
+          <h2>New engagement for <span id="eng-new-client"></span></h2>
+          <form id="eng-form">
+            <div class="grid">
+              <div><label for="eng-name">Name</label><input id="eng-name" name="name" placeholder="FY2026 audit" required></div>
+              <div><label for="eng-start">Period start</label><input id="eng-start" name="period_start" type="date"></div>
+              <div><label for="eng-end">Period end</label><input id="eng-end" name="period_end" type="date" required></div>
+              <div><label for="eng-framework">Framework</label><select id="eng-framework" name="framework" class="map"></select></div>
+            </div>
+            <div class="actions"><button type="submit">Create engagement</button></div>
+          </form>
+        </section>
 
+        <div id="eng-detail" hidden>
+          <section class="panel">
+            <div class="row-between">
+              <div>
+                <h2 id="eng-title"></h2>
+                <p class="muted" id="eng-meta"></p>
+              </div>
+              <button type="button" class="secondary danger" id="eng-delete">Delete engagement</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Materiality</h2>
+            <form id="mat-form">
+              <div class="grid">
+                <div><label for="mat-benchmark">Benchmark</label><select id="mat-benchmark" name="benchmark" class="map"></select></div>
+                <div><label for="mat-amount">Benchmark amount</label><input id="mat-amount" name="benchmark_amount" type="number" step="any" required></div>
+                <div><label for="mat-pct">Benchmark % <span class="muted" id="mat-range"></span></label><input id="mat-pct" name="benchmark_pct" type="number" step="any" min="0" max="100"></div>
+                <div><label for="mat-perf">Performance % of overall</label><input id="mat-perf" name="performance_pct" type="number" step="any" min="0" max="100"></div>
+                <div><label for="mat-triv">Clearly trivial % of overall</label><input id="mat-triv" name="trivial_pct" type="number" step="any" min="0" max="100"></div>
+              </div>
+              <div style="margin-top:12px"><label for="mat-rationale">Rationale</label><textarea id="mat-rationale" name="rationale" rows="2"></textarea></div>
+              <div class="cards" id="mat-cards" style="margin-top:12px"></div>
+              <div class="actions"><button type="submit">Save materiality</button><span class="muted" id="mat-saved"></span></div>
+            </form>
+          </section>
+
+          <section class="panel">
+            <h2>Files</h2>
+            <form id="upload-form">
+              <div class="grid">
+                <div><label for="up-kind">Type</label><select id="up-kind" name="kind" class="map"></select></div>
+                <div><label for="up-file">File</label><input id="up-file" name="file" type="file" accept=".csv,.txt,.xlsx,.xlsm,.xls" required></div>
+              </div>
+              <div id="up-mapper"></div>
+              <div class="actions"><button type="submit">Upload</button></div>
+            </form>
+            <div class="table-wrap"><table id="uploads"></table></div>
+            <div class="grid" style="margin-top:12px">
+              <div><label for="run-cutoff">Cutoff window (days)</label><input id="run-cutoff" type="number" min="0" value="5"></div>
+              <div><label for="run-round">Round amount threshold</label><input id="run-round" type="number" min="1" step="any" value="1000"></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Audit runs</h2>
+            <div class="table-wrap"><table id="runs"></table></div>
+          </section>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Quick audit -------------------------------------------------------->
+  <div id="view-quick" class="view" hidden>
+    <p class="lead">Upload a general ledger or trial balance (CSV or Excel) to run the audit checks without saving anything.</p>
+    <section class="panel">
+      <form id="form">
+        <div class="grid">
+          <div>
+            <label for="file">Ledger file</label>
+            <input id="file" name="file" type="file" accept=".csv,.txt,.xlsx,.xlsm,.xls" required>
+          </div>
+          <div>
+            <label for="period_end">Period end (optional)</label>
+            <input id="period_end" name="period_end" type="date">
+          </div>
+          <div>
+            <label for="cutoff_days">Cutoff window (days)</label>
+            <input id="cutoff_days" name="cutoff_days" type="number" min="0" value="5">
+          </div>
+          <div>
+            <label for="round_threshold">Round amount threshold</label>
+            <input id="round_threshold" name="round_threshold" type="number" min="1" step="any" value="1000">
+          </div>
+          <div>
+            <label for="performance_materiality">Performance materiality (optional)</label>
+            <input id="performance_materiality" name="performance_materiality" type="number" min="0" step="any">
+          </div>
+        </div>
+        <div id="quick-mapper"></div>
+        <div class="actions">
+          <button type="submit" id="run">Run audit</button>
+          <button type="button" class="secondary" id="dl-xlsx" disabled>Download Excel report</button>
+          <button type="button" class="secondary" id="dl-csv" disabled>Download findings CSV</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- Results (shared) --------------------------------------------------->
   <div id="results" hidden>
     <section class="panel">
-      <h2>Summary</h2>
+      <div class="row-between">
+        <h2 id="results-title">Results</h2>
+        <div class="actions" id="results-actions" style="margin:0"></div>
+      </div>
       <div class="cards" id="cards"></div>
       <ul class="warnings" id="import-warnings"></ul>
     </section>
