@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import checks, db, loader, report
 from .comparisons import router as comparisons_router
 from .engagements import router as engagements_router
+from .exports import attachment
 from .findings import router as findings_router
 from .samples import router as samples_router
 from .uploads import parse_mapping, read_upload
@@ -113,10 +114,10 @@ async def download_report(
     if format == "csv":
         return Response(
             report.to_csv(result), media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{stem}-findings.csv"'},
+            headers=attachment(f"{stem}-findings.csv"),
         )
     return Response(
         report.to_excel(result, form.file.filename or ""),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{stem}-audit-report.xlsx"'},
+        headers=attachment(f"{stem}-audit-report.xlsx"),
     )

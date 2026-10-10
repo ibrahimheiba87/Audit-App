@@ -228,7 +228,7 @@ class Evidence(Base):
     finding_id: Mapped[int] = mapped_column(ForeignKey("findings.id"))
     filename: Mapped[str] = mapped_column(String(500))
     content_type: Mapped[str] = mapped_column(String(200), default="application/octet-stream")
-    content: Mapped[bytes] = mapped_column(LargeBinary)
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)  # loaded on download
     size: Mapped[int] = mapped_column(Integer)
     sha256: Mapped[str] = mapped_column(String(64))
     author: Mapped[str] = mapped_column(String(200), default="")

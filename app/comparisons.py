@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from . import compare, loader
 from .db import Comparison, Engagement, Upload, get_session
 from .engagements import comparison_brief, get_or_404, load_upload, safe_stem
+from .exports import attachment
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
@@ -71,7 +72,7 @@ def comparison_report(comparison_id: int, session: Session = Depends(get_session
                "Compared": f"{c.created_at:%Y-%m-%d %H:%M} UTC"}
     stem = safe_stem(f"{e.client.name}-{e.name}-comparison{c.id}")
     return Response(compare.to_excel(c.result, context), media_type=XLSX,
-                    headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'})
+                    headers=attachment(f"{stem}.xlsx"))
 
 
 @router.post("/compare")
@@ -100,5 +101,5 @@ async def compare_files(
     if format == "xlsx":
         context = {"This year's file": current.filename, "Prior year's file": prior.filename}
         return Response(compare.to_excel(result, context), media_type=XLSX,
-                        headers={"Content-Disposition": 'attachment; filename="comparison.xlsx"'})
+                        headers=attachment("comparison.xlsx"))
     return result

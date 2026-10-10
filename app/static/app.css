@@ -103,3 +103,5 @@ h3 { font-size: 15px; margin: 18px 0 8px; }
 .trail .who { color: var(--muted); font-size: 13px; }
 #reg-table td.finding-cell { min-width: 240px; }
 #reg-table td.finding-cell .muted { font-size: 13px; }
+#reg-table button.finding-open { font-size: 14px; color: var(--text); text-align: left; padding: 0; }
+#reg-table button.finding-open:hover, #reg-table button.finding-open:focus-visible { color: var(--accent); text-decoration: underline; }

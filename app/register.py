@@ -5,10 +5,11 @@ from __future__ import annotations
 import io
 
 import pandas as pd
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, selectinload
 
 from .db import Engagement, Finding, Run, utcnow
+from .exports import finish_workbook
 
 STATUSES = {"open": "Open", "reviewed": "Reviewed", "cleared": "Cleared"}
 SEVERITIES = ["high", "medium", "low"]
@@ -47,8 +48,26 @@ def sync_engagement(session: Session, e: Engagement) -> None:
     synced = set(session.scalars(
         select(Finding.run_id).where(Finding.engagement_id == e.id, Finding.run_id.is_not(None))
     ))
-    if any(sync_run_findings(session, r) for r in e.runs if r.id not in synced):
+    added = sum(sync_run_findings(session, r) for r in e.runs if r.id not in synced)
+    if added:
         session.commit()
+
+
+def with_details(query):
+    """Load each finding's file, notes and evidence (not evidence content) in bulk."""
+    return query.options(selectinload(Finding.upload), selectinload(Finding.notes),
+                         selectinload(Finding.evidence))
+
+
+def summary_counts(session: Session, engagement_id: int) -> dict:
+    rows = session.execute(select(Finding.status, func.count(Finding.id))
+                           .where(Finding.engagement_id == engagement_id)
+                           .group_by(Finding.status))
+    out = {s: 0 for s in STATUSES}
+    for status, n in rows:
+        out[status] = n
+    out["total"] = sum(out.values())
+    return out
 
 
 def summary(findings: list[Finding]) -> dict:
@@ -105,8 +124,5 @@ def to_excel(findings: list[Finding], context: dict) -> bytes:
         register.to_excel(xl, sheet_name="Findings", index=False)
         trail.to_excel(xl, sheet_name="Review trail", index=False)
         evidence.to_excel(xl, sheet_name="Evidence", index=False)
-        for ws in xl.book.worksheets:
-            for column in ws.columns:
-                width = max(len(str(c.value or "")) for c in column)
-                ws.column_dimensions[column[0].column_letter].width = min(max(width + 2, 10), 60)
+        finish_workbook(xl.book)
     return buf.getvalue()

@@ -11,10 +11,11 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from . import checks, loader, materiality, register, report
 from .db import Client, Comparison, Engagement, Finding, Run, Sample, Upload, get_session
+from .exports import attachment
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
@@ -122,8 +123,14 @@ def engagement_out(e: Engagement) -> dict:
         "runs": [run_brief(r) for r in reversed(e.runs)],
         "comparisons": [comparison_brief(c) for c in reversed(e.comparisons)],
         "samples": [sample_brief(x) for x in reversed(e.samples)],
-        "findings_summary": register.summary(list(e.findings)),
+        "findings_summary": findings_summary(e),
     }
+
+
+def findings_summary(e: Engagement) -> dict:
+    session = object_session(e)
+    register.sync_engagement(session, e)  # runs saved before the register existed
+    return register.summary_counts(session, e.id)
 
 
 def sample_brief(x: Sample) -> dict:
@@ -398,7 +405,7 @@ def run_report(run_id: int, format: str = "xlsx",
     if format == "csv":
         return Response(
             report.to_csv(run.result), media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{stem}-findings.csv"'},
+            headers=attachment(f"{stem}-findings.csv"),
         )
     if format != "xlsx":
         raise HTTPException(400, "Format must be csv or xlsx.")
@@ -409,5 +416,5 @@ def run_report(run_id: int, format: str = "xlsx",
     return Response(
         report.to_excel(run.result, Path(run.upload.filename).name, context),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{stem}-audit-report.xlsx"'},
+        headers=attachment(f"{stem}-audit-report.xlsx"),
     )

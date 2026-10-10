@@ -50,7 +50,9 @@ function formObject(form) {
 }
 
 async function saveFile(res, fallback) {
-  const name = (res.headers.get("Content-Disposition") || "").match(/filename="(.+)"/)?.[1] || fallback;
+  const header = res.headers.get("Content-Disposition") || "";
+  const encoded = header.match(/filename\*=UTF-8''([^;]+)/)?.[1];
+  const name = (encoded && decodeURIComponent(encoded)) || header.match(/filename="([^"]+)"/)?.[1] || fallback;
   const url = URL.createObjectURL(await res.blob());
   Object.assign(document.createElement("a"), { href: url, download: name }).click();
   URL.revokeObjectURL(url);
@@ -189,6 +191,7 @@ $("eng-form").addEventListener("submit", (e) => {
 
 async function openEngagement(id) {
   const e = await getJSON(`/api/engagements/${id}`);
+  if (currentEngagement?.id !== e.id) { regOffset = 0; regSelected.clear(); }
   currentEngagement = e;
   $("eng-empty").hidden = true;
   $("eng-detail").hidden = false;
@@ -535,8 +538,9 @@ function showSample(s) {
 
 // Findings register
 
-const REG_MAX_ROWS = 500;
-let reg = null;               // {summary, checks, findings} for the open engagement
+const REG_PAGE = 200;
+let reg = null;               // {summary, checks, matching, offset, findings}: one page of the register
+let regOffset = 0;
 let regSelected = new Set();
 let currentFinding = null;
 
@@ -552,7 +556,13 @@ const statusPill = (f) => `<span class="st ${f.status}">${esc(f.status_label)}</
 
 async function loadRegister() {
   const id = currentEngagement.id;
-  reg = await getJSON(`/api/engagements/${id}/findings`);
+  const q = new URLSearchParams({ offset: regOffset, limit: REG_PAGE, status: $("reg-status").value,
+    severity: $("reg-sev").value, check: $("reg-check").value });
+  reg = await getJSON(`/api/engagements/${id}/findings?${q}`);
+  if (!reg.findings.length && regOffset > 0) {  // the page emptied (e.g. after a bulk change)
+    regOffset = Math.max(0, regOffset - REG_PAGE);
+    return loadRegister();
+  }
   $("reg-export").href = `/api/engagements/${id}/findings/export`;
   const s = reg.summary;
   $("reg-cards").innerHTML = [["Open", s.open], ["Reviewed", s.reviewed], ["Cleared", s.cleared], ["Total", s.total]]
@@ -561,43 +571,45 @@ async function loadRegister() {
   $("reg-check").innerHTML = '<option value="">All checks</option>' +
     reg.checks.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
   if (reg.checks.some((c) => c.id === chk)) $("reg-check").value = chk;
-  const ids = new Set(reg.findings.map((f) => f.id));
-  regSelected = new Set([...regSelected].filter((x) => ids.has(x)));
   renderRegister();
 }
 
-function regRows() {
-  const st = $("reg-status").value, sev = $("reg-sev").value, chk = $("reg-check").value;
-  return reg.findings.filter((f) => (!st || f.status === st) && (!sev || f.severity === sev) && (!chk || f.check === chk));
-}
-
 function renderRegister() {
-  const rows = regRows();
-  const shown = rows.slice(0, REG_MAX_ROWS);
-  $("reg-count").textContent = rows.length > REG_MAX_ROWS
-    ? `${rows.length} findings, first ${REG_MAX_ROWS} shown (the download has them all)`
-    : `${rows.length} findings`;
+  const shown = reg.findings;
+  const first = reg.offset + 1, last = reg.offset + shown.length;
+  $("reg-count").textContent = reg.matching > shown.length
+    ? `${first}–${last} of ${reg.matching} findings` : `${reg.matching} findings`;
+  $("reg-prev").hidden = $("reg-next").hidden = reg.matching <= REG_PAGE;
+  $("reg-prev").disabled = reg.offset === 0;
+  $("reg-next").disabled = last >= reg.matching;
   const allChecked = shown.length && shown.every((f) => regSelected.has(f.id));
-  $("reg-table").innerHTML = reg.findings.length
+  $("reg-table").innerHTML = reg.summary.total
     ? `<tr><th><input type="checkbox" id="reg-all" ${allChecked ? "checked" : ""} title="Select all shown"></th><th>Status</th><th>Severity</th><th>Finding</th><th>Entry</th><th>Date</th><th>Account</th><th>Amount</th><th></th></tr>` +
       shown.map((f) => `<tr class="clickable${currentFinding?.id === f.id ? " current" : ""}" data-finding="${f.id}">
         <td><input type="checkbox" data-select="${f.id}" ${regSelected.has(f.id) ? "checked" : ""}></td>
         <td>${statusPill(f)}</td><td><span class="sev ${f.severity}">${f.severity}</span></td>
-        <td class="finding-cell"><div>${esc(f.check_name)}</div>${f.detail && f.detail !== f.check_name ? `<div class="muted">${esc(f.detail)}</div>` : ""}</td>
+        <td class="finding-cell"><button type="button" class="link finding-open" aria-label="Open finding ${f.id}: ${esc(f.check_name)}">${esc(f.check_name)}</button>${f.detail && f.detail !== f.check_name ? `<div class="muted">${esc(f.detail)}</div>` : ""}</td>
         <td>${esc(f.entry_id)}</td><td class="nowrap">${esc(f.date)}</td>
         <td>${esc(f.account)}</td><td class="num">${money(f.amount)}</td>
         <td class="nowrap muted">${f.notes ? `${f.notes} note${f.notes > 1 ? "s" : ""}` : ""}${f.notes && f.evidence ? " · " : ""}${f.evidence ? `${f.evidence} file${f.evidence > 1 ? "s" : ""}` : ""}</td>
       </tr>`).join("")
     : '<tr><td class="muted">No findings yet. Run the audit on a file, or add a finding by hand.</td></tr>';
+  if (reg.summary.total && !shown.length) $("reg-table").innerHTML += '<tr><td colspan="9" class="muted">No findings match these filters.</td></tr>';
   $("reg-bulk").hidden = !regSelected.size;
   $("reg-selected").textContent = `${regSelected.size} selected`;
 }
-["reg-status", "reg-sev", "reg-check"].forEach((id) => $(id).addEventListener("change", renderRegister));
+["reg-status", "reg-sev", "reg-check"].forEach((id) => $(id).addEventListener("change", () => {
+  regOffset = 0;
+  regSelected.clear();
+  guard(loadRegister);
+}));
+$("reg-prev").addEventListener("click", () => { regOffset = Math.max(0, regOffset - REG_PAGE); guard(loadRegister); });
+$("reg-next").addEventListener("click", () => { regOffset += REG_PAGE; guard(loadRegister); });
 
 $("reg-table").addEventListener("click", (ev) => {
   const box = ev.target.closest("input[type=checkbox]");
   if (box) {
-    const rows = regRows().slice(0, REG_MAX_ROWS);
+    const rows = reg.findings;
     if (box.id === "reg-all") rows.forEach((f) => box.checked ? regSelected.add(f.id) : regSelected.delete(f.id));
     else box.checked ? regSelected.add(Number(box.dataset.select)) : regSelected.delete(Number(box.dataset.select));
     renderRegister();

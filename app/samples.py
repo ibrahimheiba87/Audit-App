@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from . import loader, sampling
 from .db import Engagement, Sample, Upload, get_session
 from .engagements import get_or_404, load_upload, safe_stem, sample_brief
+from .exports import attachment
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
@@ -80,7 +81,7 @@ def export_sample(sample_id: int, session: Session = Depends(get_session)) -> Re
                "Drawn": f"{x.created_at:%Y-%m-%d %H:%M} UTC"}
     stem = safe_stem(f"{e.client.name}-{e.name}-sample{x.id}")
     return Response(sampling.to_excel(x.result, context), media_type=XLSX,
-                    headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'})
+                    headers=attachment(f"{stem}.xlsx"))
 
 
 @router.post("/sample")
@@ -109,5 +110,5 @@ async def sample_file(
     result = draw(df, params)
     if format == "xlsx":
         return Response(sampling.to_excel(result, {"File": file.filename}), media_type=XLSX,
-                        headers={"Content-Disposition": 'attachment; filename="sample.xlsx"'})
+                        headers=attachment("sample.xlsx"))
     return result
