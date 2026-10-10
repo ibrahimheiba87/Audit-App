@@ -197,6 +197,8 @@ async function openEngagement(id) {
   renderMateriality(e.materiality);
   renderUploads(e.uploads);
   renderRuns(e.runs);
+  renderComparisonForm(e);
+  renderComparisons(e.comparisons);
 }
 
 $("eng-delete").addEventListener("click", () => {
@@ -352,6 +354,82 @@ function showRun(r) {
      <a class="button" href="/api/runs/${r.id}/report?format=csv">Download CSV</a>`);
   $("results").scrollIntoView({ behavior: "smooth" });
 }
+
+// Prior-year comparison
+
+function renderComparisonForm(e) {
+  const opts = (kinds, preferred) => e.uploads
+    .filter((u) => kinds.includes(u.kind))
+    .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
+    .join("") || '<option value="">Upload a file first</option>';
+  $("cmp-current").innerHTML = opts(["tb", "gl"]);
+  $("cmp-prior").innerHTML = opts(["prior_tb", "tb", "gl"]);
+  const prior = e.uploads.filter((u) => u.kind === "prior_tb").pop();
+  if (prior) $("cmp-prior").value = prior.id;
+  const pm = e.materiality?.performance_materiality;
+  $("cmp-amount").placeholder = pm ? `${money(pm)} (performance materiality)` : "Amount";
+  $("cmp-result").hidden = true;
+}
+
+$("cmp-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  guard(async () => {
+    const c = await sendJSON("POST", `/api/engagements/${currentEngagement.id}/comparisons`, {
+      current_upload_id: Number($("cmp-current").value),
+      prior_upload_id: Number($("cmp-prior").value),
+      threshold_amount: $("cmp-amount").value ? Number($("cmp-amount").value) : null,
+      threshold_pct: Number($("cmp-pct").value || 0),
+    });
+    await openEngagement(currentEngagement.id);
+    showComparison(c);
+  });
+});
+
+function renderComparisons(list) {
+  $("comparisons").innerHTML = list.length ? "<tr><th>#</th><th>When</th><th>This year</th><th>Prior year</th><th>Threshold</th><th>Flagged</th><th></th></tr>" +
+    list.map((c) => `<tr><td>${c.id}</td><td class="nowrap">${esc(when(c.created_at))}</td>
+      <td>${esc(c.current_filename)}</td><td>${esc(c.prior_filename)}</td>
+      <td class="num">${money(c.settings.threshold_amount)} / ${c.settings.threshold_pct}%</td>
+      <td class="num">${c.summary.flagged} of ${c.summary.accounts}</td>
+      <td><div class="cell-actions">
+        <button type="button" class="small secondary" data-view-cmp="${c.id}">View</button>
+        <a class="button" href="/api/comparisons/${c.id}/report">Excel</a>
+      </div></td></tr>`).join("") : "";
+}
+
+$("comparisons").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-view-cmp]");
+  if (btn) guard(async () => showComparison(await getJSON(`/api/comparisons/${btn.dataset.viewCmp}`)));
+});
+
+let comparison = null;
+
+function showComparison(c) {
+  comparison = c;
+  const s = c.result.summary;
+  $("cmp-result").hidden = false;
+  $("cmp-title").textContent = `Comparison #${c.id}: ${c.current_filename} vs ${c.prior_filename}`;
+  $("cmp-actions").innerHTML = `<a class="button" href="/api/comparisons/${c.id}/report">Download Excel</a>`;
+  $("cmp-cards").innerHTML = [
+    ["Accounts compared", s.accounts], ["Flagged", s.flagged],
+    ["New accounts", s.new_accounts], ["No longer in file", s.removed_accounts],
+    ["Threshold", money(c.result.settings.threshold_amount)],
+  ].map(([k, v]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  renderComparisonTable();
+  $("cmp-result").scrollIntoView({ behavior: "smooth" });
+}
+
+function renderComparisonTable() {
+  const only = $("cmp-flagged-only").checked;
+  const rows = comparison.result.rows.filter((r) => !only || r.flagged);
+  $("cmp-table").innerHTML = "<tr><th>Account</th><th>Name</th><th>This year</th><th>Prior year</th><th>Change</th><th>%</th><th>Why flagged</th></tr>" +
+    rows.map((r) => `<tr><td>${esc(r.account)}</td><td>${esc(r.name)}</td>
+      <td class="num">${money(r.current)}</td><td class="num">${money(r.prior)}</td>
+      <td class="num">${money(r.change)}</td>
+      <td class="num">${r.change_pct == null ? "–" : (r.change_pct > 0 ? "+" : "") + r.change_pct + "%"}</td>
+      <td>${r.reasons.map((x) => `<div>${esc(x)}</div>`).join("")}</td></tr>`).join("");
+}
+$("cmp-flagged-only").addEventListener("change", renderComparisonTable);
 
 // --- Quick audit view ---------------------------------------------------------
 

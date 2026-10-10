@@ -82,6 +82,9 @@ class Engagement(Base):
     runs: Mapped[list[Run]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Run.id"
     )
+    comparisons: Mapped[list[Comparison]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Comparison.id"
+    )
 
 
 class Upload(Base):
@@ -118,6 +121,24 @@ class Run(Base):
 
     engagement: Mapped[Engagement] = relationship(back_populates="runs")
     upload: Mapped[Upload] = relationship()
+
+
+class Comparison(Base):
+    """A prior-year comparison between two uploads, with its thresholds and result."""
+
+    __tablename__ = "comparisons"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"))
+    current_upload_id: Mapped[int] = mapped_column(ForeignKey("uploads.id"))
+    prior_upload_id: Mapped[int] = mapped_column(ForeignKey("uploads.id"))
+    settings: Mapped[dict] = mapped_column(JSON)
+    result: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="comparisons")
+    current_upload: Mapped[Upload] = relationship(foreign_keys=[current_upload_id])
+    prior_upload: Mapped[Upload] = relationship(foreign_keys=[prior_upload_id])
 
 
 def _make_engine(url: str):

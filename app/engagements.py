@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import checks, loader, materiality, report
-from .db import Client, Engagement, Run, Upload, get_session
+from .db import Client, Comparison, Engagement, Run, Upload, get_session
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
@@ -120,7 +120,21 @@ def engagement_out(e: Engagement) -> dict:
         "created_at": e.created_at.isoformat(), "materiality": materiality_out(e),
         "uploads": [upload_out(u) for u in e.uploads],
         "runs": [run_brief(r) for r in reversed(e.runs)],
+        "comparisons": [comparison_brief(c) for c in reversed(e.comparisons)],
     }
+
+
+def comparison_brief(c: Comparison) -> dict:
+    return {
+        "id": c.id, "created_at": c.created_at.isoformat(), "settings": c.settings,
+        "current_upload_id": c.current_upload_id, "prior_upload_id": c.prior_upload_id,
+        "current_filename": c.current_upload.filename, "prior_filename": c.prior_upload.filename,
+        "summary": c.result["summary"],
+    }
+
+
+def safe_stem(text: str) -> str:
+    return "".join(ch for ch in text.replace(" ", "_") if ch.isalnum() or ch in "-_.")
 
 
 # --- Lookups ----------------------------------------------------------------
@@ -301,6 +315,9 @@ def delete_upload(upload_id: int, session: Session = Depends(get_session)) -> Re
     upload = get_or_404(session, Upload, upload_id)
     for run in session.scalars(select(Run).where(Run.upload_id == upload_id)):
         session.delete(run)
+    for c in session.scalars(select(Comparison).where(
+            (Comparison.current_upload_id == upload_id) | (Comparison.prior_upload_id == upload_id))):
+        session.delete(c)
     session.delete(upload)
     session.commit()
     return Response(status_code=204)
@@ -354,8 +371,7 @@ def run_report(run_id: int, format: str = "xlsx",
                session: Session = Depends(get_session)) -> Response:
     run = get_or_404(session, Run, run_id)
     e = run.engagement
-    stem = f"{e.client.name}-{e.name}-run{run.id}".replace(" ", "_").replace('"', "")
-    stem = "".join(ch for ch in stem if ch.isalnum() or ch in "-_.")
+    stem = safe_stem(f"{e.client.name}-{e.name}-run{run.id}")
     if format == "csv":
         return Response(
             report.to_csv(run.result), media_type="text/csv",

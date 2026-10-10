@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import checks, db, loader, report
+from .comparisons import router as comparisons_router
 from .engagements import router as engagements_router
 from .uploads import parse_mapping, read_upload
 
@@ -27,6 +28,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Audit App", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 app.include_router(engagements_router)
+app.include_router(comparisons_router)
 
 
 @dataclass

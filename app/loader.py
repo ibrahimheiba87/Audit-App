@@ -50,7 +50,7 @@ COLUMN_SYNONYMS: dict[str, list[str]] = {
     "account": ["account", "accountno", "accountnumber", "accountcode", "glaccount",
                 "glaccountnumber", "acct", "acctno", "accountname", "ledgeraccount"],
     "description": ["description", "memo", "narration", "narrative", "details", "text",
-                    "linedescription", "comment"],
+                    "linedescription", "comment", "accountname", "accountdescription", "name"],
     "user": ["user", "createdby", "postedby", "enteredby", "preparer", "username", "userid"],
     "debit": ["debit", "debits", "dr", "debitamount"],
     "credit": ["credit", "credits", "cr", "creditamount"],
