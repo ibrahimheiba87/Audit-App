@@ -283,6 +283,9 @@ def change_status(request_id: int, body: StatusIn, user: User = Depends(require(
 def delete_request(request_id: int, user: User = Depends(require("prepare")),
                    session: Session = Depends(get_session)) -> Response:
     req = lock_request(session, user, request_id)
+    if req.status == "accepted":
+        raise HTTPException(400, "This request has been accepted. Return it to the client "
+                                 "before deleting it.")
     if req.files:
         auth.ensure(user, "review")  # removes documents the client sent
     log(session, user, "request.delete", f"Deleted {label(req)} with {len(req.files)} files",

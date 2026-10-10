@@ -129,7 +129,7 @@ def call_claude(system: str, prompt: str) -> str:
 def same_entry(column: pd.Series, entry_id: str) -> pd.Series:
     """Rows whose entry id matches, ignoring a ".0" left by older float-typed imports."""
     def norm(v: str) -> str:
-        return v[:-2] if v.endswith(".0") else v
+        return v[:-2] if v.endswith(".0") and v[:-2].lstrip("-").isdigit() else v
     return column.astype(str).map(norm) == norm(str(entry_id))
 
 
@@ -236,7 +236,14 @@ def ask(finding_id: int, body: AssistantIn, user: User = Depends(require("prepar
     engagement_id = f.engagement_id
     prompt, sent, total = build_prompt(f, body.task)
     session.rollback()  # don't hold a transaction open while waiting on the API
+    label = TASK_LABELS[body.task].lower()
+    details = {"finding_id": finding_id, "model": model(), "ledger_rows_sent": sent,
+               "ledger_rows_total": total}
     if not _slots.acquire(blocking=False):
+        log(session, user, f"assistant.{body.task}",
+            f"Asked the AI assistant for a {label} of finding #{finding_id} (busy)",
+            session.get(Engagement, engagement_id), details={**details, "outcome": "busy"})
+        session.commit()
         raise HTTPException(429, "The AI assistant is busy; try again in a moment.")
     try:
         text, error = call_claude(SYSTEM, prompt), None
@@ -244,7 +251,6 @@ def ask(finding_id: int, body: AssistantIn, user: User = Depends(require("prepar
         text, error = None, str(exc)
     finally:
         _slots.release()
-    label = TASK_LABELS[body.task].lower()
     found = session.get(Finding, finding_id) is not None
     outcome = "ok" if error is None else error
     if error is None and not found:
@@ -253,8 +259,7 @@ def ask(finding_id: int, body: AssistantIn, user: User = Depends(require("prepar
         f"Asked the AI assistant for a {label} of finding #{finding_id}"
         + ("" if error is None else " (failed)"),
         session.get(Engagement, engagement_id),
-        details={"finding_id": finding_id, "model": model(), "ledger_rows_sent": sent,
-                 "ledger_rows_total": total, "outcome": outcome})
+        details={**details, "outcome": outcome})
     session.commit()
     if error is not None:
         raise HTTPException(502, error)

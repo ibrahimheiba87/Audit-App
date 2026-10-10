@@ -197,6 +197,11 @@ def test_who_can_remove_files_and_delete_requests():
 
     upload(cl, req["id"])
     assert prep.delete(f"/api/requests/{req['id']}").status_code == 403  # has client files
+    rev.post(f"/api/requests/{req['id']}/status", json={"status": "accepted"})
+    r = rev.delete(f"/api/requests/{req['id']}")  # accepted evidence is locked
+    assert r.status_code == 400 and "Return it" in r.json()["detail"]
+    rev.post(f"/api/requests/{req['id']}/status",
+             json={"status": "returned", "message": "Wrong year"})
     assert rev.delete(f"/api/requests/{req['id']}").status_code == 204
     empty = ask(prep, eid, "Something else")
     assert prep.delete(f"/api/requests/{empty['id']}").status_code == 204

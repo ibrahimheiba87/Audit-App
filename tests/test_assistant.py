@@ -127,6 +127,8 @@ def test_busy_when_all_slots_are_taken(fake_claude, monkeypatch):
         assert r.status_code == 429 and "busy" in r.json()["detail"]
     finally:
         assistant._slots.release()
+    [log] = a.get("/api/activity", params={"action": "assistant."}).json()
+    assert log["details"]["outcome"] == "busy" and "(busy)" in log["summary"]
     assert a.post(f"/api/findings/{f['id']}/assistant",
                   json={"task": "explain"}).status_code == 200
 
@@ -277,3 +279,10 @@ def test_long_answers_are_cut_to_fit_a_note(monkeypatch):
                     "content": [{"type": "text", "text": text}]}).encode()))
     out = assistant.call_claude("sys", "prompt")
     assert len(out) <= assistant.MAX_ANSWER + 30 and out.endswith("[cut to fit a note]")
+
+
+def test_same_entry_only_drops_a_numeric_dot_zero():
+    ids = pd.Series(["7.0", "7", "JE.0", "JE", "-3.0", "7.5"])
+    assert list(assistant.same_entry(ids, "7")) == [True, True, False, False, False, False]
+    assert list(assistant.same_entry(ids, "JE")) == [False, False, False, True, False, False]
+    assert list(assistant.same_entry(ids, "-3")) == [False, False, False, False, True, False]

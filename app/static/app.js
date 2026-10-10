@@ -219,8 +219,12 @@ $("eng-form").addEventListener("submit", (e) => {
   });
 });
 
+let engagementLoads = 0;  // so a slow load can't replace the engagement opened after it
+
 async function openEngagement(id) {
+  const load = ++engagementLoads;
   const e = await getJSON(`/api/engagements/${id}`);
+  if (load !== engagementLoads) return;
   if (currentEngagement?.id !== e.id) {
     // Check ids differ between engagements, so don't carry that filter over.
     regOffset = 0; regSelected.clear(); $("reg-check").value = "";
@@ -1066,7 +1070,7 @@ function requestCard(r, team) {
   const actions = [];
   if (open) actions.push(`<label class="button small upload">${r.files.length ? "Add a file" : "Upload a file"}<input type="file" multiple data-rq-upload class="visually-hidden"></label>`);
   if (team && r.status === "submitted") actions.push('<button type="button" class="small" data-rq-accept>Accept files</button>');
-  if (team && (!r.files.length || me.rank >= 2)) actions.push('<button type="button" class="small secondary danger" data-rq-delete>Delete request</button>');
+  if (team && open && (!r.files.length || me.rank >= 2)) actions.push('<button type="button" class="small secondary danger" data-rq-delete>Delete request</button>');
   // Reopening accepted files is for reviewers; the server refuses preparers.
   const returnable = team && (r.status === "submitted" || (r.status === "accepted" && me.rank >= 2));
   return `<div class="rq ${r.status}" data-rq="${r.id}">
@@ -1540,7 +1544,6 @@ let clients = [];  // for linking client users
 
 async function showUsers() {
   [users, clients] = await Promise.all([getJSON("/api/users"), getJSON("/api/clients")]);
-  // Team members and client users stay on their side here: a client user needs a client.
   const staff = roles.filter((r) => r.id !== "client");
   const roleOptions = (sel, list) => list.map((r) => `<option value="${r.id}"${r.id === sel ? " selected" : ""}>${esc(r.label)}</option>`).join("");
   const clientOptions = (sel) => clients.map((c) => `<option value="${c.id}"${c.id === sel ? " selected" : ""}>${esc(c.name)}</option>`).join("");
@@ -1551,9 +1554,10 @@ async function showUsers() {
   $("users").innerHTML = "<tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Status</th><th></th></tr>" +
     users.map((u) => `<tr data-user="${u.id}">
       <td>${esc(u.name)}${u.id === me.id ? ' <span class="muted">(you)</span>' : ""}</td><td>${esc(u.email)}</td>
-      <td>${u.role === "client"
-        ? `<label class="tag" for="uc-${u.id}">Client of</label><select class="map" id="uc-${u.id}" data-client>${u.client_id ? "" : '<option value="">No client</option>'}${clientOptions(u.client_id)}</select>`
-        : `<select class="map" data-role aria-label="Role">${roleOptions(u.role, staff)}</select>`}</td>
+      <td><select class="map" data-role aria-label="Role">${roleOptions(u.role, staff)}${
+        u.role === "client" && !u.client_id ? '<option value="" selected>Client (no client)</option>' : ""}
+        <optgroup label="Client user of">${clients.map((c) => `<option value="client:${c.id}"${
+          u.role === "client" && c.id === u.client_id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</optgroup></select></td>
       <td class="nowrap">${esc(when(u.last_login_at)) || '<span class="muted">Never</span>'}</td>
       <td>${u.active ? "Active" : '<span class="muted">Deactivated</span>'}</td>
       <td><div class="cell-actions">
@@ -1570,10 +1574,19 @@ function updateNewUserRole() {
 $("nu-role").addEventListener("change", updateNewUserRole);
 
 $("users").addEventListener("change", (ev) => {
-  const sel = ev.target.closest("[data-role], [data-client]");
+  const sel = ev.target.closest("[data-role]");
   if (!sel || !sel.value) return;
   const id = sel.closest("[data-user]").dataset.user;
-  const body = "role" in sel.dataset ? { role: sel.value } : { client_id: Number(sel.value) };
+  const user = users.find((u) => String(u.id) === id);
+  const toClient = sel.value.startsWith("client:");
+  const body = toClient ? { role: "client", client_id: Number(sel.value.slice(7)) } : { role: sel.value };
+  // Moving between the audit team and a client is a different app: confirm, as it signs them out.
+  if (toClient !== (user.role === "client") && !confirm(toClient
+    ? `Make ${user.name} a client user? They will only see their client's document requests, and be signed out.`
+    : `Move ${user.name} onto the audit team? They will see every engagement, and be signed out.`)) {
+    showUsers();
+    return;
+  }
   guard(async () => {
     try { await sendJSON("PATCH", `/api/users/${id}`, body); } finally { await showUsers(); }
   });
