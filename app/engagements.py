@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import checks, loader, materiality, report
-from .db import Client, Comparison, Engagement, Run, Upload, get_session
+from .db import Client, Comparison, Engagement, Run, Sample, Upload, get_session
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
@@ -121,6 +121,17 @@ def engagement_out(e: Engagement) -> dict:
         "uploads": [upload_out(u) for u in e.uploads],
         "runs": [run_brief(r) for r in reversed(e.runs)],
         "comparisons": [comparison_brief(c) for c in reversed(e.comparisons)],
+        "samples": [sample_brief(x) for x in reversed(e.samples)],
+    }
+
+
+def sample_brief(x: Sample) -> dict:
+    r = x.result
+    return {
+        "id": x.id, "created_at": x.created_at.isoformat(), "upload_id": x.upload_id,
+        "filename": x.upload.filename, "method": x.method, "method_label": r["method_label"],
+        "seed": x.seed, "population": r["population"], "sample_size": r["sample_size"],
+        "sample_value": r["sample_value"],
     }
 
 
@@ -315,6 +326,8 @@ def delete_upload(upload_id: int, session: Session = Depends(get_session)) -> Re
     upload = get_or_404(session, Upload, upload_id)
     for run in session.scalars(select(Run).where(Run.upload_id == upload_id)):
         session.delete(run)
+    for x in session.scalars(select(Sample).where(Sample.upload_id == upload_id)):
+        session.delete(x)
     for c in session.scalars(select(Comparison).where(
             (Comparison.current_upload_id == upload_id) | (Comparison.prior_upload_id == upload_id))):
         session.delete(c)

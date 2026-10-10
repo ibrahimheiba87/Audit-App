@@ -85,6 +85,9 @@ class Engagement(Base):
     comparisons: Mapped[list[Comparison]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Comparison.id"
     )
+    samples: Mapped[list[Sample]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Sample.id"
+    )
 
 
 class Upload(Base):
@@ -139,6 +142,24 @@ class Comparison(Base):
     engagement: Mapped[Engagement] = relationship(back_populates="comparisons")
     current_upload: Mapped[Upload] = relationship(foreign_keys=[current_upload_id])
     prior_upload: Mapped[Upload] = relationship(foreign_keys=[prior_upload_id])
+
+
+class Sample(Base):
+    """An audit sample drawn from an upload, with the seed needed to reproduce it."""
+
+    __tablename__ = "samples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"))
+    upload_id: Mapped[int] = mapped_column(ForeignKey("uploads.id"))
+    method: Mapped[str] = mapped_column(String(20))
+    seed: Mapped[int] = mapped_column(Integer)
+    params: Mapped[dict] = mapped_column(JSON)
+    result: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="samples")
+    upload: Mapped[Upload] = relationship()
 
 
 def _make_engine(url: str):

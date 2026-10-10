@@ -28,6 +28,17 @@ percentage (default 10%), when they are new or gone, or when the balance switche
 debit and credit. Comparisons are saved and export to Excel. `sample_data/sample_tb_2025.csv`
 and `sample_tb_2026.csv` are sample trial balances for trying it.
 
+**Sampling**: draw items to test from an upload, by simple random selection, systematic
+selection (fixed interval from a random start) or monetary unit sampling (MUS). The
+population can be all lines, debits only or credits only, optionally above a minimum amount.
+For MUS, leave the sample size blank to calculate it from the confidence level, tolerable
+misstatement (performance materiality by default) and expected misstatement:
+`n = population value x reliability factor / (tolerable - expected x expansion factor)`, using
+the zero-error Poisson factors (95%: 3.0 and 1.6). Lines at or above the sampling interval are
+always picked and marked as top stratum. Every sample stores its seed, so the same file,
+settings and seed reproduce the same selection. Samples export to an Excel workpaper with
+the parameters and blank columns for the test results.
+
 The **Quick audit** tab runs the checks on a file without saving anything.
 
 Data is stored in SQLite (`audit.db` in the working directory). Set `AUDIT_DB_URL` to use
@@ -115,6 +126,13 @@ Engagement endpoints (JSON unless noted):
 - `POST /api/compare`: compare two files without saving (multipart: `current`, `prior`,
   `threshold_amount`, optional `threshold_pct`, `current_mapping`, `prior_mapping`,
   `current_sheet`, `prior_sheet`, `format=json|xlsx`)
+- `GET /api/sampling/options`
+- `POST /api/engagements/{id}/samples` (`upload_id`, `method=random|systematic|mus`,
+  `sample_size`, `seed`, `population=all|debits|credits`, `min_amount`, and for MUS
+  `confidence`, `tolerable_misstatement`, `expected_misstatement`), `GET /api/samples/{id}`,
+  `GET /api/samples/{id}/export`
+- `POST /api/sample`: draw a sample from a file without saving (multipart: `file`, the same
+  fields as above, optional `mapping`, `sheet`, `format=json|xlsx`)
 
 Quick audit uploads are processed in memory and not stored.
 
