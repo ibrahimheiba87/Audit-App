@@ -36,6 +36,17 @@ class Section:
     actions: tuple[str, ...]  # activity log actions that change the section
 
 
+# Actions that change a section as a side effect: a run adds findings to the register,
+# deleting a file deletes its runs, findings, samples and comparisons, a new trial balance
+# feeds the statements, and materiality is what proposed entries are measured against.
+SIDE_EFFECTS = {
+    "run.create": ("findings",),
+    "upload.delete": ("comparison", "sampling", "findings", "statements"),
+    "upload.create": ("statements",),
+    "materiality.set": ("statements",),
+}
+
+
 SECTIONS = [
     Section("planning", "Planning and materiality", "Engagement details and materiality.",
             ("engagement.update", "materiality.set")),
@@ -56,7 +67,12 @@ SECTIONS = [
 ]
 SECTION = {s.id: s for s in SECTIONS}
 WORK = [s for s in SECTIONS if s.id != "completion"]
-ALL_ACTIONS = tuple(a for s in WORK for a in s.actions)
+SECTIONS_CHANGED: dict[str, set[str]] = {}  # action -> the sections it changes
+for _s in WORK:
+    for _a in _s.actions:
+        SECTIONS_CHANGED.setdefault(_a, set()).add(_s.id)
+for _a, _ids in SIDE_EFFECTS.items():
+    SECTIONS_CHANGED.setdefault(_a, set()).update(_ids)
 
 SectionId = Literal["planning", "data", "comparison", "sampling", "findings", "statements",
                     "completion"]
@@ -79,7 +95,7 @@ class ReplyIn(BaseModel):
 
 
 class NotePatch(BaseModel):
-    status: Literal["open", "cleared"]
+    status: Literal["open", "cleared"]  # open also sends an answered note back
 
 
 def iso(at: datetime | None) -> str | None:
@@ -90,13 +106,13 @@ def last_changes(session: Session, engagement_id: int) -> dict[str, datetime | N
     """When each section last changed, from the activity log."""
     rows = session.execute(
         select(Activity.action, func.max(Activity.at)).where(
-            Activity.engagement_id == engagement_id, Activity.action.in_(ALL_ACTIONS))
-        .group_by(Activity.action)).all()
-    by_action = dict(rows)
-    out: dict[str, datetime | None] = {}
-    for s in WORK:
-        times = [by_action[a] for a in s.actions if by_action.get(a)]
-        out[s.id] = max(times) if times else None
+            Activity.engagement_id == engagement_id,
+            Activity.action.in_(list(SECTIONS_CHANGED))).group_by(Activity.action)).all()
+    out: dict[str, datetime | None] = {s.id: None for s in WORK}
+    for action, at in rows:
+        for sid in SECTIONS_CHANGED[action]:
+            if out[sid] is None or at > out[sid]:
+                out[sid] = at
     times = [t for t in out.values() if t]
     out["completion"] = max(times) if times else None
     return out
@@ -108,12 +124,17 @@ def section_state(e: Engagement, changes: dict[str, datetime | None]) -> list[di
     for n in e.review_notes:
         if n.status != "cleared":
             notes[n.section] = notes.get(n.section, 0) + 1
-    out = []
+    out: list[dict] = []
     for s in SECTIONS:
         changed = changes.get(s.id)
         prep, rev = signoffs.get((s.id, "prepared")), signoffs.get((s.id, "reviewed"))
         prep_stale = bool(prep and changed and changed > prep.at)
-        rev_stale = bool(rev and ((changed and changed > rev.at) or (prep and prep.at > rev.at)))
+        rev_stale = bool(rev and (prep is None or (changed and changed > rev.at)
+                                  or prep.at > rev.at))
+        if s.id == "completion":  # it stands only while every other section does
+            prep_stale = bool(prep and (prep_stale or any(
+                not x["prepared"] or x["prepared"]["stale"] for x in out)))
+            rev_stale = bool(rev and (rev_stale or any(not x["done"] for x in out)))
         if prep is None:
             status = "Not started"
         elif prep_stale:
@@ -162,22 +183,35 @@ def get_review(engagement_id: int, session: Session = Depends(get_session)) -> d
     return review_out(session, get_or_404(session, Engagement, engagement_id))
 
 
-def withdraw_reviews(e: Engagement, section: str) -> list[str]:
-    """Take back the review sign-off on `section` and on completion, e.g. when a note is
-    raised. Returns the labels of the sections whose sign-off was withdrawn."""
-    withdrawn = []
-    for s in list(e.signoffs):
-        if s.kind == "reviewed" and s.section in (section, "completion"):
-            e.signoffs.remove(s)
-            withdrawn.append(SECTION[s.section].label)
-    return withdrawn
+def withdraw_review(session: Session, user: User, e: Engagement, section: str,
+                    why: str) -> bool:
+    """Take back the review sign-off on `section`, e.g. when a note is raised on it. Completion
+    then shows as changed by itself, since it stands only while every section is reviewed."""
+    rev = next((s for s in e.signoffs if s.section == section and s.kind == "reviewed"), None)
+    if rev is None:
+        return False
+    e.signoffs.remove(rev)
+    log(session, user, "signoff.remove",
+        f"Took back the reviewed sign-off on {SECTION[section].label} ({why})", e,
+        details={"section": section, "kinds": ["reviewed"], "signed_by": [rev.user_name]})
+    return True
+
+
+def permission_to_give(section: str, kind: str) -> str:
+    if kind == "prepared":
+        return "prepare"
+    return "manage" if section == "completion" else "review"
+
+
+def preparer_id(e: Engagement, section: str) -> int | None:
+    prep = next((s for s in e.signoffs if s.section == section and s.kind == "prepared"), None)
+    return prep.user_id if prep else None
 
 
 @router.post("/engagements/{engagement_id}/signoffs", status_code=201)
 def sign_off(engagement_id: int, body: SignOffIn, user: User = Depends(require("prepare")),
              session: Session = Depends(get_session)) -> dict:
-    if body.kind == "reviewed":
-        auth.ensure(user, "manage" if body.section == "completion" else "review")
+    auth.ensure(user, permission_to_give(body.section, body.kind))
     auth.hold(session, f"review:{engagement_id}")  # notes and sign-offs change one at a time
     e = get_or_404(session, Engagement, engagement_id)
     section = SECTION[body.section]
@@ -205,15 +239,23 @@ def sign_off(engagement_id: int, body: SignOffIn, user: User = Depends(require("
             raise HTTPException(400, f"{section.label} has {mine['open_notes']} review "
                                      f"note{'s' if mine['open_notes'] != 1 else ''} still to "
                                      "clear.")
+    current = mine[body.kind]
+    if current and not current["stale"] and current["user_id"] != user.id:
+        # Otherwise whoever signed first could then review work they helped prepare.
+        raise HTTPException(400, f"{current['user_name']} has already signed off "
+                                 f"{section.label} as {body.kind}. They or a reviewer can take "
+                                 "that back first.")
     existing = next((s for s in e.signoffs if s.section == section.id and s.kind == body.kind),
                     None)
+    replaced = existing.user_name if existing else None
     if existing is None:
         e.signoffs.append(SignOff(section=section.id, kind=body.kind, user_id=user.id,
                                   user_name=user.name, at=utcnow()))
     else:
         existing.user_id, existing.user_name, existing.at = user.id, user.name, utcnow()
-    log(session, user, "signoff.add", f"Signed off {section.label} as {body.kind}", e,
-        details={"section": section.id, "kind": body.kind})
+    log(session, user, "signoff.add", f"Signed off {section.label} as {body.kind}"
+        + (" again" if replaced == user.name else ""), e,
+        details={"section": section.id, "kind": body.kind, "replaced": replaced})
     session.commit()
     return review_out(session, e)
 
@@ -222,8 +264,9 @@ def sign_off(engagement_id: int, body: SignOffIn, user: User = Depends(require("
 def remove_sign_off(engagement_id: int, section: SectionId, kind: Kind,
                     user: User = Depends(require("prepare")),
                     session: Session = Depends(get_session)) -> dict:
-    """Take back a sign-off: your own, or anyone's if you're a reviewer. Taking back the
-    preparer's sign-off takes back the review too, since it was a review of that work."""
+    """Take back a sign-off: your own, or someone else's if you could have given it yourself
+    (and are at least a reviewer). Taking back the preparer's sign-off leaves the review
+    showing as changed, since there is no longer prepared work for it to stand on."""
     auth.hold(session, f"review:{engagement_id}")
     e = get_or_404(session, Engagement, engagement_id)
     target = next((s for s in e.signoffs if s.section == section and s.kind == kind), None)
@@ -231,15 +274,12 @@ def remove_sign_off(engagement_id: int, section: SectionId, kind: Kind,
         raise HTTPException(404, "That section isn't signed off.")
     if target.user_id != user.id:
         auth.ensure(user, "review")
-    removed = [s for s in e.signoffs if s.section == section and
-               (s.kind == kind or kind == "prepared")]
-    for s in removed:
-        e.signoffs.remove(s)
-    label = SECTION[section].label
-    log(session, user, "signoff.remove",
-        f"Took back the {' and '.join(s.kind for s in removed)} sign-off on {label}", e,
-        details={"section": section, "kinds": [s.kind for s in removed],
-                 "signed_by": [s.user_name for s in removed]})
+        auth.ensure(user, permission_to_give(section, kind))
+    e.signoffs.remove(target)
+    log(session, user, "signoff.remove", f"Took back the {kind} sign-off on "
+        f"{SECTION[section].label}" + ("" if target.user_id == user.id
+                                       else f" by {target.user_name}"), e,
+        details={"section": section, "kinds": [kind], "signed_by": [target.user_name]})
     session.commit()
     return review_out(session, e)
 
@@ -252,7 +292,7 @@ def add_note(engagement_id: int, body: NoteIn, user: User = Depends(require("rev
     note = ReviewNote(section=body.section, text=body.text, author_id=user.id,
                       author=user.name)
     e.review_notes.append(note)
-    withdrawn = withdraw_reviews(e, body.section)
+    withdrawn = withdraw_review(session, user, e, body.section, "a review note was raised")
     session.flush()
     label = SECTION[body.section].label
     log(session, user, "note.create", f"Raised a review note on {label}: {body.text[:200]}", e,
@@ -277,7 +317,9 @@ def reply_to_note(note_id: int, body: ReplyIn, user: User = Depends(require("pre
     if note.status == "cleared":
         raise HTTPException(400, "This note is cleared. A reviewer can reopen it first.")
     note.replies.append(ReviewReply(text=body.text, author_id=user.id, author=user.name))
-    if note.author_id != user.id:
+    # An answer comes from the section's preparer (or another preparer), not a fellow reviewer.
+    if note.author_id != user.id and (user.id == preparer_id(e, note.section)
+                                      or not auth.can(user, "review")):
         note.status = "responded"
     log(session, user, "note.reply",
         f"Replied to a review note on {SECTION[note.section].label}: {body.text[:200]}", e,
@@ -289,18 +331,25 @@ def reply_to_note(note_id: int, body: ReplyIn, user: User = Depends(require("pre
 @router.patch("/review-notes/{note_id}")
 def update_note(note_id: int, body: NotePatch, user: User = Depends(require("review")),
                 session: Session = Depends(get_session)) -> dict:
-    """Clear a note once its answer is satisfactory, or reopen it."""
+    """Clear a note once its answer is satisfactory, reopen it, or send an answer back."""
     note, e = note_and_engagement(session, note_id)
     label = SECTION[note.section].label
     if body.status == "cleared" and note.status != "cleared":
+        if user.id == preparer_id(e, note.section):
+            raise HTTPException(400, f"You prepared {label}, so another reviewer needs to clear "
+                                     "notes on it.")
         note.status, note.cleared_by, note.cleared_at = "cleared", user.name, utcnow()
         log(session, user, "note.clear", f"Cleared a review note on {label}", e,
             details={"note_id": note.id})
     elif body.status == "open" and note.status == "cleared":
         note.status, note.cleared_by, note.cleared_at = "open", "", None
-        withdrawn = withdraw_reviews(e, note.section)
+        withdrawn = withdraw_review(session, user, e, note.section, "a review note was reopened")
         log(session, user, "note.reopen", f"Reopened a review note on {label}", e,
             details={"note_id": note.id, "withdrew_review": withdrawn})
+    elif body.status == "open" and note.status == "responded":
+        note.status = "open"
+        log(session, user, "note.reopen", f"Sent back the answer to a review note on {label}", e,
+            details={"note_id": note.id, "withdrew_review": False})
     session.commit()
     return note_out(note)
 

@@ -122,7 +122,8 @@ def test_completion_needs_every_section_reviewed_and_a_partner():
     data = prep.get(f"/api/engagements/{eid}/review").json()
     assert data["reviewed"] == data["total"] == len(review.SECTIONS)
     rev.post(f"/api/engagements/{eid}/review-notes", json={"section": "sampling", "text": "?"})
-    assert section(prep, eid, "completion")["reviewed"] is None
+    done = section(prep, eid, "completion")
+    assert done["reviewed"]["stale"] and done["status"] == "Changed since review"
 
 
 def test_taking_back_sign_offs():
@@ -131,14 +132,14 @@ def test_taking_back_sign_offs():
     sign(prep, eid, "data", "prepared")
     sign(rev, eid, "data", "reviewed")
     assert other.delete(f"/api/engagements/{eid}/signoffs/data/prepared").status_code == 403
+    assert prep.delete(f"/api/engagements/{eid}/signoffs/data/reviewed").status_code == 403
     r = prep.delete(f"/api/engagements/{eid}/signoffs/data/prepared")
-    assert r.status_code == 200  # your own, and the review of it goes too
+    assert r.status_code == 200  # your own; the review of it then shows as changed
     s = next(x for x in r.json()["sections"] if x["id"] == "data")
-    assert s["prepared"] is None and s["reviewed"] is None
+    assert s["prepared"] is None and s["reviewed"]["stale"] and s["status"] == "Not started"
     assert prep.delete(f"/api/engagements/{eid}/signoffs/data/prepared").status_code == 404
     log = prep.get("/api/activity", params={"engagement_id": eid}).json()[0]
-    assert log["action"] == "signoff.remove" and log["details"]["kinds"] == ["prepared",
-                                                                             "reviewed"]
+    assert log["action"] == "signoff.remove" and log["details"]["kinds"] == ["prepared"]
 
 
 def test_deleting_an_engagement_removes_its_review():
@@ -185,3 +186,89 @@ def test_concurrent_sign_offs_do_not_fail(monkeypatch):
         assert list(pool.map(run, range(2))) == [201, 201]
     with db.SessionLocal() as s:
         assert s.query(db.SignOff).count() == 1
+
+
+# --- Review fixes ---------------------------------------------------------------
+
+
+def test_side_effects_make_other_sections_stale():
+    a, prep, rev, partner, eid, uid = team()
+    for sid in ("findings", "sampling"):
+        sign(prep, eid, sid, "prepared")
+        sign(rev, eid, sid, "reviewed")
+    prep.post(f"/api/engagements/{eid}/runs", json={"upload_id": uid})  # adds findings
+    assert section(prep, eid, "findings")["status"] == "Changed since prepared"
+    assert section(prep, eid, "sampling")["status"] == "Reviewed"
+    assert rev.delete(f"/api/uploads/{uid}").status_code == 204  # findings, samples go too
+    assert section(prep, eid, "sampling")["status"] == "Changed since prepared"
+
+
+def test_completion_follows_the_sections_it_stands_on():
+    _, prep, rev, partner, eid, _ = team()
+    for s in review.WORK:
+        sign(prep, eid, s.id, "prepared")
+        sign(rev, eid, s.id, "reviewed")
+    sign(prep, eid, "completion", "prepared")
+    sign(partner, eid, "completion", "reviewed")
+    assert section(prep, eid, "completion")["done"]
+    rev.delete(f"/api/engagements/{eid}/signoffs/data/reviewed")
+    done = section(prep, eid, "completion")
+    assert not done["done"] and done["reviewed"]["stale"] and not done["prepared"]["stale"]
+    prep.delete(f"/api/engagements/{eid}/signoffs/sampling/prepared")
+    assert section(prep, eid, "completion")["prepared"]["stale"]
+
+
+def test_a_current_preparation_cannot_be_signed_over():
+    _, prep, rev, _, eid, _ = team()
+    sign(rev, eid, "data", "prepared")
+    r = sign(prep, eid, "data", "prepared")
+    assert r.status_code == 400 and "already signed off" in r.json()["detail"]
+    assert sign(rev, eid, "data", "prepared").status_code == 201  # re-signing your own is fine
+
+
+def test_the_preparer_cannot_clear_notes_on_their_own_work():
+    a, prep, rev, partner, eid, _ = team()
+    sign(rev, eid, "data", "prepared")
+    note = partner.post(f"/api/engagements/{eid}/review-notes",
+                        json={"section": "data", "text": "Support?"}).json()
+    r = rev.patch(f"/api/review-notes/{note['id']}", json={"status": "cleared"})
+    assert r.status_code == 400 and "another reviewer" in r.json()["detail"]
+    assert partner.patch(f"/api/review-notes/{note['id']}",
+                         json={"status": "cleared"}).status_code == 200
+
+
+def test_taking_back_needs_the_right_to_give():
+    _, prep, rev, partner, eid, _ = team()
+    for s in review.WORK:
+        sign(prep, eid, s.id, "prepared")
+        sign(rev, eid, s.id, "reviewed")
+    sign(prep, eid, "completion", "prepared")
+    sign(partner, eid, "completion", "reviewed")
+    assert rev.delete(f"/api/engagements/{eid}/signoffs/completion/reviewed").status_code == 403
+    assert partner.delete(f"/api/engagements/{eid}/signoffs/completion/reviewed").status_code \
+        == 200
+
+
+def test_only_the_preparer_answers_and_answers_can_be_sent_back():
+    a, prep, rev, partner, eid, _ = team()
+    sign(prep, eid, "data", "prepared")
+    note = rev.post(f"/api/engagements/{eid}/review-notes",
+                    json={"section": "data", "text": "Support?"}).json()
+    r = partner.post(f"/api/review-notes/{note['id']}/replies", json={"text": "Agree, need it"})
+    assert r.json()["status"] == "open"  # a fellow reviewer's comment isn't an answer
+    r = prep.post(f"/api/review-notes/{note['id']}/replies", json={"text": "See invoice"})
+    assert r.json()["status"] == "responded"
+    r = rev.patch(f"/api/review-notes/{note['id']}", json={"status": "open"})
+    assert r.json()["status"] == "open"
+    log = prep.get("/api/activity", params={"engagement_id": eid}).json()[0]
+    assert log["action"] == "note.reopen" and "Sent back" in log["summary"]
+
+
+def test_raising_a_note_logs_the_withdrawn_review():
+    _, prep, rev, partner, eid, _ = team()
+    sign(prep, eid, "data", "prepared")
+    sign(rev, eid, "data", "reviewed")
+    partner.post(f"/api/engagements/{eid}/review-notes", json={"section": "data", "text": "?"})
+    actions = [x["action"] for x in prep.get("/api/activity",
+                                             params={"engagement_id": eid}).json()[:2]]
+    assert actions == ["note.create", "signoff.remove"]

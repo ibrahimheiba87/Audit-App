@@ -224,6 +224,8 @@ async function openEngagement(id) {
     fsMapEdits = {}; $("fs-tb").innerHTML = $("fs-prior").innerHTML = "";
     resetEntryForm();
     $("rv-form").reset();
+    rv = null; rvDrafts = {};  // don't show (or act on) the last engagement's sign-offs
+    $("rv-cards").innerHTML = $("rv-sections").innerHTML = $("rv-notes").innerHTML = "";
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -238,6 +240,7 @@ async function openEngagement(id) {
   renderSampleForm(e);
   renderSamples(e.samples);
   if (currentFinding && currentFinding.engagement_id !== e.id) closeFinding();
+  guard(loadReview);  // on its own, so a slow or failing panel above doesn't hold it up
   await loadStatements();
   await loadRegister();
 }
@@ -881,6 +884,7 @@ async function loadEngagementActivity() {
 // Review and sign-off
 
 let rv = null;  // latest /review response
+let rvDrafts = {};  // unsent replies by note id, kept when the notes are redrawn
 const NOTE_STATUS = { open: "Open", responded: "Answered", cleared: "Cleared" };
 
 async function loadReview() {
@@ -903,7 +907,8 @@ function signoffCell(s, kind) {
       : s.prepared.user_id === me.id ? "You prepared it, so someone else reviews it" : "");
     buttons.push(`<button type="button" class="small${so ? " secondary" : ""}" data-sign="${s.id}" data-kind="${kind}"${blocked ? ` disabled title="${esc(blocked)}"` : ""}>${so ? "Sign again" : "Sign off"}</button>`);
   }
-  if (so && (mine || me.rank >= 2)) {
+  const giveRank = kind === "reviewed" ? (s.id === "completion" ? 3 : 2) : 1;
+  if (so && (mine || me.rank >= Math.max(2, giveRank))) {
     buttons.push(`<button type="button" class="small secondary" data-unsign="${s.id}" data-kind="${kind}">Take back</button>`);
   }
   if (buttons.length) html += `<div class="cell-actions" style="margin-top:4px">${buttons.join("")}</div>`;
@@ -932,6 +937,11 @@ function renderReview() {
 }
 
 function renderNotes() {
+  $("rv-notes").querySelectorAll("[data-reply]").forEach((f) => {
+    const id = f.closest("[data-note]").dataset.note;
+    if (f.text.value.trim()) rvDrafts[id] = f.text.value; else delete rvDrafts[id];
+  });
+  const preparer = Object.fromEntries(rv.sections.map((s) => [s.id, s.prepared?.user_id]));
   const todo = $("rv-filter").value === "todo", section = $("rv-filter-section").value;
   const notes = rv.notes.filter((n) => (!todo || n.status !== "cleared") && (!section || n.section === section));
   $("rv-notes").innerHTML = notes.length ? notes.map((n) => `<div class="rv-note ${n.status}" data-note="${n.id}">
@@ -940,12 +950,17 @@ function renderNotes() {
       <div class="text">${esc(n.text)}</div>
       ${n.replies.map((r) => `<div class="reply">${esc(r.text)}<div class="tag">${esc(r.author)} · ${esc(when(r.at))}</div></div>`).join("")}
       <div class="cell-actions">
-        ${n.status !== "cleared" ? '<button type="button" class="small min-2" data-note-status="cleared">Clear</button>' : '<button type="button" class="small secondary min-2" data-note-status="open">Reopen</button>'}
+        ${n.status === "cleared" ? '<button type="button" class="small secondary min-2" data-note-status="open">Reopen</button>'
+          : `<button type="button" class="small min-2" data-note-status="cleared"${preparer[n.section] === me.id ? ' disabled title="You prepared this section, so another reviewer clears its notes"' : ""}>Clear</button>`}
+        ${n.status === "responded" ? '<button type="button" class="small secondary min-2" data-note-status="open" title="The answer isn\'t enough">Send back</button>' : ""}
         ${n.author_id === me.id && !n.replies.length ? '<button type="button" class="small secondary danger" data-note-delete>Delete</button>' : ""}
       </div>
       ${n.status !== "cleared" ? '<form data-reply><textarea name="text" rows="1" required maxlength="5000" aria-label="Reply to note" placeholder="Reply"></textarea><button type="submit" class="small secondary">Reply</button></form>' : ""}
     </div>`).join("")
     : `<p class="muted">${rv.notes.length ? "No notes match." : "No review notes yet."}</p>`;
+  $("rv-notes").querySelectorAll("[data-reply]").forEach((f) => {
+    f.text.value = rvDrafts[f.closest("[data-note]").dataset.note] || "";
+  });
 }
 
 $("rv-filter").addEventListener("change", renderNotes);
@@ -961,7 +976,7 @@ $("rv-sections").addEventListener("click", (ev) => {
   if (unsign) {
     const s = rv.sections.find((x) => x.id === unsign.dataset.unsign);
     const both = unsign.dataset.kind === "prepared" && s.reviewed;
-    if (!confirm(`Take back the ${unsign.dataset.kind} sign-off on ${s.label}${both ? " (the review sign-off goes too)" : ""}?`)) return;
+    if (!confirm(`Take back the ${unsign.dataset.kind} sign-off on ${s.label}?${both ? " Its review will show as changed." : ""}`)) return;
     busy(unsign, async () => {
       await sendJSON("DELETE", `/api/engagements/${id}/signoffs/${unsign.dataset.unsign}/${unsign.dataset.kind}`);
       await loadEngagementActivity();
@@ -997,6 +1012,8 @@ $("rv-notes").addEventListener("submit", (ev) => {
   const note = form.closest("[data-note]").dataset.note;
   busy(form.querySelector("button"), async () => {
     await sendJSON("POST", `/api/review-notes/${note}/replies`, { text: form.text.value.trim() });
+    form.text.value = "";
+    delete rvDrafts[note];
     await loadEngagementActivity();
   });
 });
