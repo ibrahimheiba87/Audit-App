@@ -116,3 +116,20 @@ dialog { border: 1px solid var(--border); border-radius: 10px; background: var(-
 dialog::backdrop { background: rgb(0 0 0 / 35%); }
 .details-cell { font-size: 12px; color: var(--muted); max-width: 360px; word-break: break-all; }
 td a { color: var(--accent); }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin: 16px 0 12px; }
+.tabs button { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+               color: var(--muted); padding: 8px 12px; }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.statements { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+.fs-table tr.heading td { font-weight: 600; padding-top: 14px; }
+.fs-table tr.subtotal td { font-weight: 600; border-top: 1px solid var(--muted); }
+.fs-table tr.total td { font-weight: 700; border-top: 1px solid var(--muted); border-bottom: 3px double var(--muted); }
+.fs-table tr.line td:first-child { padding-left: 18px; }
+#fs-lead tr.line-head td { font-weight: 600; background: var(--low-bg); }
+#fs-lead tr.line-total td { font-weight: 600; }
+#fs-map select { min-width: 220px; }
+#fs-map tr.changed td { background: var(--medium-bg); }
+.entry-lines input { padding: 6px; }
+.entry-lines td { padding: 4px; }
+.warn-box { color: var(--medium); background: var(--medium-bg); padding: 8px 12px; border-radius: 6px; }
+.tag { font-size: 12px; color: var(--muted); }
