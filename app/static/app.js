@@ -123,9 +123,17 @@ function Mapper(root, onChange = () => {}) {
 
 // --- Views and routing ------------------------------------------------------
 
+// Lowest rank that can open each view; anything else falls back to engagements.
+const VIEW_RANK = { engagements: 1, users: 4, activity: 4 };
+
 function route() {
   if (!me) return;
-  const [, view = "engagements", id] = location.hash.split("/");
+  let [, view = "engagements", id] = location.hash.split("/");
+  if (!(me.rank >= (VIEW_RANK[view] || Infinity))) {
+    view = "engagements";
+    id = undefined;
+    history.replaceState(null, "", "#/engagements");
+  }
   document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${view}`; });
   document.querySelectorAll("nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
   $("results").hidden = true;
@@ -656,8 +664,11 @@ function openFinding(f, scroll = true) {
     f.row && `row ${f.row} of ${f.filename}`].filter(Boolean);
   $("fd-meta").textContent = `${f.check_name}${where.length ? " · " + where.join(" · ") : ""}`;
   $("fd-detail").textContent = [f.description, f.detail].filter(Boolean).join(": ");
-  $("fd-status").innerHTML = ["open", "reviewed", "cleared"].map((x) =>
+  // Preparers can move findings between open and reviewed; clearing and reopening is for reviewers up.
+  const statuses = me.rank >= 2 ? ["open", "reviewed", "cleared"] : f.status === "cleared" ? ["cleared"] : ["open", "reviewed"];
+  $("fd-status").innerHTML = statuses.map((x) =>
     `<option value="${x}"${x === f.status ? " selected" : ""}>${x[0].toUpperCase() + x.slice(1)}</option>`).join("");
+  $("fd-status").disabled = statuses.length === 1;
   $("fd-severity").value = f.severity;
   $("fd-severity").disabled = me.rank < 2;
   $("fd-note").value = "";
@@ -840,10 +851,27 @@ $("users").addEventListener("click", (ev) => {
   const reset = ev.target.closest("[data-reset]");
   const active = ev.target.closest("[data-active]");
   if (reset) {
-    const password = prompt("New temporary password (at least 10 characters). They will be signed out.");
-    if (password) guard(async () => { await sendJSON("PATCH", `/api/users/${id}`, { password }); alert("Password reset."); });
+    resetUser = users.find((u) => String(u.id) === id);
+    $("reset-form").reset();
+    $("reset-error").hidden = true;
+    $("reset-who").textContent = resetUser.name;
+    $("reset-dialog").showModal();
   } else if (active) {
     guard(async () => { await sendJSON("PATCH", `/api/users/${id}`, { active: active.dataset.active === "true" }); await showUsers(); });
+  }
+});
+
+let resetUser = null;
+$("reset-cancel").addEventListener("click", () => $("reset-dialog").close());
+$("reset-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    await sendJSON("PATCH", `/api/users/${resetUser.id}`, formObject($("reset-form")));
+    $("reset-dialog").close();
+    showError("");
+  } catch (err) {
+    $("reset-error").textContent = err.message;
+    $("reset-error").hidden = false;
   }
 });
 

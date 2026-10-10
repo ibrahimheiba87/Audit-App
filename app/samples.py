@@ -85,7 +85,8 @@ def export_sample(sample_id: int, user: User = Depends(current_user),
     x = get_or_404(session, Sample, sample_id)
     e = x.engagement
     log(session, user, "sample.download", f"Downloaded sample #{x.id} workpaper", e,
-        details={"sample_id": x.id})
+        details={"sample_id": x.id, "upload_id": x.upload_id, "sha256": x.upload.sha256,
+                 "seed": x.seed, "params": x.params})
     session.commit()
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(),

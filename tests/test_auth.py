@@ -1,9 +1,12 @@
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth, db
+from app import accounts, auth, db
 from app.main import app
 from tests.conftest import ADMIN
 
@@ -180,3 +183,99 @@ def test_activity_survives_engagement_deletion():
     log = a.get("/api/activity", params={"engagement_id": eid}).json()
     assert log[0]["action"] == "engagement.delete"
     assert log[0]["engagement_label"] == "Acme · FY2026"
+
+
+def test_activity_survives_engagement_deletion_without_mixing_ids():
+    a = admin()
+    eid, _ = setup_engagement(a)
+    a.delete(f"/api/engagements/{eid}")
+    cl = a.get("/api/clients").json()[0]
+    new = a.post(f"/api/clients/{cl['id']}/engagements",
+                 json={"name": "FY2027", "period_end": "2027-12-31"}).json()
+    assert new["id"] != eid  # ids are not reused
+    log = a.get("/api/activity", params={"engagement_id": new["id"]}).json()
+    assert [x["action"] for x in log] == ["engagement.create"]
+
+
+def test_downloads_are_logged_with_fingerprints_and_settings():
+    a = admin()
+    eid, uid = setup_engagement(a)
+    run = a.post(f"/api/engagements/{eid}/runs", json={"upload_id": uid}).json()
+    a.get(f"/api/runs/{run['id']}/report")
+    s = a.post(f"/api/engagements/{eid}/samples",
+               json={"upload_id": uid, "method": "random", "sample_size": 3, "seed": 7}).json()
+    a.get(f"/api/samples/{s['id']}/export")
+    prior = a.post(f"/api/engagements/{eid}/uploads", data={"kind": "prior_tb"},
+                   files={"file": ("prior.csv", b"Account,Description,Amount\n1000,Cash,5\n")})
+    tb = a.post(f"/api/engagements/{eid}/uploads", data={"kind": "tb"},
+                files={"file": ("tb.csv", b"Account,Description,Amount\n1000,Cash,9\n")})
+    cmp = a.post(f"/api/engagements/{eid}/comparisons",
+                 json={"current_upload_id": tb.json()["id"], "prior_upload_id": prior.json()["id"],
+                       "threshold_amount": 1}).json()
+    a.get(f"/api/comparisons/{cmp['id']}/report")
+    f = a.post(f"/api/engagements/{eid}/findings", json={"detail": "x"}).json()
+    ev = a.post(f"/api/findings/{f['id']}/evidence",
+                files={"file": ("a.txt", b"abc")}).json()["attachments"][0]
+    a.get(f"/api/evidence/{ev['id']}")
+    log = {x["action"]: x["details"] for x in a.get("/api/activity",
+                                                    params={"engagement_id": eid}).json()}
+    assert len(log["run.download"]["sha256"]) == 64 and "cutoff_days" in log["run.download"]["settings"]
+    assert log["sample.download"]["seed"] == 7 and log["sample.download"]["params"]
+    assert len(log["sample.download"]["sha256"]) == 64
+    assert log["comparison.download"]["current_sha256"] != log["comparison.download"]["prior_sha256"]
+    assert "threshold_amount" in log["comparison.download"]["settings"]
+    assert log["evidence.download"]["sha256"] == ev["sha256"] and log["evidence.download"]["size"] == 3
+
+
+# --- Concurrent requests ------------------------------------------------------
+
+
+def at_once(n, fn):
+    """Run fn(i) on n threads released together; return the results."""
+    barrier = threading.Barrier(n)
+
+    def go(i):
+        barrier.wait()
+        return fn(i)
+
+    with ThreadPoolExecutor(n) as pool:
+        return list(pool.map(go, range(n)))
+
+
+def test_concurrent_first_run_setup_creates_one_admin():
+    with db.SessionLocal() as s:
+        s.query(db.User).delete()
+        s.commit()
+    codes = at_once(6, lambda i: TestClient(app).post("/api/auth/setup", json={
+        "email": f"boss{i}@firm.com", "name": "Boss", "password": "a long password"}).status_code)
+    assert sorted(codes) == [201] + [409] * 5
+    with db.SessionLocal() as s:
+        assert s.query(db.User).count() == 1
+
+
+def test_concurrent_guesses_cannot_pass_the_lockout():
+    codes = at_once(12, lambda i: TestClient(app).post("/api/auth/login", json={
+        "email": ADMIN["email"], "password": f"wrong {i}"}).status_code)
+    assert codes.count(401) == auth.MAX_FAILED_LOGINS and codes.count(429) == 12 - 5
+    with db.SessionLocal() as s:
+        assert auth.recent_failed_logins(s, ADMIN["email"]) == auth.MAX_FAILED_LOGINS
+
+
+def test_two_admins_demoting_each_other_keep_one_admin(monkeypatch):
+    a = admin()
+    other = add_user(a, "admin", "second@example.com")
+    ids = {u["email"]: u["id"] for u in a.get("/api/users").json()}
+    real_count = accounts.active_admins
+
+    def slow_count(session):  # widen the window between the check and the change
+        n = real_count(session)
+        time.sleep(0.3)
+        return n
+
+    monkeypatch.setattr(accounts, "active_admins", slow_count)
+    pairs = [(a, ids["second@example.com"]), (other, ids[ADMIN["email"]])]
+    codes = at_once(2, lambda i: pairs[i][0].patch(f"/api/users/{pairs[i][1]}",
+                                                   json={"role": "partner"}).status_code)
+    assert sorted(codes) == [200, 400]
+    with db.SessionLocal() as s:
+        assert accounts.active_admins(s) == 1

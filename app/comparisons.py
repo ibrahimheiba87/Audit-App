@@ -77,7 +77,8 @@ def comparison_report(comparison_id: int, user: User = Depends(current_user),
     c = get_or_404(session, Comparison, comparison_id)
     e = c.engagement
     log(session, user, "comparison.download", f"Downloaded comparison #{c.id}", e,
-        details={"comparison_id": c.id})
+        details={"comparison_id": c.id, "current_sha256": c.current_upload.sha256,
+                 "prior_sha256": c.prior_upload.sha256, "settings": c.settings})
     session.commit()
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(),

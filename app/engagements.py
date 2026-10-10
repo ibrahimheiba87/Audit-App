@@ -441,7 +441,8 @@ def run_report(run_id: int, format: str = "xlsx", user: User = Depends(current_u
     e = run.engagement
     if format in ("csv", "xlsx"):
         log(session, user, "run.download", f"Downloaded run #{run.id} report ({format})", e,
-            details={"run_id": run.id})
+            details={"run_id": run.id, "upload_id": run.upload_id,
+                     "sha256": run.upload.sha256, "settings": run.settings})
         session.commit()
     stem = safe_stem(f"{e.client.name}-{e.name}-run{run.id}")
     if format == "csv":

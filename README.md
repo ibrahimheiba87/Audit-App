@@ -134,7 +134,8 @@ Then open http://127.0.0.1:8000 and upload `sample_data/sample_gl.csv` to try it
 
 ## API
 
-All endpoints except `/api/health` and `/api/auth/*` need a signed-in session cookie.
+All endpoints need a signed-in session cookie except `/api/health`, `GET /api/auth/status`,
+`POST /api/auth/setup`, `POST /api/auth/login` and `POST /api/auth/logout`.
 
 - `GET /api/auth/status`, `POST /api/auth/setup` (first admin, only while there are no users),
   `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`

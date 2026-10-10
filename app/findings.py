@@ -276,7 +276,9 @@ def download_evidence(evidence_id: int, user: User = Depends(current_user),
                       session: Session = Depends(get_session)) -> Response:
     ev = get_or_404(session, Evidence, evidence_id)
     log(session, user, "evidence.download", f"Downloaded {ev.filename} from finding "
-        f"#{ev.finding_id}", ev.finding.engagement, details={"evidence_id": ev.id})
+        f"#{ev.finding_id}", ev.finding.engagement,
+        details={"evidence_id": ev.id, "finding_id": ev.finding_id, "sha256": ev.sha256,
+                 "size": ev.size})
     session.commit()
     return Response(ev.content, media_type=ev.content_type,
                     headers={**attachment(ev.filename), "X-Content-Type-Options": "nosniff"})
