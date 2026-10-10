@@ -68,7 +68,7 @@
   <div id="view-users" class="view" hidden>
     <section class="panel">
       <h2>Users</h2>
-      <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts and post adjusting entries. Reviewers can also clear and reopen findings, change severity, remove evidence and files, book or delete adjusting entries, and add or edit clients and engagements. Partners can also set materiality and delete clients and engagements. Admins can also manage users and see the whole activity log.</p>
+      <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts and post proposed adjusting entries. Reviewers can also clear and reopen findings, change severity, remove evidence and files, post booked entries, mark proposed ones booked, delete adjusting entries, and add or edit clients and engagements. Partners can also set materiality and delete clients and engagements. Admins can also manage users and see the whole activity log.</p>
       <div class="table-wrap"><table id="users"></table></div>
     </section>
     <section class="panel">
@@ -264,7 +264,7 @@
                     <button type="button" class="small secondary" id="aje-add-line">Add line</button>
                     <span class="muted" id="aje-totals"></span>
                     <span class="spacer"></span>
-                    <button type="submit">Post entry</button>
+                    <button type="submit" id="aje-post">Post entry</button>
                   </div>
                 </form>
                 <h3>Entries</h3>

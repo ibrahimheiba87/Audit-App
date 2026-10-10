@@ -47,6 +47,13 @@ async function guard(fn) {
   try { return await fn(); } catch (err) { showError(err.message); }
 }
 
+// Like guard, with the button disabled until the request finishes, so a double-click
+// doesn't send it twice.
+async function busy(button, fn) {
+  button.disabled = true;
+  try { return await guard(fn); } finally { button.disabled = false; }
+}
+
 function formObject(form) {
   const out = {};
   for (const [k, v] of new FormData(form)) if (typeof v === "string") out[k] = v.trim();
@@ -211,6 +218,7 @@ async function openEngagement(id) {
     regOffset = 0; regSelected.clear(); $("reg-check").value = "";
     // Uploads differ too, so let the server pick this engagement's latest trial balances.
     fsMapEdits = {}; $("fs-tb").innerHTML = $("fs-prior").innerHTML = "";
+    resetEntryForm();
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -463,6 +471,7 @@ $("cmp-flagged-only").addEventListener("change", renderComparisonTable);
 // Lead sheets and draft statements
 
 let fs = null;          // latest /statements response
+let fsEngagementId = null;  // the engagement `fs` belongs to
 let fsMapEdits = {};    // unsaved mapping changes: account -> line id ("" to unmap)
 const signed = (n) => n == null ? "" : n < 0 ? `(${money(-n)})` : money(n);
 const drcr = (n) => Math.abs(n) < 0.005 ? "0.00" : `${money(Math.abs(n))} ${n > 0 ? "Dr" : "Cr"}`;
@@ -476,13 +485,25 @@ function fsQuery() {
   return q.toString();
 }
 
+const FS_EMPTY = $("fs-empty").textContent;
+
 async function loadStatements() {
-  fs = await getJSON(`/api/engagements/${currentEngagement.id}/statements?${fsQuery()}`);
-  renderStatementsPanel();
+  const id = currentEngagement.id;
+  let data, error = null;
+  try {
+    data = await getJSON(`/api/engagements/${id}/statements?${fsQuery()}`);
+  } catch (err) {
+    error = err.message;  // shown in the panel, so the rest of the engagement still loads
+  }
+  if (currentEngagement?.id !== id) return;  // the user has opened another engagement
+  fs = error ? null : data;
+  fsEngagementId = error ? null : id;
+  renderStatementsPanel(error);
 }
 
-function renderStatementsPanel() {
-  const ready = !!fs.tb;
+function renderStatementsPanel(error = null) {
+  const ready = !!fs?.tb;
+  $("fs-empty").textContent = error ? `The lead sheets can't be built from this trial balance: ${error}` : FS_EMPTY;
   $("fs-empty").hidden = ready;
   $("fs-body").hidden = $("fs-export").hidden = !ready;
   if (!ready) return;
@@ -562,9 +583,10 @@ $("fs-accept").addEventListener("click", () => {
     .forEach((a) => { fsMapEdits[a.account] = a.suggested; });
   renderMapping();
 });
-$("fs-save-map").addEventListener("click", () => guard(async () => {
+$("fs-save-map").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
+  if (fsEngagementId !== currentEngagement.id) return;
   const mappings = Object.fromEntries(Object.entries(fsMapEdits).map(([k, v]) => [k, v || null]));
-  await sendJSON("PUT", `/api/engagements/${currentEngagement.id}/mapping`, { mappings });
+  await sendJSON("PUT", `/api/engagements/${fsEngagementId}/mapping`, { mappings });
   fsMapEdits = {};
   await loadStatements();
   await loadEngagementActivity();
@@ -573,7 +595,7 @@ $("fs-save-map").addEventListener("click", () => guard(async () => {
 // Adjusting entries
 
 function entryLineRow() {
-  return `<tr><td><input name="account" list="aje-accounts" aria-label="Account" maxlength="100"></td>
+  return `<tr><td><input name="account" list="aje-accounts" aria-label="Account" maxlength="200"></td>
     <td><input name="debit" type="number" min="0" step="0.01" aria-label="Debit"></td>
     <td><input name="credit" type="number" min="0" step="0.01" aria-label="Credit"></td>
     <td><input name="memo" maxlength="500" aria-label="Memo"></td>
@@ -603,8 +625,10 @@ function updateEntryTotals() {
 }
 
 function renderEntries() {
-  if ($("aje-kind").options.length !== fs.entry_kinds.length) {
-    $("aje-kind").innerHTML = fs.entry_kinds.map((k) => `<option value="${k.id}">${esc(k.label)} (${k.prefix})</option>`).join("");
+  // Booked entries need a reviewer, as marking one booked does; preparers propose them.
+  const kinds = fs.entry_kinds.filter((k) => !k.booked || me.rank >= 2);
+  if ([...$("aje-kind").options].map((o) => o.value).join() !== kinds.map((k) => k.id).join()) {
+    $("aje-kind").innerHTML = kinds.map((k) => `<option value="${k.id}">${esc(k.label)} (${k.prefix})</option>`).join("");
     resetEntryForm();
   }
   $("aje-accounts").innerHTML = fs.accounts.map((a) => `<option value="${esc(a.account)}" label="${esc(a.name || "")}"></option>`).join("");
@@ -633,7 +657,7 @@ $("aje-add-line").addEventListener("click", () => {
 });
 $("aje-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  guard(async () => {
+  busy($("aje-post"), async () => {
     const o = formObject($("aje-form"));
     const lines = entryLines().filter((l) => l.account || l.debit || l.credit);
     await sendJSON("POST", `/api/engagements/${currentEngagement.id}/adjusting-entries`,
@@ -685,7 +709,12 @@ function renderStatementTables() {
   $("fs-bs").innerHTML = table(fs.statements.balance_sheet);
   const diff = fs.statements.difference.current;
   $("fs-diff").hidden = Math.abs(diff) < 0.005;
-  $("fs-diff").textContent = `The balance sheet is out by ${signed(diff)} because ${fs.unmapped.length} account(s) are not mapped. Map them on the Account mapping tab.`;
+  const tbOut = Math.abs(fs.totals.adjusted) >= 0.005;
+  const n = fs.unmapped.length;
+  $("fs-diff").textContent = `The balance sheet is out by ${signed(diff)}. ` + [
+    n ? `${n} account${n === 1 ? " isn't" : "s aren't"} mapped yet; map ${n === 1 ? "it" : "them"} on the Account mapping tab.` : "",
+    tbOut ? `The adjusted trial balance itself doesn't balance (it totals ${drcr(fs.totals.adjusted)}).` : "",
+  ].filter(Boolean).join(" ");
 }
 
 function renderUncorrected() {
@@ -695,7 +724,9 @@ function renderUncorrected() {
     [u.overall_materiality == null ? "Not set" : money(u.overall_materiality), "Overall materiality"],
     [u.pct_of_overall == null ? "–" : `${u.pct_of_overall}%`, "Largest effect vs materiality"],
   ].map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("");
-  $("unc-conclusion").textContent = u.conclusion || (u.overall_materiality == null ? "Set materiality above to compare against it." : "");
+  const unmapped = u.unclassified.length && u.overall_materiality == null
+    ? ` ${u.unclassified.join(", ")} ${u.unclassified.length === 1 ? "isn't" : "aren't"} mapped to a statement line, so ${u.unclassified.length === 1 ? "its" : "their"} effect isn't counted yet.` : "";
+  $("unc-conclusion").textContent = (u.conclusion || (u.overall_materiality == null ? "Set materiality above to compare against it." : "")) + unmapped;
   $("unc-table").innerHTML = u.entries.length
     ? '<tr><th>Entry</th><th>Description</th><th class="num">Effect on profit</th><th class="num">Effect on net assets</th></tr>' +
       u.entries.map((e) => `<tr><td>${esc(e.ref)}</td><td>${esc(e.description)}</td><td class="num">${signed(e.profit)}</td><td class="num">${signed(e.net_assets)}</td></tr>`).join("")

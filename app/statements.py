@@ -81,20 +81,26 @@ ENTRY_KINDS = {
     "proposed": {"label": "Proposed (not booked)", "prefix": "PAJE", "booked": False},
 }
 
-# Name keywords, checked in order, so "bank loan" is a borrowing before "bank" is cash.
+# Name keywords, checked in order, so "bank loan" is a borrowing before "bank" is cash and
+# "common stock" is share capital before "stock" is inventory. Each keyword matches at the
+# start of a word, so "rent" doesn't match "current".
 KEYWORDS = [
     (("accumulated depreciation", "accumulated amortisation", "accumulated amortization"), "ppe"),
     (("depreciation", "amortisation", "amortization"), "depreciation"),
+    (("accrued income", "accrued revenue"), "other_current_assets"),
     (("income tax", "tax expense", "corporation tax"), "income_tax"),
     (("tax payable", "taxes payable", "vat", "gst", "sales tax"), "tax_payable"),
-    (("loan", "borrowing", "mortgage", "overdraft", "notes payable", "debenture", "lease liab"),
-     "borrowings"),
+    (("receivable", "debtor"), "receivables"),
+    (("loan", "borrowing", "mortgage", "overdraft", "notes payable", "debenture", "lease liab",
+      "debt"), "borrowings"),
     (("interest expense", "bank charge", "finance cost", "bank fee"), "finance_costs"),
     (("interest income", "dividend income", "other income", "gain on", "sundry income"),
      "other_income"),
     (("cash", "bank", "petty"), "cash"),
-    (("receivable", "debtor"), "receivables"),
+    (("share capital", "common stock", "capital stock", "preferred stock", "share premium",
+      "paid-in", "paid in"), "share_capital"),
     (("inventor", "stock"), "inventory"),
+    (("customer deposit", "liabilit"), "accruals"),
     (("prepaid", "prepayment", "deposit"), "other_current_assets"),
     (("property", "plant", "equipment", "furniture", "vehicle", "building", "land",
       "computer", "fixed asset", "machinery"), "ppe"),
@@ -102,8 +108,6 @@ KEYWORDS = [
      "intangibles"),
     (("payable", "creditor"), "payables"),
     (("accrued", "accrual", "deferred revenue", "unearned", "provision"), "accruals"),
-    (("share capital", "common stock", "capital stock", "share premium", "paid-in", "paid in"),
-     "share_capital"),
     (("retained", "reserve", "dividend"), "retained_earnings"),
     (("cost of sales", "cost of goods", "cogs", "purchases", "cost of revenue"),
      "cost_of_sales"),
@@ -115,6 +119,8 @@ KEYWORDS = [
     (("expense", "travel", "advertising", "marketing", "repairs", "entertainment"),
      "other_expenses"),
 ]
+KEYWORD_PATTERNS = [(re.compile("|".join(r"\b" + re.escape(w) for w in words)), line)
+                    for words, line in KEYWORDS]
 # First digit of a numeric account code, as in most charts of accounts.
 DIGIT = {"1": "other_current_assets", "2": "accruals", "3": "retained_earnings",
          "4": "revenue", "5": "cost_of_sales", "6": "other_expenses", "7": "other_expenses"}
@@ -125,10 +131,10 @@ class StatementsError(ValueError):
 
 
 def suggest_line(account: str, name: str | None) -> str | None:
-    """A starting FS line for an account from its name, or else its account number."""
-    text = f" {(name or '').lower()} "
-    for words, line in KEYWORDS:
-        if any(w in text for w in words):
+    """A starting FS line from the account's name (or the account itself), else its number."""
+    text = (name or account).lower()
+    for pattern, line in KEYWORD_PATTERNS:
+        if pattern.search(text):
             return line
     code = re.match(r"\s*(\d)", account)
     return DIGIT.get(code.group(1)) if code else None
@@ -159,9 +165,11 @@ def check_entry_lines(lines: list[dict]) -> None:
             raise StatementsError(f"Line {i}: enter either a debit or a credit.")
         if not str(ln.get("account") or "").strip():
             raise StatementsError(f"Line {i}: enter an account.")
-    debits = sum(ln.get("debit") or 0.0 for ln in lines)
-    credits = sum(ln.get("credit") or 0.0 for ln in lines)
-    if abs(debits - credits) >= 0.005:
+    debits = round(sum(ln.get("debit") or 0.0 for ln in lines), 2)
+    credits = round(sum(ln.get("credit") or 0.0 for ln in lines), 2)
+    if not (math.isfinite(debits) and math.isfinite(credits)):
+        raise StatementsError("The entry's amounts are too large.")
+    if debits != credits:
         raise StatementsError(f"Debits ({debits:,.2f}) and credits ({credits:,.2f}) "
                               "must be equal.")
 
@@ -181,15 +189,15 @@ def _balances(df: pd.DataFrame | None) -> dict[str, dict]:
         return {}
     if "account" not in df:
         raise StatementsError("The trial balance needs an account column.")
-    out: dict[str, dict] = {}
-    for _, row in df.iterrows():
-        account = str(row["account"]).strip() if pd.notna(row["account"]) else "(blank)"
-        item = out.setdefault(account, {"balance": 0.0, "name": None})
-        item["balance"] += float(row["amount"])
-        name = row.get("description")
-        if item["name"] is None and isinstance(name, str) and name.strip():
-            item["name"] = name.strip()
-    return out
+    accounts = df["account"].astype("string").str.strip().fillna("").replace("", "(blank)")
+    names = (df["description"].astype("string").str.strip().replace("", pd.NA)
+             if "description" in df else pd.Series(pd.NA, index=df.index, dtype="string"))
+    grouped = pd.DataFrame({"account": accounts, "amount": df["amount"].astype(float),
+                            "name": names}).groupby("account", sort=False)
+    balances, first_names = grouped["amount"].sum(), grouped["name"].first()
+    return {a: {"balance": float(balances[a]),
+                "name": None if pd.isna(first_names[a]) else str(first_names[a])}
+            for a in balances.index}
 
 
 def build(tb: pd.DataFrame, prior: pd.DataFrame | None, mapping: dict[str, str],
@@ -219,9 +227,13 @@ def build(tb: pd.DataFrame, prior: pd.DataFrame | None, mapping: dict[str, str],
             "prior": _r(pri[a]["balance"]) if a in pri else None,
         })
 
+    by_line: dict[str, list[dict]] = {}
+    for r in rows:
+        if r["line"]:
+            by_line.setdefault(r["line"], []).append(r)
     lead_sheets = []
     for line_id, label, section in LINES:
-        accts = [r for r in rows if r["line"] == line_id]
+        accts = by_line.get(line_id, [])
         if not accts:
             continue
         sheet_rows = [{
@@ -239,7 +251,7 @@ def build(tb: pd.DataFrame, prior: pd.DataFrame | None, mapping: dict[str, str],
 
     unmapped = [r for r in rows if r["line"] is None and
                 (abs(r["adjusted"]) >= 0.005 or (r["prior"] and abs(r["prior"]) >= 0.005))]
-    statements = _statements(rows)
+    statements = _statements(by_line)
     return {
         "lines": [LINE[i] for i, _, _ in LINES],
         "sections": [{"id": s.id, "label": s.label, "statement": s.statement} for s in SECTIONS],
@@ -258,13 +270,13 @@ def build(tb: pd.DataFrame, prior: pd.DataFrame | None, mapping: dict[str, str],
     }
 
 
-def _statements(rows: list[dict]) -> dict:
+def _statements(by_line: dict[str, list[dict]]) -> dict:
     def section_lines(section: str) -> list[dict]:
         out = []
         for line_id, label, sec in LINES:
             if sec != section:
                 continue
-            accts = [r for r in rows if r["line"] == line_id]
+            accts = by_line.get(line_id, [])
             if accts:
                 cur = sum(shown(r["adjusted"], line_id) for r in accts)
                 pri = sum(shown(r["prior"] or 0.0, line_id) for r in accts)
@@ -346,6 +358,7 @@ def uncorrected_summary(entries: list[dict], lines: dict[str, str | None],
                         materiality: dict | None) -> dict:
     """Proposed entries the client has not booked, and their effect against materiality."""
     items = []
+    unclassified: dict[str, None] = {}
     for e in entries:
         if e["kind"] != "proposed":
             continue
@@ -354,7 +367,10 @@ def uncorrected_summary(entries: list[dict], lines: dict[str, str | None],
             line = lines.get(account) or suggest_line(account, None)
             section = LINE.get(line or "", {}).get("section")
             statement = SECTION[section].statement if section else None
-            if statement == "is":
+            if section is None:
+                if abs(amount) >= 0.005:
+                    unclassified[account] = None
+            elif statement == "is":
                 profit -= amount  # a debit to an income statement account reduces profit
             elif section in ("current_assets", "noncurrent_assets"):
                 assets += amount
@@ -367,7 +383,8 @@ def uncorrected_summary(entries: list[dict], lines: dict[str, str | None],
     out = {"entries": items, "profit": profit_total,
            "net_assets": _r(sum(i["net_assets"] for i in items)),
            "overall_materiality": None, "performance_materiality": None,
-           "trivial_threshold": None, "pct_of_overall": None, "conclusion": None}
+           "trivial_threshold": None, "pct_of_overall": None, "conclusion": None,
+           "unclassified": list(unclassified)}
     if materiality and materiality.get("overall_materiality"):
         overall = materiality["overall_materiality"]
         trivial = materiality.get("trivial_threshold") or 0.0
@@ -379,7 +396,10 @@ def uncorrected_summary(entries: list[dict], lines: dict[str, str | None],
             "trivial_threshold": trivial,
             "pct_of_overall": round(largest / overall * 100, 1),
         })
-        if largest >= overall:
+        if unclassified:
+            out["conclusion"] = ("Map " + ", ".join(unclassified) + " to a statement line "
+                                 "first: their effect isn't counted yet.")
+        elif largest >= overall:
             out["conclusion"] = ("Uncorrected misstatements are material: ask the client to "
                                  "book them, or consider the effect on the audit opinion.")
         elif largest >= (materiality.get("performance_materiality") or overall):
@@ -402,14 +422,14 @@ def to_excel(data: dict, entries: list[dict], context: dict | None = None) -> by
         ("Balance sheet difference", st["difference"]["current"]),
         ("Profit for the year", st["profit"]["current"]),
     ]
-    statements = [{"Statement": "Income statement", "Line": r["label"],
-                   "Current": None if r["kind"] == "heading" else r["current"],
-                   "Prior": None if r["kind"] == "heading" else r["prior"]}
-                  for r in st["income_statement"]]
-    statements += [{"Statement": "Balance sheet", "Line": r["label"],
-                    "Current": None if r["kind"] == "heading" else r["current"],
-                    "Prior": None if r["kind"] == "heading" else r["prior"]}
-                   for r in st["balance_sheet"]]
+    def statement_row(statement: str, r: dict) -> dict:
+        figures = r["kind"] != "heading"
+        return {"Statement": statement, "Line": r["label"],
+                "Current": r["current"] if figures else None,
+                "Prior": r["prior"] if figures and data["has_prior"] else None}
+
+    statements = [statement_row("Income statement", r) for r in st["income_statement"]]
+    statements += [statement_row("Balance sheet", r) for r in st["balance_sheet"]]
     lead = [{"FS line": s["label"], "Account": a["account"], "Name": a["name"],
              "Unadjusted": a["unadjusted"], "Adjusting": a["adjusting"],
              "Reclassification": a["reclassification"], "Adjusted": a["adjusted"],
@@ -436,6 +456,7 @@ def to_excel(data: dict, entries: list[dict], context: dict | None = None) -> by
                    ("Performance materiality", u["performance_materiality"]),
                    ("Clearly trivial", u["trivial_threshold"]),
                    ("Largest effect as % of overall materiality", u["pct_of_overall"]),
+                   ("Accounts not on a statement line", ", ".join(u["unclassified"]) or None),
                    ("Conclusion", u["conclusion"])]
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:

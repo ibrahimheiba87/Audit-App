@@ -291,6 +291,9 @@ def test_adjusting_entry_permissions():
     assert r.status_code == 201 and r.json()["author"] == "Preparer"
     assert prep.put(f"/api/engagements/{eid}/mapping",
                     json={"mappings": {"4000": "revenue"}}).status_code == 200
+    booked = prep.post(f"/api/engagements/{eid}/adjusting-entries",
+                       json={**entry, "kind": "adjusting"})
+    assert booked.status_code == 403  # booking needs a reviewer, however it's done
     eid_ = r.json()["id"]
     assert prep.patch(f"/api/adjusting-entries/{eid_}", json={"kind": "adjusting"}).status_code == 403
     assert prep.delete(f"/api/adjusting-entries/{eid_}").status_code == 403

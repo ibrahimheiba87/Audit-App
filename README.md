@@ -52,11 +52,11 @@ have been worked on can't be deleted, so the support stays with the engagement.
 line (cash, receivables, revenue, employee costs and so on). The app suggests a line from the
 account name or number, and you confirm or change it. Post adjusting entries (AJE),
 reclassifications (RJE) and proposed entries the client hasn't booked (PAJE). Each entry must
-balance. Booked entries roll into the adjusted trial balance, the lead sheets (unadjusted,
+balance, and entry numbers are never reused. Booked entries roll into the adjusted trial balance, the lead sheets (unadjusted,
 adjustments, adjusted and prior year per account) and a draft income statement and balance
 sheet with comparatives. Proposed entries are summarised against materiality as uncorrected
-misstatements. A reviewer can mark a proposed entry as booked or delete an entry. Download it
-all as one Excel workbook.
+misstatements. Preparers post proposed entries; a reviewer posts booked ones, marks a
+proposed entry as booked or deletes an entry. Download it all as one Excel workbook.
 
 The **Quick audit** tab runs the checks on a file without saving anything.
 
@@ -68,10 +68,10 @@ temporary password and a role. Each role can do everything the roles above it in
 can:
 
 - **Preparer**: upload files, run the checks, comparisons and samples, add findings, notes and
-  evidence, mark findings reviewed, map accounts and post adjusting entries.
+  evidence, mark findings reviewed, map accounts and post proposed adjusting entries.
 - **Reviewer**: also clear and reopen findings, change severity, remove evidence and files,
-  mark proposed entries booked, delete adjusting entries, and add or edit clients and
-  engagements.
+  post booked entries or mark proposed ones booked, delete adjusting entries, and add or edit
+  clients and engagements.
 - **Partner**: also set materiality and delete clients and engagements.
 - **Admin**: also manage users and see the whole activity log.
 

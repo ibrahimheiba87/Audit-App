@@ -267,7 +267,7 @@ class AccountMapping(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
-    account: Mapped[str] = mapped_column(String(100))
+    account: Mapped[str] = mapped_column(String(200))
     line: Mapped[str] = mapped_column(String(50))
     updated_by: Mapped[str] = mapped_column(String(200), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
@@ -301,7 +301,7 @@ class AdjustingLine(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     entry_id: Mapped[int] = mapped_column(ForeignKey("adjusting_entries.id"), index=True)
-    account: Mapped[str] = mapped_column(String(100))
+    account: Mapped[str] = mapped_column(String(200))
     debit: Mapped[float] = mapped_column(Float, default=0.0)
     credit: Mapped[float] = mapped_column(Float, default=0.0)
     memo: Mapped[str] = mapped_column(String(500), default="")
