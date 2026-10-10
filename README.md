@@ -71,8 +71,8 @@ partner signs off completion once every other section is reviewed.
 People at the client sign in with a **Client** account and see only their own company's
 requests, in a portal of their own: they upload files against each request and can message the
 team. The team downloads the files, accepts them, or sends the request back saying what's
-missing; accepted requests are locked. Overdue requests are flagged, and the request list
-downloads as Excel or CSV.
+missing; accepted requests are locked until a reviewer sends them back. Overdue requests are
+flagged, and the request list downloads as Excel or CSV.
 
 The **Quick audit** tab runs the checks on a file without saving anything.
 

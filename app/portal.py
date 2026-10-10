@@ -87,30 +87,46 @@ def client_user(user: User = Depends(signed_in_user)) -> User:
     return user
 
 
-def check_access(user: User, engagement: Engagement, permission: str = "prepare") -> None:
+def check_access(user: User, client_id: int, permission: str = "prepare",
+                 missing: str = "Request not found.") -> None:
     """Clients may act on their own client's engagements; the team needs `permission`."""
     if is_client(user):
-        if user.client_id is None or engagement.client_id != user.client_id:
-            # Same answer as a missing request, so clients can't probe other clients' ids.
-            raise HTTPException(404, "Request not found.")
+        if user.client_id is None or client_id != user.client_id:
+            # Same answer as a missing one, so clients can't probe other clients' ids.
+            raise HTTPException(404, missing)
     else:
         auth.ensure(user, permission)
 
 
 def lock_request(session: Session, user: User, request_id: int,
-                 permission: str = "prepare") -> DocumentRequest:
-    """The request, after holding its engagement's requests so changes run one at a time."""
-    engagement_id = session.scalar(select(DocumentRequest.engagement_id)
-                                   .where(DocumentRequest.id == request_id))
-    if engagement_id is None:
-        raise HTTPException(404, "Request not found.")
-    auth.hold(session, f"requests:{engagement_id}")
+                 missing: str = "Request not found.") -> DocumentRequest:
+    """The request, after holding its engagement's requests so changes run one at a time.
+
+    Access is checked first (an engagement's client never changes), so a client can't hold
+    another client's requests.
+    """
+    row = session.execute(select(DocumentRequest.engagement_id, Engagement.client_id)
+                          .join(Engagement).where(DocumentRequest.id == request_id)).first()
+    if row is None:
+        raise HTTPException(404, missing)
+    check_access(user, row.client_id, missing=missing)
+    auth.hold(session, f"requests:{row.engagement_id}")
     session.expire_all()
     req = session.get(DocumentRequest, request_id)
     if req is None:
-        raise HTTPException(404, "Request not found.")
-    check_access(user, req.engagement, permission)
+        raise HTTPException(404, missing)
     return req
+
+
+async def read_limited(file: UploadFile) -> bytes:
+    """The upload's content, refusing it as soon as it passes MAX_FILE_BYTES."""
+    chunks, size = [], 0
+    while chunk := await file.read(1024 * 1024):
+        size += len(chunk)
+        if size > MAX_FILE_BYTES:
+            raise HTTPException(413, "Files can be up to 20 MB.")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def next_number(session: Session, engagement_id: int) -> int:
@@ -215,6 +231,9 @@ def create_request(engagement_id: int, body: RequestIn, user: User = Depends(req
 def update_request(request_id: int, body: RequestPatch, user: User = Depends(require("prepare")),
                    session: Session = Depends(get_session)) -> dict:
     req = lock_request(session, user, request_id)
+    if req.status == "accepted":
+        raise HTTPException(400, "Return the request to the client before editing it, so the "
+                                 "accepted files still answer what was asked.")
     changes = body.model_dump(exclude_unset=True)
     if "title" in changes and changes["title"] is None:
         raise HTTPException(400, "A request needs a title.")
@@ -237,8 +256,8 @@ def change_status(request_id: int, body: StatusIn, user: User = Depends(require(
     req = lock_request(session, user, request_id)
     message = body.message.strip()
     if body.status == "accepted":
-        if req.status != "submitted":
-            raise HTTPException(400, "Only submitted requests can be accepted.")
+        if req.status == "accepted":
+            raise HTTPException(400, "This request is already accepted.")
         if not req.files:
             raise HTTPException(400, "There are no files to accept.")
         set_status(req, user, "accepted", message)
@@ -250,6 +269,8 @@ def change_status(request_id: int, body: StatusIn, user: User = Depends(require(
             raise HTTPException(400, "Only submitted or accepted requests can be returned.")
         if not message:
             raise HTTPException(400, "Tell the client what's missing or wrong.")
+        if req.status == "accepted":
+            auth.ensure(user, "review")  # reopens accepted evidence to changes
         set_status(req, user, "returned", message)
         log(session, user, "request.return", f"Returned {label(req)} to the client: {message}",
             req.engagement, details={"request_id": req.id})
@@ -353,11 +374,9 @@ def portal_requests(user: User = Depends(client_user),
 async def upload_file(request_id: int, file: UploadFile = File(...),
                       user: User = Depends(signed_in_user),
                       session: Session = Depends(get_session)) -> dict:
-    content = await file.read()
+    content = await read_limited(file)
     if not content:
         raise HTTPException(400, "The file is empty.")
-    if len(content) > MAX_FILE_BYTES:
-        raise HTTPException(413, "Files can be up to 20 MB.")
     req = lock_request(session, user, request_id)
     if req.status == "accepted":
         raise HTTPException(400, "This request has been accepted, so no more files can be "
@@ -384,14 +403,15 @@ def download_file(file_id: int, user: User = Depends(signed_in_user),
     if f is None:
         raise HTTPException(404, "File not found.")
     req = f.request
-    check_access(user, req.engagement)
+    check_access(user, req.engagement.client_id, missing="File not found.")
+    content = f.content  # before the commit below, which a concurrent delete could beat
     log(session, user, "request.file_download", f"Downloaded {f.filename} from {label(req)}",
         req.engagement, details={"request_id": req.id, "file_id": f.id, "sha256": f.sha256,
                                  "size": f.size})
     session.commit()
     # Served as a plain download whatever the sender called it, so an uploaded web page
     # can't run in the app's origin.
-    return Response(f.content, media_type="application/octet-stream",
+    return Response(content, media_type="application/octet-stream",
                     headers={**attachment(f.filename), "X-Content-Type-Options": "nosniff"})
 
 
@@ -401,16 +421,19 @@ def delete_file(file_id: int, user: User = Depends(signed_in_user),
     request_id = session.scalar(select(RequestFile.request_id).where(RequestFile.id == file_id))
     if request_id is None:
         raise HTTPException(404, "File not found.")
-    req = lock_request(session, user, request_id)
+    req = lock_request(session, user, request_id, missing="File not found.")
     f = session.get(RequestFile, file_id)
     if f is None or f.request_id != req.id:
         raise HTTPException(404, "File not found.")
     if req.status == "accepted":
         raise HTTPException(400, "Return the request to the client before removing its files.")
+    # Ownership counts only on the sender's side, so someone moved between the team and the
+    # client can't remove what they sent from the other side.
+    own = f.uploaded_by_id == user.id and f.from_client == is_client(user)
     if is_client(user):
-        if f.uploaded_by_id != user.id:
+        if not own:
             raise HTTPException(403, "You can only remove files you sent.")
-    elif f.uploaded_by_id != user.id:
+    elif not own:
         auth.ensure(user, "review")  # someone else's document
     text = f"Removed {f.filename} (SHA-256 {f.sha256})"
     req.files.remove(f)

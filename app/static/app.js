@@ -1055,7 +1055,7 @@ function requestCard(r, team) {
   const open = r.status !== "accepted";
   const files = r.files.map((f) => {
     const canRemove = open && (f.uploaded_by_id === me.id || (team && me.rank >= 2));
-    return `<li><a class="button" href="/api/request-files/${f.id}">${esc(f.filename)}</a>
+    return `<li><button type="button" class="small secondary file" data-rq-file="${f.id}">${esc(f.filename)}</button>
       <span class="tag">${fileSize(f.size)} · ${esc(f.uploaded_by)}${team && f.from_client ? " (client)" : ""} · ${esc(when(f.uploaded_at))}</span>
       ${canRemove ? `<button type="button" class="link danger-link" data-rq-remove="${f.id}">Remove</button>` : ""}</li>`;
   }).join("");
@@ -1105,6 +1105,10 @@ function wireRequests(root, reload) {
     const id = card.dataset.rq;
     const accept = ev.target.closest("[data-rq-accept]"), del = ev.target.closest("[data-rq-delete]");
     const remove = ev.target.closest("[data-rq-remove]"), ret = ev.target.closest("[data-rq-return]");
+    const file = ev.target.closest("[data-rq-file]");
+    if (file) busy(file, async () => {  // fetched, so an error shows here instead of replacing the page
+      await saveFile(await request(`/api/request-files/${file.dataset.rqFile}`), file.textContent);
+    });
     if (accept) busy(accept, async () => {
       await sendJSON("POST", `/api/requests/${id}/status`, { status: "accepted", message: card.querySelector("[data-rq-message]").text.value.trim() });
       delete rqDrafts[id];
@@ -1216,7 +1220,7 @@ function renderPortal() {
   keepDrafts($("pt-list"));
   const todo = $("pt-filter").value === "todo";
   const html = portal.engagements.map((e) => {
-    const list = e.requests.filter((r) => !todo || r.status === "open" || r.status === "returned");
+    const list = e.requests.filter((r) => !todo || r.status !== "accepted");
     const owed = e.summary.open + e.summary.returned;
     return `<section class="panel">
       <h2>${esc(e.name)} <span class="muted">· period ending ${esc(e.period_end)}</span></h2>
@@ -1401,6 +1405,7 @@ let appStarted = false;
 
 function setUser(user) {
   me = user;
+  lastUserId = user.id;
   document.body.dataset.rank = user.rank;
   $("user-name").textContent = user.name;
   $("user-role").textContent = user.role_label;
@@ -1410,6 +1415,9 @@ function setUser(user) {
 
 function showLogin(needsSetup) {
   me = null;
+  // Nothing of the last user's may reach the next one: unsent messages, the portal.
+  rqDrafts = {}; rvDrafts = {}; rq = null; portal = null;
+  $("pt-list").innerHTML = $("rq-list").innerHTML = "";
   delete document.body.dataset.rank;
   $("user-chip").hidden = $("nav").hidden = true;
   document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== "view-login"; });
@@ -1419,8 +1427,15 @@ function showLogin(needsSetup) {
   (needsSetup ? $("setup-name") : $("login-email")).focus();
 }
 
+let lastUserId = null;  // who this page was last set up for
+
 async function signedIn(res) {
-  setUser((await res.json()).user);
+  const user = (await res.json()).user;
+  if (lastUserId !== null && lastUserId !== user.id) {
+    location.reload();  // someone else: start from a clean page (the cookie is already set)
+    return;
+  }
+  setUser(user);
   showError("");
   if (me.role === "client" || meta) route(); else await startApp();
 }
@@ -1446,8 +1461,8 @@ $("setup-form").addEventListener("submit", (ev) => {
 
 $("logout").addEventListener("click", () => guard(async () => {
   await sendJSON("POST", "/api/auth/logout");
-  location.hash = "#/engagements";
-  showLogin(false);
+  location.hash = "";
+  location.reload();  // drop everything the page holds for this user
 }));
 
 $("pw-open").addEventListener("click", () => {

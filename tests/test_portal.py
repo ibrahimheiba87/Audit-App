@@ -270,3 +270,97 @@ def test_team_list_shows_who_at_the_client_has_access():
     assert data["contacts"] == [{"name": "Cara Client", "email": "client@example.com",
                                  "active": True}]
     assert data["summary"]["total"] == 0
+
+
+# --- Review fixes ---------------------------------------------------------------
+
+
+def accepted_request(prep, rev, cl, eid):
+    req = ask(prep, eid)
+    upload(cl, req["id"])
+    r = rev.post(f"/api/requests/{req['id']}/status", json={"status": "accepted"})
+    assert r.status_code == 200
+    return r.json()
+
+
+def test_accepted_requests_are_locked_until_a_reviewer_returns_them():
+    _, prep, rev, cl, _, eid = setup()
+    req = accepted_request(prep, rev, cl, eid)
+    r = prep.patch(f"/api/requests/{req['id']}", json={"title": "Signed board minutes"})
+    assert r.status_code == 400 and "Return" in r.json()["detail"]
+    back = {"status": "returned", "message": "Wrong year"}
+    assert prep.post(f"/api/requests/{req['id']}/status", json=back).status_code == 403
+    assert rev.post(f"/api/requests/{req['id']}/status", json=back).json()["status"] == "returned"
+    # Returned by mistake: it can be accepted again without a new upload.
+    r = rev.post(f"/api/requests/{req['id']}/status", json={"status": "accepted"})
+    assert r.json()["status"] == "accepted"
+
+
+def test_moving_a_client_user_is_logged_and_signs_out_role_switches():
+    a, _, _, cl, cid, _ = setup()
+    globex = a.post("/api/clients", json={"name": "Globex"}).json()
+    uid = cl.get("/api/auth/me").json()["id"]
+    r = a.patch(f"/api/users/{uid}", json={"client_id": globex["id"]})
+    assert r.json()["client_name"] == "Globex"
+    log = a.get("/api/activity", params={"action": "user.update"}).json()[0]
+    assert "client to Globex" in log["summary"] and log["details"]["client_id"] == globex["id"]
+    assert cl.get("/api/auth/me").status_code == 200  # moving clients keeps the session
+    a.patch(f"/api/users/{uid}", json={"role": "preparer"})
+    assert cl.get("/api/auth/me").status_code == 401  # becoming staff means signing in again
+
+
+def test_file_ownership_stays_on_the_senders_side():
+    a, prep, rev, cl, cid, eid = setup()
+    req = ask(prep, eid)
+    team_file = upload(prep, req["id"], ("team.pdf", b"team", "application/pdf")).json()[
+        "files"][0]["id"]
+    # The preparer becomes a client of Acme: the file they sent as staff isn't theirs there.
+    pid = prep.get("/api/auth/me").json()["id"]
+    a.patch(f"/api/users/{pid}", json={"role": "client", "client_id": cid})
+    turned = login("preparer@example.com", "long enough pw")
+    assert turned.delete(f"/api/request-files/{team_file}").status_code == 403
+    # And a client who becomes a preparer can't remove what they sent as the client.
+    client_file = upload(cl, req["id"]).json()["files"][-1]["id"]
+    uid = cl.get("/api/auth/me").json()["id"]
+    a.patch(f"/api/users/{uid}", json={"role": "preparer"})
+    staff = login("client@example.com", "long enough pw")
+    assert staff.delete(f"/api/request-files/{client_file}").status_code == 403
+    assert rev.delete(f"/api/request-files/{client_file}").status_code == 204
+
+
+def test_other_clients_ids_look_missing_and_deactivated_clients_are_out():
+    a, prep, _, cl, _, eid = setup()
+    other = a.post("/api/clients", json={"name": "Globex"}).json()
+    oeid = a.post(f"/api/clients/{other['id']}/engagements",
+                  json={"name": "FY2026", "period_end": "2026-12-31"}).json()["id"]
+    theirs = ask(prep, oeid)
+    fid = upload(prep, theirs["id"]).json()["files"][0]["id"]
+    for path, missing in ((f"/api/request-files/{fid}", f"/api/request-files/{fid + 99}"),):
+        for method in ("GET", "DELETE"):
+            assert cl.request(method, path).json() == cl.request(method, missing).json()
+    for method, sub in (("POST", "messages"), ("POST", "files")):
+        kw = {"json": {"text": "x"}} if sub == "messages" else {"files": {"file": PDF}}
+        r1 = cl.request(method, f"/api/requests/{theirs['id']}/{sub}", **kw)
+        r2 = cl.request(method, f"/api/requests/{theirs['id'] + 99}/{sub}", **kw)
+        assert r1.status_code == r2.status_code == 404 and r1.json() == r2.json()
+    uid = cl.get("/api/auth/me").json()["id"]
+    a.patch(f"/api/users/{uid}", json={"active": False})
+    assert cl.get("/api/portal/requests").status_code == 401
+
+
+def test_uploads_over_the_limit_are_refused(monkeypatch):
+    from app import portal
+    _, prep, _, cl, _, eid = setup()
+    monkeypatch.setattr(portal, "MAX_FILE_BYTES", 10)
+    req = ask(prep, eid)
+    assert upload(cl, req["id"], ("big.pdf", b"x" * 11, "application/pdf")).status_code == 413
+    assert upload(cl, req["id"], ("ok.pdf", b"x" * 10, "application/pdf")).status_code == 201
+
+
+def test_deleting_an_engagement_logs_the_client_documents():
+    a, prep, _, cl, _, eid = setup()
+    upload(cl, ask(prep, eid)["id"])
+    partner = add_user(a, "partner")
+    assert partner.delete(f"/api/engagements/{eid}").status_code == 204
+    log = a.get("/api/activity", params={"action": "engagement.delete"}).json()[0]
+    assert log["details"]["request_files"][0]["filename"] == "bank.pdf"

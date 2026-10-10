@@ -160,7 +160,7 @@ td a { color: var(--accent); }
 .rq .cell-actions { margin-top: 8px; }
 .rq-files { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
 .rq-files li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.rq-files a.button { word-break: break-all; }
+.rq-files button.file { word-break: break-all; text-align: left; }
 label.button { display: inline-block; margin: 0; padding: 4px 10px; font-size: 13px; border-radius: 6px;
                border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
 label.button:has(input:disabled) { opacity: .5; cursor: default; }

@@ -205,10 +205,12 @@ def update_user(user_id: int, body: UserPatch, request: Request,
     if user is None:
         raise HTTPException(404, "User not found.")
     changes = []
-    if (body.role and body.role != "admin") or body.active is False:
-        # Two admins demoting each other at once must not leave no admin.
+    if (body.role and body.role != "admin") or body.active is False or body.client_id is not None:
+        # Two admins demoting each other at once must not leave no admin (nor two requests
+        # both link one user to a client).
         auth.hold(session, "admins")
-        session.refresh(user)
+        session.expire_all()
+        user = session.get(User, user_id)
         if user.role == "admin" and user.active and active_admins(session) <= 1:
             raise HTTPException(400, "Keep at least one active admin.")
     if body.name and body.name.strip() != user.name:
@@ -216,12 +218,14 @@ def update_user(user_id: int, body: UserPatch, request: Request,
         user.name = body.name.strip()
     role = body.role or user.role
     if role != user.role or body.client_id is not None:
-        before = user.client_id
+        before = user.client_link.client if user.client_link else None
         client = link_client(session, user, role, body.client_id)
-        if client and user.client_id != before:
+        if client and user.client_link.client is not before:
             changes.append(f"client to {client}")
     if body.role and body.role != user.role:
         changes.append(f"role from {ROLES[user.role]} to {ROLES[body.role]}")
+        if (body.role == "client") != (user.role == "client"):
+            auth.end_user_sessions(session, user)  # a different app now; sign in again
         user.role = body.role
     if body.active is not None and body.active != user.active:
         changes.append("reactivated" if body.active else "deactivated")
@@ -235,7 +239,9 @@ def update_user(user_id: int, body: UserPatch, request: Request,
         changes.append("password reset")
     if changes:
         log(session, admin, "user.update", f"Changed {user.email}: {', '.join(changes)}",
-            details={"user_id": user.id}, request=request)
+            details={"user_id": user.id, "role": user.role,
+                     "client_id": user.client_link.client.id if user.client_link else None},
+            request=request)
     session.commit()
     return user_out(user)
 
