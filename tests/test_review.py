@@ -3,7 +3,9 @@
 import pytest
 
 from app import db, review
-from tests.test_auth import add_user, admin, setup_engagement
+from tests.test_auth import GL, add_user, admin, setup_engagement
+
+TB = GL.parent / "sample_tb_2026.csv"
 
 pytestmark = pytest.mark.usefixtures("real_auth")
 
@@ -199,8 +201,51 @@ def test_side_effects_make_other_sections_stale():
     prep.post(f"/api/engagements/{eid}/runs", json={"upload_id": uid})  # adds findings
     assert section(prep, eid, "findings")["status"] == "Changed since prepared"
     assert section(prep, eid, "sampling")["status"] == "Reviewed"
-    assert rev.delete(f"/api/uploads/{uid}").status_code == 204  # findings, samples go too
+    for sid in ("comparison", "statements"):
+        sign(prep, eid, sid, "prepared")
+    assert rev.delete(f"/api/uploads/{uid}").status_code == 204  # its findings go too
+    assert section(prep, eid, "findings")["status"] == "Changed since prepared"
+    # The file had no samples or comparisons, and a ledger doesn't feed the statements.
+    for sid in ("sampling", "comparison", "statements"):
+        assert not section(prep, eid, sid)["prepared"]["stale"], sid
+
+
+def test_deleting_a_file_makes_its_samples_stale():
+    a, prep, rev, partner, eid, uid = team()
+    r = prep.post(f"/api/engagements/{eid}/samples",
+                  json={"upload_id": uid, "method": "random", "sample_size": 3, "seed": 1})
+    assert r.status_code == 201, r.text
+    sign(prep, eid, "sampling", "prepared")
+    assert rev.delete(f"/api/uploads/{uid}").status_code == 204
     assert section(prep, eid, "sampling")["status"] == "Changed since prepared"
+
+
+def test_only_trial_balances_make_the_statements_stale():
+    a, prep, rev, partner, eid, _ = team()
+    sign(prep, eid, "statements", "prepared")
+    gl = GL.read_bytes()
+    prep.post(f"/api/engagements/{eid}/uploads", files={"file": ("gl2.csv", gl, "text/csv")})
+    assert not section(prep, eid, "statements")["prepared"]["stale"]
+    prep.post(f"/api/engagements/{eid}/uploads", data={"kind": "tb"},
+              files={"file": ("tb.csv", TB.read_bytes(), "text/csv")})
+    assert section(prep, eid, "statements")["prepared"]["stale"]
+
+
+def test_completion_is_stale_after_a_section_is_reviewed_again():
+    _, prep, rev, partner, eid, _ = team()
+    for s in review.WORK:
+        sign(prep, eid, s.id, "prepared")
+        sign(rev, eid, s.id, "reviewed")
+    sign(prep, eid, "completion", "prepared")
+    sign(partner, eid, "completion", "reviewed")
+    note = partner.post(f"/api/engagements/{eid}/review-notes",
+                        json={"section": "data", "text": "Support?"}).json()
+    partner.patch(f"/api/review-notes/{note['id']}", json={"status": "cleared"})
+    sign(rev, eid, "data", "reviewed")  # back to done, but after completion was signed
+    done = section(prep, eid, "completion")
+    assert done["reviewed"]["stale"] and not done["done"]
+    assert sign(partner, eid, "completion", "reviewed").status_code == 201
+    assert section(prep, eid, "completion")["done"]
 
 
 def test_completion_follows_the_sections_it_stands_on():

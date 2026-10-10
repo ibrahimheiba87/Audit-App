@@ -138,7 +138,7 @@ td a { color: var(--accent); }
 #rv-sections td { vertical-align: top; }
 .stale { color: var(--medium); font-size: 12px; }
 .rv-note { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
-.rv-note.cleared { opacity: .7; }
+.rv-note.cleared { background: var(--low-bg); }  /* not faded: keeps the text readable */
 .rv-note .head { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; font-size: 13px; color: var(--muted); }
 .rv-note .text { margin: 6px 0; white-space: pre-wrap; }
 .rv-note .reply { border-left: 3px solid var(--border); padding-left: 10px; margin: 6px 0; white-space: pre-wrap; }
