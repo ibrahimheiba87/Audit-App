@@ -279,3 +279,19 @@ def test_two_admins_demoting_each_other_keep_one_admin(monkeypatch):
     assert sorted(codes) == [200, 400]
     with db.SessionLocal() as s:
         assert accounts.active_admins(s) == 1
+
+
+def test_adjusting_entry_permissions():
+    a = admin()
+    prep = add_user(a, "preparer")
+    eid, _ = setup_engagement(a)
+    entry = {"kind": "proposed", "description": "Cut-off",
+             "lines": [{"account": "4000", "debit": 10}, {"account": "1200", "credit": 10}]}
+    r = prep.post(f"/api/engagements/{eid}/adjusting-entries", json=entry)
+    assert r.status_code == 201 and r.json()["author"] == "Preparer"
+    assert prep.put(f"/api/engagements/{eid}/mapping",
+                    json={"mappings": {"4000": "revenue"}}).status_code == 200
+    eid_ = r.json()["id"]
+    assert prep.patch(f"/api/adjusting-entries/{eid_}", json={"kind": "adjusting"}).status_code == 403
+    assert prep.delete(f"/api/adjusting-entries/{eid_}").status_code == 403
+    assert a.patch(f"/api/adjusting-entries/{eid_}", json={"kind": "adjusting"}).status_code == 200

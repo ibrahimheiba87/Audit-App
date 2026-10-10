@@ -2,9 +2,9 @@
 
 Roles, lowest to highest. Each role can do everything the roles below it can:
     preparer  upload files, run checks, comparisons and samples, add findings, notes and
-              evidence, mark findings reviewed
-    reviewer  clear and reopen findings, change severity, remove evidence and files,
-              add and edit clients and engagements
+              evidence, mark findings reviewed, map accounts, post adjusting entries
+    reviewer  clear and reopen findings, change severity, remove evidence and files, book or
+              delete adjusting entries, add and edit clients and engagements
     partner   set materiality, delete clients and engagements
     admin     manage users, see the whole activity log
 """

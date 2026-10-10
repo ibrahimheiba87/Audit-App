@@ -20,6 +20,7 @@ from .comparisons import router as comparisons_router
 from .engagements import router as engagements_router
 from .exports import attachment
 from .findings import router as findings_router
+from .leadsheets import router as leadsheets_router
 from .samples import router as samples_router
 from .uploads import parse_mapping, read_upload
 
@@ -36,7 +37,8 @@ app = FastAPI(title="Audit App", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 app.include_router(accounts_router)
 # Everything else needs a signed-in user; endpoints check the role they need.
-for router in (engagements_router, comparisons_router, samples_router, findings_router):
+for router in (engagements_router, comparisons_router, samples_router, findings_router,
+               leadsheets_router):
     app.include_router(router, dependencies=[Depends(current_user)])
 
 

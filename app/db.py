@@ -20,6 +20,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.orm import (
@@ -93,6 +94,12 @@ class Engagement(Base):
     )
     findings: Mapped[list[Finding]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Finding.id"
+    )
+    account_mappings: Mapped[list[AccountMapping]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan"
+    )
+    adjusting_entries: Mapped[list[AdjustingEntry]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="AdjustingEntry.id"
     )
 
 
@@ -250,6 +257,56 @@ class Evidence(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     finding: Mapped[Finding] = relationship(back_populates="evidence")
+
+
+class AccountMapping(Base):
+    """Which financial statement line a trial balance account rolls up into (statements.LINES)."""
+
+    __tablename__ = "account_mappings"
+    __table_args__ = (UniqueConstraint("engagement_id", "account"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    account: Mapped[str] = mapped_column(String(100))
+    line: Mapped[str] = mapped_column(String(50))
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="account_mappings")
+
+
+class AdjustingEntry(Base):
+    """A journal entry the auditor proposes: booked (adjusting, reclassification) or not."""
+
+    __tablename__ = "adjusting_entries"
+    __table_args__ = (UniqueConstraint("engagement_id", "kind", "number"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # see statements.ENTRY_KINDS
+    number: Mapped[int] = mapped_column(Integer)  # per engagement and kind: AJE-1, AJE-2...
+    description: Mapped[str] = mapped_column(Text)
+    date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    author: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="adjusting_entries")
+    lines: Mapped[list[AdjustingLine]] = relationship(
+        back_populates="entry", cascade="all, delete-orphan", order_by="AdjustingLine.id"
+    )
+
+
+class AdjustingLine(Base):
+    __tablename__ = "adjusting_lines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("adjusting_entries.id"), index=True)
+    account: Mapped[str] = mapped_column(String(100))
+    debit: Mapped[float] = mapped_column(Float, default=0.0)
+    credit: Mapped[float] = mapped_column(Float, default=0.0)
+    memo: Mapped[str] = mapped_column(String(500), default="")
+
+    entry: Mapped[AdjustingEntry] = relationship(back_populates="lines")
 
 
 class User(Base):
