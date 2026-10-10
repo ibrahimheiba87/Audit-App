@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from . import compare, loader
-from .db import Comparison, Engagement, Upload, get_session
+from .auth import current_user, log, require
+from .db import Comparison, Engagement, Upload, User, get_session
 from .engagements import comparison_brief, get_or_404, load_upload, safe_stem
 from .exports import attachment
 from .uploads import parse_mapping, read_upload
@@ -33,6 +36,7 @@ def run_compare(current, prior, settings: compare.CompareSettings) -> dict:
 
 @router.post("/engagements/{engagement_id}/comparisons", status_code=201)
 def create_comparison(engagement_id: int, body: ComparisonIn,
+                      user: User = Depends(require("prepare")),
                       session: Session = Depends(get_session)) -> dict:
     e = get_or_404(session, Engagement, engagement_id)
     current = get_or_404(session, Upload, body.current_upload_id)
@@ -51,6 +55,12 @@ def create_comparison(engagement_id: int, body: ComparisonIn,
     c = Comparison(engagement=e, current_upload=current, prior_upload=prior,
                    settings=result["settings"], result=result)
     session.add(c)
+    session.flush()
+    log(session, user, "comparison.create",
+        f"Compared {current.filename} with {prior.filename}: "
+        f"{result['summary']['flagged']} accounts flagged", e,
+        details={"comparison_id": c.id, "current_sha256": current.sha256,
+                 "prior_sha256": prior.sha256, "settings": result["settings"]})
     session.commit()
     return {**comparison_brief(c), "result": result}
 
@@ -62,9 +72,13 @@ def get_comparison(comparison_id: int, session: Session = Depends(get_session)) 
 
 
 @router.get("/comparisons/{comparison_id}/report")
-def comparison_report(comparison_id: int, session: Session = Depends(get_session)) -> Response:
+def comparison_report(comparison_id: int, user: User = Depends(current_user),
+                      session: Session = Depends(get_session)) -> Response:
     c = get_or_404(session, Comparison, comparison_id)
     e = c.engagement
+    log(session, user, "comparison.download", f"Downloaded comparison #{c.id}", e,
+        details={"comparison_id": c.id})
+    session.commit()
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(),
                "This year's file": f"{c.current_upload.filename} ({c.current_upload.sha256[:12]})",
@@ -86,18 +100,25 @@ async def compare_files(
     threshold_amount: float = Form(...),
     threshold_pct: float = Form(10.0),
     format: str = Form("json"),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
 ):
     """Compare two files without saving them. format=xlsx returns the Excel report."""
-    frames = []
+    frames, hashes = [], []
     for f, mapping, sheet in ((current, current_mapping, current_sheet),
                               (prior, prior_mapping, prior_sheet)):
         content = await read_upload(f)
+        hashes.append(hashlib.sha256(content).hexdigest())
         try:
             frames.append(loader.load(f.filename or "", content, parse_mapping(mapping),
                                       sheet or None).df)
         except loader.LoadError as exc:
             raise HTTPException(400, f"{f.filename}: {exc}") from exc
     result = run_compare(*frames, compare.CompareSettings(threshold_amount, threshold_pct))
+    log(session, user, "quick.compare", f"Compared {current.filename} with {prior.filename} "
+        "without saving", details={"current_sha256": hashes[0], "prior_sha256": hashes[1],
+                                   "settings": result["settings"], "format": format})
+    session.commit()
     if format == "xlsx":
         context = {"This year's file": current.filename, "Prior year's file": prior.filename}
         return Response(compare.to_excel(result, context), media_type=XLSX,

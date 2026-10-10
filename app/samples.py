@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -10,7 +11,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from . import loader, sampling
-from .db import Engagement, Sample, Upload, get_session
+from .auth import current_user, log, require
+from .db import Engagement, Sample, Upload, User, get_session
 from .engagements import get_or_404, load_upload, safe_stem, sample_brief
 from .exports import attachment
 from .uploads import parse_mapping, read_upload
@@ -48,7 +50,7 @@ def options() -> dict:
 
 
 @router.post("/engagements/{engagement_id}/samples", status_code=201)
-def create_sample(engagement_id: int, body: SampleIn,
+def create_sample(engagement_id: int, body: SampleIn, user: User = Depends(require("prepare")),
                   session: Session = Depends(get_session)) -> dict:
     e = get_or_404(session, Engagement, engagement_id)
     upload = get_or_404(session, Upload, body.upload_id)
@@ -61,6 +63,12 @@ def create_sample(engagement_id: int, body: SampleIn,
     sample = Sample(engagement=e, upload=upload, method=body.method, seed=result["seed"],
                     params=result["params"], result=result)
     session.add(sample)
+    session.flush()
+    log(session, user, "sample.create",
+        f"Drew a {result['method_label']} sample of {result['sample_size']} from "
+        f"{upload.filename} (seed {result['seed']})", e,
+        details={"sample_id": sample.id, "upload_id": upload.id, "sha256": upload.sha256,
+                 "params": result["params"]})
     session.commit()
     return {**sample_brief(sample), "result": result}
 
@@ -72,9 +80,13 @@ def get_sample(sample_id: int, session: Session = Depends(get_session)) -> dict:
 
 
 @router.get("/samples/{sample_id}/export")
-def export_sample(sample_id: int, session: Session = Depends(get_session)) -> Response:
+def export_sample(sample_id: int, user: User = Depends(current_user),
+                  session: Session = Depends(get_session)) -> Response:
     x = get_or_404(session, Sample, sample_id)
     e = x.engagement
+    log(session, user, "sample.download", f"Downloaded sample #{x.id} workpaper", e,
+        details={"sample_id": x.id})
+    session.commit()
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(),
                "File": f"{x.upload.filename} (SHA-256 {x.upload.sha256})",
@@ -98,6 +110,8 @@ async def sample_file(
     tolerable_misstatement: float | None = Form(None),
     expected_misstatement: float = Form(0.0),
     format: str = Form("json"),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
 ):
     """Draw a sample from a file without saving it. format=xlsx returns the workpaper."""
     content = await read_upload(file)
@@ -108,6 +122,10 @@ async def sample_file(
     params = sampling.SampleParams(method, sample_size, seed, population, min_amount, confidence,
                                    tolerable_misstatement, expected_misstatement)
     result = draw(df, params)
+    log(session, user, "quick.sample", f"Drew a {result['method_label']} sample from "
+        f"{file.filename} without saving",
+        details={"sha256": hashlib.sha256(content).hexdigest(), "params": result["params"]})
+    session.commit()
     if format == "xlsx":
         return Response(sampling.to_excel(result, {"File": file.filename}), media_type=XLSX,
                         headers=attachment("sample.xlsx"))

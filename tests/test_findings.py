@@ -59,7 +59,7 @@ def test_status_workflow_and_trail():
     f = r.json()
     assert f["status"] == "cleared"
     trail = [(n["status_from"], n["status_to"], n["author"]) for n in f["trail"]]
-    assert trail == [("open", "reviewed", "Sara"), ("reviewed", "cleared", "Omar")]
+    assert trail == [("open", "reviewed", "Test Admin"), ("reviewed", "cleared", "Test Admin")]
     r = client.patch(url, json={"severity": "low", "author": "Omar"})
     assert r.json()["severity"] == "low"
     assert "Severity changed" in r.json()["trail"][-1]["text"]
@@ -85,7 +85,7 @@ def test_evidence_upload_download_and_delete():
                     files={"file": ("invoice 4411.pdf", b"%PDF-1.4 test", "application/pdf")})
     assert r.status_code == 201, r.text
     ev = r.json()["attachments"][0]
-    assert ev["size"] == 13 and len(ev["sha256"]) == 64 and ev["author"] == "Sara"
+    assert ev["size"] == 13 and len(ev["sha256"]) == 64 and ev["author"] == "Test Admin"
     got = client.get(f"/api/evidence/{ev['id']}")
     assert got.content == b"%PDF-1.4 test"
     assert "attachment" in got.headers["content-disposition"]
@@ -171,6 +171,6 @@ def test_register_export():
     assert set(sheets) == {"Summary", "Findings", "Review trail", "Evidence"}
     summary = dict(zip(sheets["Summary"]["Item"], sheets["Summary"]["Value"], strict=True))
     assert summary["Client"] == "Acme" and summary["Cleared"] == 1
-    assert sheets["Review trail"]["Who"].tolist() == ["Omar"]
+    assert sheets["Review trail"]["Who"].tolist() == ["Test Admin"]
     assert sheets["Evidence"]["File"].tolist() == ["a.txt"]
     assert sheets["Findings"].iloc[0]["Status"] == "Cleared"
