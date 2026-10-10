@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, exports, sampling
+from app import db, exports, register, sampling
 from app.main import app
 
 client = TestClient(app)
@@ -123,6 +123,20 @@ def test_mus_size_is_capped():
         sampling.draw(frame(), sampling.SampleParams("mus", sample_size=10**9, seed=1))
 
 
+def test_tiny_or_non_finite_tolerable_misstatement_is_a_sampling_error():
+    for tolerable in (1e-310, float("inf"), float("nan")):
+        with pytest.raises(sampling.SamplingError):
+            sampling.draw(frame(), sampling.SampleParams("mus", tolerable_misstatement=tolerable,
+                                                         seed=1))
+    with pytest.raises(sampling.SamplingError, match="Expected misstatement"):
+        sampling.draw(frame(), sampling.SampleParams("mus", tolerable_misstatement=5000,
+                                                     expected_misstatement=float("nan")))
+    files = {"file": ("gl.csv", ledger_csv(), "text/csv")}
+    r = client.post("/api/sample", files=files,
+                    data={"method": "mus", "tolerable_misstatement": "1e-310"})
+    assert r.status_code == 400 and "limit" in r.json()["detail"]
+
+
 def test_negative_inputs_are_rejected():
     with pytest.raises(sampling.SamplingError, match="Seed"):
         sampling.draw(frame(), sampling.SampleParams("random", sample_size=2, seed=-1))
@@ -159,6 +173,7 @@ def test_engagement_summary_backfills_old_runs():
     client.post(f"/api/engagements/{eid}/runs", json={"upload_id": uid, "round_threshold": 50})
     with db.SessionLocal() as s:  # as if both runs were saved before the register existed
         s.query(db.Finding).delete()
+        s.query(db.RunSync).delete()
         s.commit()
     summary = client.get(f"/api/engagements/{eid}").json()["findings_summary"]
     with db.SessionLocal() as s:
@@ -200,3 +215,21 @@ def test_listing_findings_uses_a_fixed_number_of_queries():
         event.remove(db.engine, "before_cursor_execute", count)
     assert r.json()["findings"][0]["evidence"] == 1
     assert len(statements) < 15  # not one query per finding
+
+
+def test_runs_with_nothing_new_are_not_resynced(monkeypatch):
+    eid, uid = engagement_with_upload()
+    client.post(f"/api/engagements/{eid}/runs", json={"upload_id": uid})
+    client.post(f"/api/engagements/{eid}/runs", json={"upload_id": uid})  # all duplicates
+    calls = []
+    real = register.sync_run_findings
+    monkeypatch.setattr(register, "sync_run_findings", lambda *a: calls.append(1) or real(*a))
+    client.get(f"/api/engagements/{eid}")
+    client.get(f"/api/engagements/{eid}/findings")
+    assert calls == []
+    with db.SessionLocal() as s:  # an older database: runs synced before the marker existed
+        s.query(db.RunSync).delete()
+        s.commit()
+    client.get(f"/api/engagements/{eid}/findings")
+    client.get(f"/api/engagements/{eid}/findings")
+    assert len(calls) == 2  # each run once, then never again

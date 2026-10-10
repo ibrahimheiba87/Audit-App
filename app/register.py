@@ -5,10 +5,10 @@ from __future__ import annotations
 import io
 
 import pandas as pd
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .db import Engagement, Finding, Run, utcnow
+from .db import Engagement, Finding, Run, RunSync, utcnow
 from .exports import finish_workbook
 
 STATUSES = {"open": "Open", "reviewed": "Reviewed", "cleared": "Cleared"}
@@ -40,16 +40,20 @@ def sync_run_findings(session: Session, run: Run) -> int:
             amount=f.get("amount"), detail=f.get("detail") or "",
         ))
         added += 1
+    run.register_sync = RunSync()
     return added
 
 
 def sync_engagement(session: Session, e: Engagement) -> None:
-    """Bring runs saved before the register existed onto it (idempotent)."""
-    synced = set(session.scalars(
-        select(Finding.run_id).where(Finding.engagement_id == e.id, Finding.run_id.is_not(None))
-    ))
-    added = sum(sync_run_findings(session, r) for r in e.runs if r.id not in synced)
-    if added:
+    """Bring runs saved before the register existed onto it (idempotent).
+
+    Costs one query once every run is marked as synced.
+    """
+    pending = list(session.scalars(select(Run).where(
+        Run.engagement_id == e.id, ~exists().where(RunSync.run_id == Run.id)).order_by(Run.id)))
+    for run in pending:
+        sync_run_findings(session, run)
+    if pending:
         session.commit()
 
 
