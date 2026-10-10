@@ -226,6 +226,11 @@ async function openEngagement(id) {
     regOffset = 0; regSelected.clear(); $("reg-check").value = "";
     // Uploads differ too, so let the server pick this engagement's latest trial balances.
     fsMapEdits = {}; $("fs-tb").innerHTML = $("fs-prior").innerHTML = "";
+    // Hide the last engagement's statements and findings while this one's load, so a quick
+    // click can't change an entry or finding of the engagement just left.
+    fs = null; fsEngagementId = null; renderStatementsPanel();
+    reg = null; $("reg-cards").innerHTML = $("reg-table").innerHTML = $("reg-count").textContent = "";
+    $("reg-bulk").hidden = true;
     resetEntryForm();
     $("rv-form").reset();
     rv = null; rvDrafts = {};  // don't show (or act on) the last engagement's sign-offs
@@ -867,7 +872,9 @@ async function loadRegister() {
   const id = currentEngagement.id;
   const q = new URLSearchParams({ offset: regOffset, limit: REG_PAGE, status: $("reg-status").value,
     severity: $("reg-sev").value, check: $("reg-check").value });
-  reg = await getJSON(`/api/engagements/${id}/findings?${q}`);
+  const data = await getJSON(`/api/engagements/${id}/findings?${q}`);
+  if (currentEngagement?.id !== id) return;  // the user has opened another engagement
+  reg = data;
   if (!reg.findings.length && regOffset > 0) {  // the page emptied (e.g. after a bulk change)
     regOffset = Math.max(0, regOffset - REG_PAGE);
     return loadRegister();
@@ -1225,6 +1232,7 @@ wireRequests($("pt-list"), showPortal);
 $("pt-filter").addEventListener("change", renderPortal);
 
 function renderRegister() {
+  if (!reg) return;  // this engagement's register is still loading
   const shown = reg.findings;
   const first = reg.offset + 1, last = reg.offset + shown.length;
   $("reg-count").textContent = reg.matching > shown.length

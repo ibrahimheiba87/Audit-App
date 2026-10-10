@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, StringConstraints
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from . import auth
 from .auth import log, require
@@ -36,15 +36,25 @@ class Section:
     actions: tuple[str, ...]  # activity log actions that change the section
 
 
-# Actions that change a section as a side effect: a run adds findings to the register,
-# deleting a file deletes its runs, findings, samples and comparisons, a new trial balance
-# feeds the statements, and materiality is what proposed entries are measured against.
+# Actions that change a section as a side effect: a run adds findings to the register, and
+# materiality is what proposed entries are measured against.
 SIDE_EFFECTS = {
     "run.create": ("findings",),
-    "upload.delete": ("comparison", "sampling", "findings", "statements"),
-    "upload.create": ("statements",),
     "materiality.set": ("statements",),
 }
+TRIAL_BALANCES = ("tb", "prior_tb")  # the uploads the statements are built from
+
+
+def detail_effects(action: str, details: dict) -> tuple[str, ...]:
+    """Side effects that depend on what the action touched, read from its log details."""
+    if action == "upload.create":  # a new trial balance feeds the statements
+        return ("statements",) if details.get("kind") in TRIAL_BALANCES else ()
+    # Deleting a file deletes its findings, samples and comparisons. Older log entries don't
+    # say which there were, so they count as touching them all.
+    return tuple(details.get("affects", ("comparison", "sampling", "findings", "statements")))
+
+
+DETAIL_EFFECTS = ("upload.create", "upload.delete")
 
 
 SECTIONS = [
@@ -109,10 +119,19 @@ def last_changes(session: Session, engagement_id: int) -> dict[str, datetime | N
             Activity.engagement_id == engagement_id,
             Activity.action.in_(list(SECTIONS_CHANGED))).group_by(Activity.action)).all()
     out: dict[str, datetime | None] = {s.id: None for s in WORK}
-    for action, at in rows:
-        for sid in SECTIONS_CHANGED[action]:
+
+    def changed(sections, at):
+        for sid in sections:
             if out[sid] is None or at > out[sid]:
                 out[sid] = at
+
+    for action, at in rows:
+        changed(SECTIONS_CHANGED[action], at)
+    for action, at, details in session.execute(  # uploads are few, so read each one
+            select(Activity.action, Activity.at, Activity.details).where(
+                Activity.engagement_id == engagement_id,
+                Activity.action.in_(DETAIL_EFFECTS))):
+        changed(detail_effects(action, details or {}), at)
     times = [t for t in out.values() if t]
     out["completion"] = max(times) if times else None
     return out
@@ -132,9 +151,16 @@ def section_state(e: Engagement, changes: dict[str, datetime | None]) -> list[di
         rev_stale = bool(rev and (prep is None or (changed and changed > rev.at)
                                   or prep.at > rev.at))
         if s.id == "completion":  # it stands only while every other section does
-            prep_stale = bool(prep and (prep_stale or any(
+            # A section signed again after completion was (say, reviewed again after a note)
+            # has changed since, even if it is back to done.
+            others = [x for x in e.signoffs if x.section != "completion"]
+            prepared_since = prep and any(x.kind == "prepared" and x.at > prep.at
+                                          for x in others)
+            signed_since = rev and any(x.at > rev.at for x in others)
+            prep_stale = bool(prep and (prep_stale or prepared_since or any(
                 not x["prepared"] or x["prepared"]["stale"] for x in out)))
-            rev_stale = bool(rev and (rev_stale or any(not x["done"] for x in out)))
+            rev_stale = bool(rev and (rev_stale or signed_since or any(
+                not x["done"] for x in out)))
         if prep is None:
             status = "Not started"
         elif prep_stale:
@@ -171,8 +197,11 @@ def note_out(n: ReviewNote) -> dict:
 
 def review_out(session: Session, e: Engagement) -> dict:
     sections = section_state(e, last_changes(session, e.id))
+    notes = session.scalars(select(ReviewNote).where(ReviewNote.engagement_id == e.id)
+                            .options(selectinload(ReviewNote.replies))
+                            .order_by(ReviewNote.id.desc()))
     return {"sections": sections,
-            "notes": [note_out(n) for n in reversed(e.review_notes)],
+            "notes": [note_out(n) for n in notes],
             "open_notes": sum(s["open_notes"] for s in sections),
             "reviewed": sum(1 for s in sections if s["done"]),
             "total": len(sections)}
