@@ -1064,10 +1064,11 @@ function requestCard(r, team) {
     m.status_label ? `<strong class="rq-status-${m.status_to}">${esc(m.status_label)}</strong>${m.text ? ": " : ""}` : ""}${esc(m.text)}<div class="tag">${
     esc(m.author)}${team && m.from_client ? " (client)" : ""} · ${esc(when(m.at))}</div></div>`).join("");
   const actions = [];
-  if (open) actions.push(`<label class="button small upload">${r.files.length ? "Add a file" : "Upload a file"}<input type="file" multiple data-rq-upload hidden></label>`);
+  if (open) actions.push(`<label class="button small upload">${r.files.length ? "Add a file" : "Upload a file"}<input type="file" multiple data-rq-upload class="visually-hidden"></label>`);
   if (team && r.status === "submitted") actions.push('<button type="button" class="small" data-rq-accept>Accept files</button>');
   if (team && (!r.files.length || me.rank >= 2)) actions.push('<button type="button" class="small secondary danger" data-rq-delete>Delete request</button>');
-  const returnable = team && (r.status === "submitted" || r.status === "accepted");
+  // Reopening accepted files is for reviewers; the server refuses preparers.
+  const returnable = team && (r.status === "submitted" || (r.status === "accepted" && me.rank >= 2));
   return `<div class="rq ${r.status}" data-rq="${r.id}">
     <div class="head"><strong>${r.number}. ${esc(r.title)}</strong>
       <span class="st rq-${r.status}">${esc(r.status_label)}</span>
@@ -1446,7 +1447,7 @@ let appStarted = false;
 
 function setUser(user) {
   me = user;
-  lastUserId = user.id;
+  lastUser = userKey(user);
   document.body.dataset.rank = user.rank;
   $("user-name").textContent = user.name;
   $("user-role").textContent = user.role_label;
@@ -1468,12 +1469,13 @@ function showLogin(needsSetup) {
   (needsSetup ? $("setup-name") : $("login-email")).focus();
 }
 
-let lastUserId = null;  // who this page was last set up for
+let lastUser = null;  // who this page was last set up for, and as what
+const userKey = (u) => `${u.id}:${u.role}:${u.client_id ?? ""}`;
 
 async function signedIn(res) {
   const user = (await res.json()).user;
-  if (lastUserId !== null && lastUserId !== user.id) {
-    location.reload();  // someone else: start from a clean page (the cookie is already set)
+  if (lastUser !== null && lastUser !== userKey(user)) {
+    location.reload();  // someone else, or a new role: start from a clean page (the cookie is set)
     return;
   }
   setUser(user);

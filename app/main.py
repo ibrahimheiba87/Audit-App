@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from . import checks, db, loader, report
+from . import checks, db, loader, portal, report
 from .accounts import router as accounts_router
 from .assistant import router as assistant_router
 from .auth import current_user, log
@@ -25,7 +25,7 @@ from .leadsheets import router as leadsheets_router
 from .portal import router as portal_router
 from .review import router as review_router
 from .samples import router as samples_router
-from .uploads import parse_mapping, read_upload
+from .uploads import FORM_OVERHEAD, MAX_UPLOAD_BYTES, BodyLimit, parse_mapping, read_upload
 
 STATIC = Path(__file__).parent / "static"
 
@@ -37,6 +37,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Audit App", lifespan=lifespan)
+# Refuse oversized bodies as they arrive; client users get the portal's smaller limit.
+app.add_middleware(BodyLimit, default=lambda: MAX_UPLOAD_BYTES + FORM_OVERHEAD, limits=[
+    (r"^/api/requests/\d+/files$", lambda: portal.MAX_FILE_BYTES + FORM_OVERHEAD)])
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 app.include_router(accounts_router)
 # Everything else needs a signed-in user; endpoints check the role they need.
