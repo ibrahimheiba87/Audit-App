@@ -171,3 +171,7 @@ button.danger-link { color: var(--high); }
 .st.rq-accepted { color: var(--ok, #1e8449); background: var(--low-bg); }
 .rq-status-returned { color: var(--medium); }
 .rq-status-accepted { color: var(--ok, #1e8449); }
+/* Kept focusable for keyboards (unlike hidden), but not drawn: the label shows instead. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+                   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+label.button:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }

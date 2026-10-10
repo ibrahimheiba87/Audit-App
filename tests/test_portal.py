@@ -364,3 +364,26 @@ def test_deleting_an_engagement_logs_the_client_documents():
     assert partner.delete(f"/api/engagements/{eid}").status_code == 204
     log = a.get("/api/activity", params={"action": "engagement.delete"}).json()[0]
     assert log["details"]["request_files"][0]["filename"] == "bank.pdf"
+
+
+def test_oversized_bodies_are_refused_as_they_arrive(monkeypatch):
+    from app import portal
+    _, prep, _, cl, _, eid = setup()
+    monkeypatch.setattr(portal, "MAX_FILE_BYTES", 1000)
+    req = ask(prep, eid)
+    big = b"x" * 200_000  # past the limit plus the room for form fields
+    r = upload(cl, req["id"], ("big.pdf", big, "application/pdf"))
+    assert r.status_code == 413 and "too large" in r.json()["detail"]
+
+    def chunks():  # no Content-Length: counted as it streams
+        yield b"--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a\"\r\n\r\n"
+        for _ in range(20):
+            yield b"x" * 10_000
+        yield b"\r\n--b--\r\n"
+
+    r = cl.post(f"/api/requests/{req['id']}/files", content=chunks(),
+                headers={"Content-Type": "multipart/form-data; boundary=b"})
+    assert r.status_code == 413 and "too large" in r.json()["detail"]
+    # Other endpoints keep the general limit.
+    assert prep.post(f"/api/requests/{req['id']}/messages",
+                     json={"text": "x" * 2000}).status_code == 201
