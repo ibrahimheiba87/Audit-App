@@ -281,6 +281,13 @@ def test_two_admins_demoting_each_other_keep_one_admin(monkeypatch):
         assert accounts.active_admins(s) == 1
 
 
+def test_only_databases_with_atomic_guards_are_allowed():
+    for url in ("mysql://u:p@localhost/audit", "mssql+pyodbc://u:p@dsn", "oracle://u:p@h/db"):
+        with pytest.raises(RuntimeError, match="SQLite and PostgreSQL only"):
+            db._make_engine(url)
+    assert db._make_engine("sqlite://").dialect.name == "sqlite"
+
+
 def test_adjusting_entry_permissions():
     a = admin()
     prep = add_user(a, "preparer")

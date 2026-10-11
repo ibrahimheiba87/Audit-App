@@ -87,7 +87,10 @@ their password signs them out. Behind an HTTPS proxy, set `AUDIT_SECURE_COOKIES=
 cookie is only sent over HTTPS.
 
 Data is stored in SQLite (`audit.db` in the working directory). Set `AUDIT_DB_URL` to use
-another database supported by SQLAlchemy.
+PostgreSQL instead (for example `postgresql+psycopg://user:pass@host/audit`, with the driver
+installed). Other databases are refused at startup: the checks that must not race (first-run
+setup, the sign-in lockout, the last admin, entry numbering) rely on an atomic
+`INSERT ... ON CONFLICT` that the app only uses on these two.
 
 ## Checks
 
