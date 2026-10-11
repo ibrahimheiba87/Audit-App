@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from app import assistant, loader
-from tests.test_auth import add_user, admin, setup_engagement
+from tests.test_auth import add_user, admin, join, setup_engagement
 from tests.test_portal import add_client_user
 
 pytestmark = pytest.mark.usefixtures("real_auth")
@@ -51,6 +51,7 @@ def test_explain_sends_the_finding_and_its_entry(fake_claude):
     a = admin()
     prep = add_user(a, "preparer")
     eid, f = finding_with_entry(a)
+    join(a, eid, prep)
     assert prep.get("/api/assistant/status").json() == {"enabled": True,
                                                         "model": assistant.DEFAULT_MODEL}
     r = prep.post(f"/api/findings/{f['id']}/assistant", json={"task": "explain"})

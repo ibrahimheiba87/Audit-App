@@ -3,7 +3,7 @@
 import pytest
 
 from app import db, review
-from tests.test_auth import GL, add_user, admin, setup_engagement
+from tests.test_auth import GL, add_user, admin, join, setup_engagement
 
 TB = GL.parent / "sample_tb_2026.csv"
 
@@ -14,6 +14,7 @@ def team():
     a = admin()
     prep, rev, partner = (add_user(a, r) for r in ("preparer", "reviewer", "partner"))
     eid, uid = setup_engagement(a)
+    join(a, eid, prep, rev, partner)
     return a, prep, rev, partner, eid, uid
 
 
@@ -131,6 +132,7 @@ def test_completion_needs_every_section_reviewed_and_a_partner():
 def test_taking_back_sign_offs():
     _, prep, rev, partner, eid, _ = team()
     other = add_user(admin(), "preparer", "other@example.com")
+    join(admin(), eid, other)
     sign(prep, eid, "data", "prepared")
     sign(rev, eid, "data", "reviewed")
     assert other.delete(f"/api/engagements/{eid}/signoffs/data/prepared").status_code == 403

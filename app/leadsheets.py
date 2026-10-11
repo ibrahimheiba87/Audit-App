@@ -93,9 +93,9 @@ def compute(session: Session, e: Engagement, upload_id: int | None,
 
 @router.get("/engagements/{engagement_id}/statements")
 def get_statements(engagement_id: int, upload_id: int | None = None,
-                   prior_upload_id: int | None = None,
+                   prior_upload_id: int | None = None, user: User = Depends(current_user),
                    session: Session = Depends(get_session)) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     data, tb, prior = compute(session, e, upload_id, prior_upload_id)
     return {
         **data,
@@ -114,7 +114,7 @@ def save_mapping(engagement_id: int, body: MappingIn, user: User = Depends(requi
                  session: Session = Depends(get_session)) -> dict:
     """Map accounts to FS lines; a null line removes the mapping."""
     auth.hold(session, f"mapping:{engagement_id}")  # so two saves can't both add an account
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     bad = sorted({v for v in body.mappings.values() if v is not None and v not in LINE})
     if bad:
         raise HTTPException(400, f"Unknown financial statement line: {', '.join(bad)}.")
@@ -156,7 +156,7 @@ def create_entry(engagement_id: int, body: EntryIn, user: User = Depends(require
     except statements.StatementsError as exc:
         raise HTTPException(400, str(exc)) from exc
     auth.hold(session, f"entries:{engagement_id}")  # so two new entries can't take the same number
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     entry = AdjustingEntry(
         kind=body.kind, number=next_number(session, e.id, body.kind),
         description=body.description, date=body.date.isoformat() if body.date else None,
@@ -207,10 +207,10 @@ def use_number(session: Session, entry: AdjustingEntry) -> None:
 def update_entry(entry_id: int, body: EntryPatch, user: User = Depends(require("review")),
                  session: Session = Depends(get_session)) -> dict:
     """Change an entry's type, e.g. a proposed entry the client has agreed to book."""
-    engagement_id = get_or_404(session, AdjustingEntry, entry_id).engagement_id
+    engagement_id = get_or_404(session, AdjustingEntry, entry_id, user).engagement_id
     auth.hold(session, f"entries:{engagement_id}")
     session.expire_all()  # another request may have changed it before we held the guard
-    entry = get_or_404(session, AdjustingEntry, entry_id)
+    entry = get_or_404(session, AdjustingEntry, entry_id, user)
     if body.kind != entry.kind:
         old = entry_ref(entry)
         use_number(session, entry)
@@ -226,10 +226,10 @@ def update_entry(entry_id: int, body: EntryPatch, user: User = Depends(require("
 @router.delete("/adjusting-entries/{entry_id}", status_code=204)
 def delete_entry(entry_id: int, user: User = Depends(require("review")),
                  session: Session = Depends(get_session)) -> Response:
-    engagement_id = get_or_404(session, AdjustingEntry, entry_id).engagement_id
+    engagement_id = get_or_404(session, AdjustingEntry, entry_id, user).engagement_id
     auth.hold(session, f"entries:{engagement_id}")
     session.expire_all()  # another request may have changed it before we held the guard
-    entry = get_or_404(session, AdjustingEntry, entry_id)
+    entry = get_or_404(session, AdjustingEntry, entry_id, user)
     use_number(session, entry)
     out = entry_out(entry)
     log(session, user, "entry.delete", f"Deleted {out['ref']}: {entry.description}",
@@ -244,7 +244,7 @@ def delete_entry(entry_id: int, user: User = Depends(require("review")),
 def export_statements(engagement_id: int, upload_id: int | None = None,
                       prior_upload_id: int | None = None, user: User = Depends(current_user),
                       session: Session = Depends(get_session)) -> Response:
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     data, tb, prior = compute(session, e, upload_id, prior_upload_id)
     if tb is None:
         raise HTTPException(400, "Upload a trial balance first.")

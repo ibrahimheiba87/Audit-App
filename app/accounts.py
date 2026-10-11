@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from . import auth
 from .auth import COOKIE, ROLES, current_user, log, require, signed_in_user, user_out
-from .db import Activity, Client, ClientUser, Engagement, User, get_session
+from .db import Activity, Client, ClientUser, Engagement, EngagementMember, User, get_session
 
 router = APIRouter(prefix="/api")
 
@@ -226,6 +226,13 @@ def update_user(user_id: int, body: UserPatch, request: Request,
         changes.append(f"role from {ROLES[user.role]} to {ROLES[body.role]}")
         if (body.role == "client") != (user.role == "client"):
             auth.end_user_sessions(session, user)  # a different app now; sign in again
+        if body.role == "client":
+            left = session.scalars(select(EngagementMember).where(
+                EngagementMember.user_id == user.id)).all()
+            for m in left:
+                session.delete(m)
+            if left:
+                changes.append(f"taken off {len(left)} engagements")
         user.role = body.role
     if body.active is not None and body.active != user.active:
         changes.append("reactivated" if body.active else "deactivated")
@@ -259,7 +266,8 @@ def activity(engagement_id: int | None = None, user_id: int | None = None, actio
         auth.ensure(user, "admin")
     else:
         engagement = session.get(Engagement, engagement_id)
-        if engagement is None and not auth.can(user, "admin"):
+        if not auth.can(user, "admin") and (
+                engagement is None or not auth.on_engagement(session, user, engagement_id)):
             raise HTTPException(404, "Engagement not found.")
     q = select(Activity).order_by(Activity.id.desc()).limit(max(1, min(limit, 1000)))
     if engagement_id is not None:

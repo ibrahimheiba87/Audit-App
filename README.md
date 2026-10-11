@@ -110,7 +110,15 @@ can:
   post booked entries or mark proposed ones booked, delete adjusting entries, raise and clear
   review notes, sign off sections as reviewed, and add or edit clients and engagements.
 - **Partner**: also set materiality, sign off completion, and delete clients and engagements.
-- **Admin**: also manage users and see the whole activity log.
+- **Admin**: also manage users, choose each engagement's team, and see the whole activity log.
+
+**Engagement teams.** Admins see every engagement. Everyone else sees only the engagements
+whose team they are on: the others don't appear in the client list, and their pages, files,
+exports, findings, requests and AI assistant answer "not found". An admin picks the team with
+**Change team** on the engagement page; whoever creates an engagement joins its team. A client
+with no engagements yet is visible to the whole audit team, so someone can add its first
+engagement. Deleting a client needs someone on every one of its engagements (or an admin).
+Team changes are logged, and making someone a client user takes them off every team.
 
 **Client** users are outside this list: an admin links each one to a client. They only see the
 document request portal for that client's engagements (upload files, remove their own files
@@ -209,7 +217,9 @@ All endpoints need a signed-in session cookie except `/api/health`, `GET /api/au
 Engagement endpoints (JSON unless noted):
 
 - `GET/POST /api/clients`, `GET/PATCH/DELETE /api/clients/{id}`
-- `POST /api/clients/{id}/engagements`, `GET/PATCH/DELETE /api/engagements/{id}`
+- `POST /api/clients/{id}/engagements`, `GET/PATCH/DELETE /api/engagements/{id}` (the
+  engagement includes its `team`)
+- `PUT /api/engagements/{id}/team` (`user_ids`): set who is on the engagement; admin only
 - `GET /api/materiality/benchmarks`, `POST /api/materiality/calculate`,
   `PUT /api/engagements/{id}/materiality`
 - `POST /api/engagements/{id}/uploads` (multipart: `file`, `kind` = `gl`, `tb` or `prior_tb`,
