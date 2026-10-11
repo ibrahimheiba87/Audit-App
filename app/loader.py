@@ -221,6 +221,13 @@ def normalize(raw: pd.DataFrame, mapping: dict[str, str] | None = None) -> Loade
                 report.bad_dates[label] = df.loc[bad, "row"].tolist()
             df[col] = parsed
 
+    for col in ("entry_id", "account"):
+        # A blank cell makes pandas read a column of codes as floats (1000.0); keep 1000.
+        if col in df and pd.api.types.is_float_dtype(df[col]):
+            codes = df[col].dropna()
+            if (codes == codes.round()).all() and codes.abs().lt(2**53).all():
+                df[col] = df[col].astype("Int64")
+
     for col in ("entry_id", "account", "description", "user"):
         if col in df:
             df[col] = df[col].astype("string").str.strip()

@@ -20,6 +20,7 @@ def fresh_db(tmp_path):
                       password_hash=auth.hash_password(ADMIN["password"])))
         s.commit()
     app.dependency_overrides[auth.current_user] = signed_in_admin
+    app.dependency_overrides[auth.signed_in_user] = signed_in_admin
     yield
     app.dependency_overrides.clear()
     db.engine.dispose()
@@ -29,3 +30,15 @@ def fresh_db(tmp_path):
 def real_auth():
     """Use real sign-in (cookies) instead of the always-signed-in admin."""
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def no_ai_calls(monkeypatch):
+    """The AI assistant starts off, and no test can reach the Claude API."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AUDIT_AI_MODEL", raising=False)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("A test tried to call the Claude API.")
+
+    monkeypatch.setattr("urllib.request.urlopen", refuse)

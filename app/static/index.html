@@ -64,11 +64,20 @@
     </form>
   </dialog>
 
+  <!-- Client portal (client users) --------------------------------------->
+  <div id="view-portal" class="view" hidden>
+    <p class="lead" id="pt-lead">Documents your auditors have asked for. Upload a file against each request; they will accept it or tell you what else they need.</p>
+    <div class="filters">
+      <select id="pt-filter" aria-label="Show requests"><option value="todo">Open requests</option><option value="">All, with accepted ones</option></select>
+    </div>
+    <div id="pt-list"></div>
+  </div>
+
   <!-- Users (admin) ------------------------------------------------------>
   <div id="view-users" class="view" hidden>
     <section class="panel">
       <h2>Users</h2>
-      <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts and post adjusting entries. Reviewers can also clear and reopen findings, change severity, remove evidence and files, book or delete adjusting entries, and add or edit clients and engagements. Partners can also set materiality and delete clients and engagements. Admins can also manage users and see the whole activity log.</p>
+      <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts, post proposed adjusting entries, sign off sections as prepared and reply to review notes. Reviewers can also clear and reopen findings, change severity, remove evidence and files, post booked entries, mark proposed ones booked, delete adjusting entries, raise and clear review notes, sign off sections as reviewed, and add or edit clients and engagements. Partners can also set materiality, sign off completion and delete clients and engagements. Admins can also manage users and see the whole activity log. Client users belong to one client and only see that client's document requests, where they upload files and message the team.</p>
       <div class="table-wrap"><table id="users"></table></div>
     </section>
     <section class="panel">
@@ -78,6 +87,7 @@
           <div><label for="nu-name">Name</label><input id="nu-name" name="name" required></div>
           <div><label for="nu-email">Email</label><input id="nu-email" name="email" type="email" required></div>
           <div><label for="nu-role">Role</label><select id="nu-role" name="role" class="map"></select></div>
+          <div id="nu-client-wrap" hidden><label for="nu-client">Client they work for</label><select id="nu-client" name="client_id" class="map"></select></div>
           <div><label for="nu-password">Temporary password</label><input id="nu-password" name="password" type="password" minlength="10" required autocomplete="new-password"></div>
         </div>
         <div class="actions"><button type="submit">Add user</button></div>
@@ -107,6 +117,8 @@
           <option value="statements.">Statements</option>
           <option value="finding.">Findings</option>
           <option value="evidence.">Evidence</option>
+          <option value="signoff.">Sign-offs</option>
+          <option value="request.">Client requests</option><option value="assistant.">AI assistant</option><option value="note.">Review notes</option>
           <option value="quick.">Quick audit</option>
         </select>
         <span class="muted">Latest 500 entries</span>
@@ -264,7 +276,7 @@
                     <button type="button" class="small secondary" id="aje-add-line">Add line</button>
                     <span class="muted" id="aje-totals"></span>
                     <span class="spacer"></span>
-                    <button type="submit">Post entry</button>
+                    <button type="submit" id="aje-post">Post entry</button>
                   </div>
                 </form>
                 <h3>Entries</h3>
@@ -386,6 +398,22 @@
             </div>
             <div style="margin-top:12px"><label for="fd-note">Note</label><textarea id="fd-note" rows="2" placeholder="What you did or found. Needed to clear."></textarea></div>
             <div class="actions"><button type="button" id="fd-save">Save</button><button type="button" class="secondary danger min-2" id="fd-delete" hidden>Delete finding</button></div>
+            <div id="ai" hidden>
+              <h3>AI assistant</h3>
+              <p class="tag">Sends this finding, the engagement's framework and materiality, and up to 50 lines of the entry to Claude. Check what it says before you rely on it; nothing is saved unless you add it.</p>
+              <div class="cell-actions">
+                <button type="button" class="small secondary" data-ai="explain">Explain this entry</button>
+                <button type="button" class="small secondary" data-ai="draft">Draft a write-up</button>
+              </div>
+              <div id="ai-out" class="ai-out" hidden>
+                <div class="tag" id="ai-label"></div>
+                <div class="ai-text" id="ai-text"></div>
+                <div class="cell-actions">
+                  <button type="button" class="small" id="ai-note">Add as a note</button>
+                  <button type="button" class="small secondary" id="ai-edit">Edit in the note box</button>
+                </div>
+              </div>
+            </div>
             <h3>Evidence</h3>
             <div class="table-wrap"><table id="fd-evidence"></table></div>
             <form id="fd-ev-form" class="actions" style="align-items:center">
@@ -394,6 +422,56 @@
             </form>
             <h3>Review trail</h3>
             <ul class="trail" id="fd-trail"></ul>
+          </section>
+
+          <section class="panel" id="rq-panel">
+            <div class="row-between">
+              <h2>Client requests</h2>
+              <div class="cell-actions">
+                <button type="button" class="small secondary" data-rq-export="xlsx">Download Excel</button>
+                <button type="button" class="small secondary" data-rq-export="csv">Download CSV</button>
+              </div>
+            </div>
+            <p class="muted" style="margin-top:-6px">Ask the client for documents. People at the client with a Client account see everything on these requests, upload files in answer and can message you. Accept the files, or send the request back saying what's missing.</p>
+            <p class="tag" id="rq-contacts"></p>
+            <div class="cards" id="rq-cards"></div>
+            <details id="rq-new">
+              <summary>Ask for a document</summary>
+              <form id="rq-form" class="stack">
+                <div><label for="rq-title">Document</label><input id="rq-title" name="title" required maxlength="200" placeholder="e.g. December bank statements for every account"></div>
+                <div><label for="rq-details">Details for the client (optional)</label><textarea id="rq-details" name="details" rows="2" maxlength="5000"></textarea></div>
+                <div><label for="rq-due">Due (optional)</label><input id="rq-due" name="due_date" type="date" style="max-width:200px"></div>
+                <div><button type="submit" id="rq-submit">Send request</button></div>
+              </form>
+            </details>
+            <div class="filters" style="margin-top:12px">
+              <select id="rq-filter" aria-label="Show requests">
+                <option value="">All requests</option><option value="open,returned">Waiting for the client</option>
+                <option value="submitted">Submitted, to look at</option><option value="accepted">Accepted</option>
+              </select>
+            </div>
+            <div id="rq-list"></div>
+          </section>
+
+          <section class="panel" id="rv-panel">
+            <h2>Review and sign-off</h2>
+            <p class="muted" style="margin-top:-6px">Each section is signed off by whoever prepared it, then by someone else who reviewed it. A sign-off is marked changed if the section changes afterwards. Reviewers raise notes for the preparer to answer; a section can't be reviewed until its notes are cleared.</p>
+            <div class="cards" id="rv-cards"></div>
+            <div class="table-wrap" style="margin-top:12px"><table id="rv-sections"></table></div>
+            <h3>Review notes</h3>
+            <div class="filters">
+              <select id="rv-filter" aria-label="Show notes"><option value="todo">Not cleared</option><option value="">All notes</option></select>
+              <select id="rv-filter-section" aria-label="Section"><option value="">All sections</option></select>
+            </div>
+            <details id="rv-new" class="min-2">
+              <summary>Raise a review note</summary>
+              <form id="rv-form" class="stack">
+                <div><label for="rv-section">Section</label><select id="rv-section" name="section" class="map"></select></div>
+                <div><label for="rv-text">Note</label><textarea id="rv-text" name="text" rows="2" required maxlength="5000" placeholder="e.g. Please explain the large manual journal on 31 December"></textarea></div>
+                <div><button type="submit" id="rv-submit">Raise note</button></div>
+              </form>
+            </details>
+            <div id="rv-notes"></div>
           </section>
 
           <section class="panel">

@@ -12,12 +12,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import auth
-from .auth import COOKIE, ROLES, current_user, log, require, user_out
-from .db import Activity, Engagement, User, get_session
+from .auth import COOKIE, ROLES, current_user, log, require, signed_in_user, user_out
+from .db import Activity, Client, ClientUser, Engagement, User, get_session
 
 router = APIRouter(prefix="/api")
 
-Role = Literal["preparer", "reviewer", "partner", "admin"]
+Role = Literal["client", "preparer", "reviewer", "partner", "admin"]
 
 
 class SetupIn(BaseModel):
@@ -41,6 +41,7 @@ class UserIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     role: Role
     password: str = Field(max_length=200)
+    client_id: int | None = None  # required for client users, who only see this client
 
 
 class UserPatch(BaseModel):
@@ -48,6 +49,7 @@ class UserPatch(BaseModel):
     role: Role | None = None
     active: bool | None = None
     password: str | None = Field(default=None, max_length=200)
+    client_id: int | None = None
 
 
 def clean_email(email: str) -> str:
@@ -64,6 +66,27 @@ def signed_in(request: Request, session: Session, user: User, status: int = 200)
     res.set_cookie(COOKIE, token, max_age=auth.SESSION_HOURS * 3600, httponly=True,
                    samesite="lax", secure=auth.secure_cookies(request), path="/")
     return res
+
+
+def link_client(session: Session, user: User, role: str, client_id: int | None) -> str:
+    """Tie a client user to their client (or untie a user who stops being one).
+
+    Returns the client's name for the activity log, or "" for audit team roles.
+    """
+    if role != "client":
+        if client_id is not None:
+            raise HTTPException(400, "Only client users belong to a client.")
+        user.client_link = None
+        return ""
+    client_id = client_id if client_id is not None else user.client_id
+    client = session.get(Client, client_id) if client_id is not None else None
+    if client is None:
+        raise HTTPException(400, "Pick the client this user works for.")
+    if user.client_link is None:
+        user.client_link = ClientUser(client=client)
+    else:
+        user.client_link.client = client
+    return client.name
 
 
 def active_admins(session: Session) -> int:
@@ -130,12 +153,12 @@ def logout(request: Request, session: Session = Depends(get_session)) -> Respons
 
 
 @router.get("/auth/me")
-def me(user: User = Depends(current_user)) -> dict:
+def me(user: User = Depends(signed_in_user)) -> dict:
     return user_out(user)
 
 
 @router.post("/auth/password", status_code=204)
-def change_password(body: PasswordIn, request: Request, user: User = Depends(current_user),
+def change_password(body: PasswordIn, request: Request, user: User = Depends(signed_in_user),
                     session: Session = Depends(get_session)) -> Response:
     if not auth.verify_password(body.current_password, user.password_hash):
         raise HTTPException(400, "Your current password is wrong.")
@@ -161,13 +184,15 @@ def create_user(body: UserIn, request: Request, admin: User = Depends(require("a
     auth.check_password_strength(body.password)
     user = User(email=clean_email(body.email), name=body.name.strip(), role=body.role,
                 password_hash=auth.hash_password(body.password))
+    client = link_client(session, user, body.role, body.client_id)
     session.add(user)
     try:
         session.flush()
     except IntegrityError as exc:
         raise HTTPException(409, f"There is already a user with email {user.email}.") from exc
-    log(session, admin, "user.create", f"Added {user.name} ({user.email}) as {ROLES[user.role]}",
-        details={"user_id": user.id}, request=request)
+    log(session, admin, "user.create", f"Added {user.name} ({user.email}) as {ROLES[user.role]}"
+        + (f" of {client}" if client else ""),
+        details={"user_id": user.id, "client_id": user.client_id}, request=request)
     session.commit()
     return user_out(user)
 
@@ -180,17 +205,27 @@ def update_user(user_id: int, body: UserPatch, request: Request,
     if user is None:
         raise HTTPException(404, "User not found.")
     changes = []
-    if (body.role and body.role != "admin") or body.active is False:
-        # Two admins demoting each other at once must not leave no admin.
+    if (body.role and body.role != "admin") or body.active is False or body.client_id is not None:
+        # Two admins demoting each other at once must not leave no admin (nor two requests
+        # both link one user to a client).
         auth.hold(session, "admins")
-        session.refresh(user)
+        session.expire_all()
+        user = session.get(User, user_id)
         if user.role == "admin" and user.active and active_admins(session) <= 1:
             raise HTTPException(400, "Keep at least one active admin.")
     if body.name and body.name.strip() != user.name:
         changes.append(f"name to {body.name.strip()}")
         user.name = body.name.strip()
+    role = body.role or user.role
+    if role != user.role or body.client_id is not None:
+        before = user.client_link.client if user.client_link else None
+        client = link_client(session, user, role, body.client_id)
+        if client and user.client_link.client is not before:
+            changes.append(f"client to {client}")
     if body.role and body.role != user.role:
         changes.append(f"role from {ROLES[user.role]} to {ROLES[body.role]}")
+        if (body.role == "client") != (user.role == "client"):
+            auth.end_user_sessions(session, user)  # a different app now; sign in again
         user.role = body.role
     if body.active is not None and body.active != user.active:
         changes.append("reactivated" if body.active else "deactivated")
@@ -204,7 +239,9 @@ def update_user(user_id: int, body: UserPatch, request: Request,
         changes.append("password reset")
     if changes:
         log(session, admin, "user.update", f"Changed {user.email}: {', '.join(changes)}",
-            details={"user_id": user.id}, request=request)
+            details={"user_id": user.id, "role": user.role,
+                     "client_id": user.client_link.client.id if user.client_link else None},
+            request=request)
     session.commit()
     return user_out(user)
 

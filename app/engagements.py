@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session
 
-from . import checks, loader, materiality, register, report
+from . import auth, checks, loader, materiality, register, report
 from .auth import current_user, log, require
 from .db import Client, Comparison, Engagement, Finding, Run, Sample, Upload, User, get_session
 from .exports import attachment
@@ -166,6 +166,21 @@ def get_or_404(session: Session, model, id_: int):
     return obj
 
 
+def hold_requests(session: Session, engagement_ids: list[int]) -> None:
+    """Hold the engagements' document requests (portal.py) before deleting them, so a request
+    or file can't be added to an engagement as it goes."""
+    for eid in engagement_ids:
+        auth.hold(session, f"request-number:{eid}")
+        auth.hold(session, f"requests:{eid}")
+    session.expire_all()
+
+
+def request_files(engagements: list[Engagement]) -> list[dict]:
+    """The documents sent for the engagements' requests, for the log of their deletion."""
+    return [{"request": r.number, "filename": f.filename, "sha256": f.sha256}
+            for e in engagements for r in e.document_requests for f in r.files]
+
+
 def check_period(start: date | None, end: date) -> None:
     if start and start > end:
         raise HTTPException(400, "Period start must be on or before period end.")
@@ -245,9 +260,12 @@ def update_client(client_id: int, body: ClientPatch, user: User = Depends(requir
 @router.delete("/clients/{client_id}", status_code=204)
 def delete_client(client_id: int, user: User = Depends(require("manage")),
                   session: Session = Depends(get_session)) -> Response:
+    ids = sorted(session.scalars(select(Engagement.id).where(Engagement.client_id == client_id)))
+    hold_requests(session, ids)
     client = get_or_404(session, Client, client_id)
     log(session, user, "client.delete",
-        f"Deleted client {client.name} and its {len(client.engagements)} engagements")
+        f"Deleted client {client.name} and its {len(client.engagements)} engagements",
+        details={"request_files": request_files(client.engagements)})
     session.delete(client)
     session.commit()
     return Response(status_code=204)
@@ -297,9 +315,11 @@ def update_engagement(engagement_id: int, body: EngagementPatch,
 @router.delete("/engagements/{engagement_id}", status_code=204)
 def delete_engagement(engagement_id: int, user: User = Depends(require("manage")),
                       session: Session = Depends(get_session)) -> Response:
+    hold_requests(session, [engagement_id])
     e = get_or_404(session, Engagement, engagement_id)
     log(session, user, "engagement.delete", f"Deleted engagement {e.name} with "
-        f"{len(e.uploads)} files and {len(e.findings)} findings", e)
+        f"{len(e.uploads)} files and {len(e.findings)} findings", e,
+        details={"request_files": request_files([e])})
     session.delete(e)
     session.commit()
     return Response(status_code=204)
@@ -367,17 +387,24 @@ def delete_upload(upload_id: int, user: User = Depends(require("review")),
     if worked:
         raise HTTPException(409, f"{len(worked)} findings from this file have been reviewed or "
                                  "have notes or evidence, so the file is kept as support.")
+    affects = set()  # review sections whose work goes with the file (review.detail_effects)
     for f in findings:
         session.delete(f)
+        affects.add("findings")
     for run in session.scalars(select(Run).where(Run.upload_id == upload_id)):
         session.delete(run)
     for x in session.scalars(select(Sample).where(Sample.upload_id == upload_id)):
         session.delete(x)
+        affects.add("sampling")
     for c in session.scalars(select(Comparison).where(
             (Comparison.current_upload_id == upload_id) | (Comparison.prior_upload_id == upload_id))):
         session.delete(c)
+        affects.add("comparison")
+    if upload.kind in ("tb", "prior_tb"):
+        affects.add("statements")
     log(session, user, "upload.delete", f"Deleted {upload.filename}", upload.engagement,
-        details={"upload_id": upload.id, "sha256": upload.sha256})
+        details={"upload_id": upload.id, "sha256": upload.sha256, "kind": upload.kind,
+                 "affects": sorted(affects)})
     session.delete(upload)
     session.commit()
     return Response(status_code=204)

@@ -52,11 +52,47 @@ have been worked on can't be deleted, so the support stays with the engagement.
 line (cash, receivables, revenue, employee costs and so on). The app suggests a line from the
 account name or number, and you confirm or change it. Post adjusting entries (AJE),
 reclassifications (RJE) and proposed entries the client hasn't booked (PAJE). Each entry must
-balance. Booked entries roll into the adjusted trial balance, the lead sheets (unadjusted,
+balance, and entry numbers are never reused. Booked entries roll into the adjusted trial balance, the lead sheets (unadjusted,
 adjustments, adjusted and prior year per account) and a draft income statement and balance
 sheet with comparatives. Proposed entries are summarised against materiality as uncorrected
-misstatements. A reviewer can mark a proposed entry as booked or delete an entry. Download it
-all as one Excel workbook.
+misstatements. Preparers post proposed entries; a reviewer posts booked ones, marks a
+proposed entry as booked or deletes an entry. Download it all as one Excel workbook.
+
+**Review and sign-off**: the file is split into sections (planning and materiality, files and
+checks, prior-year comparison, sampling, findings, lead sheets and statements, completion).
+Whoever prepared a section signs it off, then someone else signs it off as reviewed. If the
+section changes afterwards (a new upload or run, a changed finding, a new entry), the sign-off
+is marked changed so the reviewer knows to look again. Reviewers raise review notes on a
+section; the preparer replies and a reviewer clears them. A section can't be signed off as
+reviewed while it has notes to clear, raising a note takes back its review sign-off, and a
+partner signs off completion once every other section is reviewed.
+
+**Client requests**: ask the client for documents (title, details for the client, due date).
+People at the client sign in with a **Client** account and see only their own company's
+requests, in a portal of their own: they upload files against each request and can message the
+team. The team downloads the files, accepts them, or sends the request back saying what's
+missing; accepted requests are locked until a reviewer sends them back. Overdue requests are
+flagged, and the request list downloads as Excel or CSV.
+
+**AI assistant** (optional): on any finding, ask Claude to explain why the entry was flagged
+and what to check, or to draft a write-up (condition, criteria, cause, effect,
+recommendation). Nothing is saved unless you add the answer as a note. Each request sends:
+
+- the finding: check, severity, status, entry, date, account, description, amount and detail;
+- the engagement's framework, period end and materiality figures (not the client's name);
+- up to 50 ledger lines of the same entry, always including the flagged line, with their
+  dates, accounts, descriptions, amounts and who posted them.
+
+It is off, and hidden, until the server has an API key:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...          # turns the assistant on
+export AUDIT_AI_MODEL=claude-opus-5-5         # optional; this is the default
+```
+
+Each request is logged, including failed ones, with the model, how many ledger lines were sent
+and the outcome. At most four requests run at once; more get "busy, try again". Ledger data goes
+to the Claude API when someone uses the assistant, so only turn it on if your firm allows it.
 
 The **Quick audit** tab runs the checks on a file without saving anything.
 
@@ -68,12 +104,17 @@ temporary password and a role. Each role can do everything the roles above it in
 can:
 
 - **Preparer**: upload files, run the checks, comparisons and samples, add findings, notes and
-  evidence, mark findings reviewed, map accounts and post adjusting entries.
+  evidence, mark findings reviewed, map accounts, post proposed adjusting entries, sign off
+  sections as prepared and reply to review notes.
 - **Reviewer**: also clear and reopen findings, change severity, remove evidence and files,
-  mark proposed entries booked, delete adjusting entries, and add or edit clients and
-  engagements.
-- **Partner**: also set materiality and delete clients and engagements.
+  post booked entries or mark proposed ones booked, delete adjusting entries, raise and clear
+  review notes, sign off sections as reviewed, and add or edit clients and engagements.
+- **Partner**: also set materiality, sign off completion, and delete clients and engagements.
 - **Admin**: also manage users and see the whole activity log.
+
+**Client** users are outside this list: an admin links each one to a client. They only see the
+document request portal for that client's engagements (upload files, remove their own files
+until a request is accepted, send messages), and every other part of the app refuses them.
 
 Every change and download is written to the activity log with who, when, the engagement, the
 file's SHA-256 and the settings used (run settings, sampling parameters and seed, comparison
@@ -153,7 +194,7 @@ All endpoints need a signed-in session cookie except `/api/health`, `GET /api/au
 
 - `GET /api/auth/status`, `POST /api/auth/setup` (first admin, only while there are no users),
   `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`
-- `GET|POST /api/users`, `PATCH /api/users/{id}` (`name`, `role`, `active`, `password`); admin only
+- `GET|POST /api/users`, `PATCH /api/users/{id}` (`name`, `role`, `active`, `password`, `client_id` for client users); admin only
 - `GET /api/activity?engagement_id=&user_id=&action=&limit=`; without `engagement_id`, admin only
 
 - `POST /api/preview`: multipart form with `file` and optional `sheet`. Returns the columns,
@@ -200,6 +241,21 @@ Engagement endpoints (JSON unless noted):
 - `POST /api/engagements/{id}/adjusting-entries` (`kind=adjusting|reclassification|proposed`,
   `description`, `date`, `lines`: `account`, `debit`, `credit`, `memo`),
   `PATCH /api/adjusting-entries/{id}` (`kind`), `DELETE /api/adjusting-entries/{id}`
+- `GET /api/engagements/{id}/review`: each section's sign-offs and status, and the review notes
+- `POST /api/engagements/{id}/signoffs` (`section`, `kind=prepared|reviewed`),
+  `DELETE /api/engagements/{id}/signoffs/{section}/{kind}`
+- `POST /api/engagements/{id}/review-notes` (`section`, `text`),
+  `POST /api/review-notes/{id}/replies` (`text`), `PATCH /api/review-notes/{id}`
+  (`status=open|cleared`), `DELETE /api/review-notes/{id}`
+- `GET|POST /api/engagements/{id}/requests` (`title`, `details`, `due_date`),
+  `GET /api/engagements/{id}/requests/export?format=xlsx|csv`,
+  `PATCH|DELETE /api/requests/{id}`, `POST /api/requests/{id}/status`
+  (`status=accepted|returned`, `message`)
+- `POST /api/requests/{id}/files` (multipart `file`), `GET|DELETE /api/request-files/{id}`,
+  `POST /api/requests/{id}/messages` (`text`): for the team and the request's client users
+- `GET /api/portal/requests`: a client user's engagements and requests
+- `GET /api/assistant/status`, `POST /api/findings/{id}/assistant` (`task=explain|draft`):
+  the AI assistant; 503 while it is off, 502 when the Claude API fails, 429 when busy
 - `POST /api/sample`: draw a sample from a file without saving (multipart: `file`, the same
   fields as above, optional `mapping`, `sheet`, `format=json|xlsx`)
 

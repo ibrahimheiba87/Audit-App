@@ -47,6 +47,17 @@ async function guard(fn) {
   try { return await fn(); } catch (err) { showError(err.message); }
 }
 
+// Like guard, with the button disabled until the request finishes, so a double-click
+// doesn't send it twice. `ready` says whether the button should be enabled afterwards.
+async function busy(button, fn, ready = () => true) {
+  button.busy = (button.busy || 0) + 1;
+  button.disabled = true;
+  try { return await guard(fn); } finally {
+    button.busy -= 1;
+    if (!button.busy) button.disabled = !ready();
+  }
+}
+
 function formObject(form) {
   const out = {};
   for (const [k, v] of new FormData(form)) if (typeof v === "string") out[k] = v.trim();
@@ -129,7 +140,10 @@ const VIEW_RANK = { engagements: 1, users: 4, activity: 4 };
 function route() {
   if (!me) return;
   let [, view = "engagements", id] = location.hash.split("/");
-  if (!(me.rank >= (VIEW_RANK[view] || Infinity))) {
+  if (me.role === "client") {
+    view = "portal";  // client users only have the portal
+    if (location.hash !== "#/portal") history.replaceState(null, "", "#/portal");
+  } else if (!(me.rank >= (VIEW_RANK[view] || Infinity))) {
     view = "engagements";
     id = undefined;
     history.replaceState(null, "", "#/engagements");
@@ -141,6 +155,7 @@ function route() {
   if (view === "engagements") guard(() => showEngagements(id ? Number(id) : null));
   if (view === "users") guard(showUsers);
   if (view === "activity") guard(showActivity);
+  if (view === "portal") guard(showPortal);
 }
 window.addEventListener("hashchange", route);
 
@@ -204,13 +219,29 @@ $("eng-form").addEventListener("submit", (e) => {
   });
 });
 
+let engagementLoads = 0;  // so a slow load can't replace the engagement opened after it
+
 async function openEngagement(id) {
+  const load = ++engagementLoads;
   const e = await getJSON(`/api/engagements/${id}`);
+  if (load !== engagementLoads) return;
   if (currentEngagement?.id !== e.id) {
     // Check ids differ between engagements, so don't carry that filter over.
     regOffset = 0; regSelected.clear(); $("reg-check").value = "";
     // Uploads differ too, so let the server pick this engagement's latest trial balances.
     fsMapEdits = {}; $("fs-tb").innerHTML = $("fs-prior").innerHTML = "";
+    // Hide the last engagement's statements and findings while this one's load, so a quick
+    // click can't change an entry or finding of the engagement just left.
+    fs = null; fsEngagementId = null; renderStatementsPanel();
+    reg = null; $("reg-cards").innerHTML = $("reg-table").innerHTML = $("reg-count").textContent = "";
+    $("reg-bulk").hidden = true;
+    resetEntryForm();
+    $("rv-form").reset();
+    rv = null; rvDrafts = {};  // don't show (or act on) the last engagement's sign-offs
+    $("rv-cards").innerHTML = $("rv-sections").innerHTML = $("rv-notes").innerHTML = "";
+    $("rq-form").reset();
+    rq = null; rqDrafts = {};
+    $("rq-cards").innerHTML = $("rq-list").innerHTML = $("rq-contacts").textContent = "";
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -225,6 +256,8 @@ async function openEngagement(id) {
   renderSampleForm(e);
   renderSamples(e.samples);
   if (currentFinding && currentFinding.engagement_id !== e.id) closeFinding();
+  guard(loadReview);  // on its own, so a slow or failing panel above doesn't hold it up
+  guard(loadRequests);
   await loadStatements();
   await loadRegister();
 }
@@ -463,6 +496,7 @@ $("cmp-flagged-only").addEventListener("change", renderComparisonTable);
 // Lead sheets and draft statements
 
 let fs = null;          // latest /statements response
+let fsEngagementId = null;  // the engagement `fs` belongs to
 let fsMapEdits = {};    // unsaved mapping changes: account -> line id ("" to unmap)
 const signed = (n) => n == null ? "" : n < 0 ? `(${money(-n)})` : money(n);
 const drcr = (n) => Math.abs(n) < 0.005 ? "0.00" : `${money(Math.abs(n))} ${n > 0 ? "Dr" : "Cr"}`;
@@ -476,13 +510,25 @@ function fsQuery() {
   return q.toString();
 }
 
+const FS_EMPTY = $("fs-empty").textContent;
+
 async function loadStatements() {
-  fs = await getJSON(`/api/engagements/${currentEngagement.id}/statements?${fsQuery()}`);
-  renderStatementsPanel();
+  const id = currentEngagement.id;
+  let data, error = null;
+  try {
+    data = await getJSON(`/api/engagements/${id}/statements?${fsQuery()}`);
+  } catch (err) {
+    error = err.message;  // shown in the panel, so the rest of the engagement still loads
+  }
+  if (currentEngagement?.id !== id) return;  // the user has opened another engagement
+  fs = error ? null : data;
+  fsEngagementId = error ? null : id;
+  renderStatementsPanel(error);
 }
 
-function renderStatementsPanel() {
-  const ready = !!fs.tb;
+function renderStatementsPanel(error = null) {
+  const ready = !!fs?.tb;
+  $("fs-empty").textContent = error ? `The lead sheets can't be built from this trial balance: ${error}` : FS_EMPTY;
   $("fs-empty").hidden = ready;
   $("fs-body").hidden = $("fs-export").hidden = !ready;
   if (!ready) return;
@@ -544,7 +590,7 @@ function renderMapping() {
         <td class="num">${drcr(a.adjusted)}</td>
         <td><select class="map" aria-label="Line for account ${esc(a.account)}">${lineOptions(value)}</select>${hint}</td></tr>`;
     }).join("");
-  $("fs-save-map").disabled = !Object.keys(fsMapEdits).length;
+  $("fs-save-map").disabled = !canSaveMapping() || $("fs-save-map").busy > 0;
 }
 
 $("fs-map").addEventListener("change", (ev) => {
@@ -554,7 +600,7 @@ $("fs-map").addEventListener("change", (ev) => {
   const saved = fs.accounts.find((a) => a.account === account).line || "";
   if (ev.target.value === saved) delete fsMapEdits[account]; else fsMapEdits[account] = ev.target.value;
   row.classList.toggle("changed", account in fsMapEdits);
-  $("fs-save-map").disabled = !Object.keys(fsMapEdits).length;
+  $("fs-save-map").disabled = !canSaveMapping() || $("fs-save-map").busy > 0;
 });
 $("fs-unmapped-only").addEventListener("change", renderMapping);
 $("fs-accept").addEventListener("click", () => {
@@ -562,18 +608,22 @@ $("fs-accept").addEventListener("click", () => {
     .forEach((a) => { fsMapEdits[a.account] = a.suggested; });
   renderMapping();
 });
-$("fs-save-map").addEventListener("click", () => guard(async () => {
+const canSaveMapping = () => Object.keys(fsMapEdits).length > 0;
+$("fs-save-map").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
+  const id = fsEngagementId;
+  if (id !== currentEngagement.id) return;
   const mappings = Object.fromEntries(Object.entries(fsMapEdits).map(([k, v]) => [k, v || null]));
-  await sendJSON("PUT", `/api/engagements/${currentEngagement.id}/mapping`, { mappings });
+  await sendJSON("PUT", `/api/engagements/${id}/mapping`, { mappings });
+  if (currentEngagement.id !== id) return;  // the user has opened another engagement
   fsMapEdits = {};
   await loadStatements();
   await loadEngagementActivity();
-}));
+}, canSaveMapping));
 
 // Adjusting entries
 
 function entryLineRow() {
-  return `<tr><td><input name="account" list="aje-accounts" aria-label="Account" maxlength="100"></td>
+  return `<tr><td><input name="account" list="aje-accounts" aria-label="Account" maxlength="200"></td>
     <td><input name="debit" type="number" min="0" step="0.01" aria-label="Debit"></td>
     <td><input name="credit" type="number" min="0" step="0.01" aria-label="Credit"></td>
     <td><input name="memo" maxlength="500" aria-label="Memo"></td>
@@ -603,8 +653,10 @@ function updateEntryTotals() {
 }
 
 function renderEntries() {
-  if ($("aje-kind").options.length !== fs.entry_kinds.length) {
-    $("aje-kind").innerHTML = fs.entry_kinds.map((k) => `<option value="${k.id}">${esc(k.label)} (${k.prefix})</option>`).join("");
+  // Booked entries need a reviewer, as marking one booked does; preparers propose them.
+  const kinds = fs.entry_kinds.filter((k) => !k.booked || me.rank >= 2);
+  if ([...$("aje-kind").options].map((o) => o.value).join() !== kinds.map((k) => k.id).join()) {
+    $("aje-kind").innerHTML = kinds.map((k) => `<option value="${k.id}">${esc(k.label)} (${k.prefix})</option>`).join("");
     resetEntryForm();
   }
   $("aje-accounts").innerHTML = fs.accounts.map((a) => `<option value="${esc(a.account)}" label="${esc(a.name || "")}"></option>`).join("");
@@ -633,11 +685,13 @@ $("aje-add-line").addEventListener("click", () => {
 });
 $("aje-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  guard(async () => {
+  busy($("aje-post"), async () => {
     const o = formObject($("aje-form"));
     const lines = entryLines().filter((l) => l.account || l.debit || l.credit);
-    await sendJSON("POST", `/api/engagements/${currentEngagement.id}/adjusting-entries`,
+    const id = currentEngagement.id;
+    await sendJSON("POST", `/api/engagements/${id}/adjusting-entries`,
       { kind: o.kind, description: o.description, date: o.date || null, lines });
+    if (currentEngagement.id !== id) return;  // the user has opened another engagement
     resetEntryForm();
     await loadStatements();
     await loadEngagementActivity();
@@ -685,7 +739,12 @@ function renderStatementTables() {
   $("fs-bs").innerHTML = table(fs.statements.balance_sheet);
   const diff = fs.statements.difference.current;
   $("fs-diff").hidden = Math.abs(diff) < 0.005;
-  $("fs-diff").textContent = `The balance sheet is out by ${signed(diff)} because ${fs.unmapped.length} account(s) are not mapped. Map them on the Account mapping tab.`;
+  const tbOut = Math.abs(fs.totals.adjusted) >= 0.005;
+  const n = fs.unmapped.length;
+  $("fs-diff").textContent = `The balance sheet is out by ${signed(diff)}. ` + [
+    n ? `${n} account${n === 1 ? " isn't" : "s aren't"} mapped yet; map ${n === 1 ? "it" : "them"} on the Account mapping tab.` : "",
+    tbOut ? `The adjusted trial balance itself doesn't balance (it totals ${drcr(fs.totals.adjusted)}).` : "",
+  ].filter(Boolean).join(" ");
 }
 
 function renderUncorrected() {
@@ -695,7 +754,9 @@ function renderUncorrected() {
     [u.overall_materiality == null ? "Not set" : money(u.overall_materiality), "Overall materiality"],
     [u.pct_of_overall == null ? "–" : `${u.pct_of_overall}%`, "Largest effect vs materiality"],
   ].map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("");
-  $("unc-conclusion").textContent = u.conclusion || (u.overall_materiality == null ? "Set materiality above to compare against it." : "");
+  const unmapped = u.unclassified.length && u.overall_materiality == null
+    ? ` ${u.unclassified.join(", ")} ${u.unclassified.length === 1 ? "isn't" : "aren't"} mapped to a statement line, so ${u.unclassified.length === 1 ? "its" : "their"} effect isn't counted yet.` : "";
+  $("unc-conclusion").textContent = (u.conclusion || (u.overall_materiality == null ? "Set materiality above to compare against it." : "")) + unmapped;
   $("unc-table").innerHTML = u.entries.length
     ? '<tr><th>Entry</th><th>Description</th><th class="num">Effect on profit</th><th class="num">Effect on net assets</th></tr>' +
       u.entries.map((e) => `<tr><td>${esc(e.ref)}</td><td>${esc(e.description)}</td><td class="num">${signed(e.profit)}</td><td class="num">${signed(e.net_assets)}</td></tr>`).join("")
@@ -815,7 +876,9 @@ async function loadRegister() {
   const id = currentEngagement.id;
   const q = new URLSearchParams({ offset: regOffset, limit: REG_PAGE, status: $("reg-status").value,
     severity: $("reg-sev").value, check: $("reg-check").value });
-  reg = await getJSON(`/api/engagements/${id}/findings?${q}`);
+  const data = await getJSON(`/api/engagements/${id}/findings?${q}`);
+  if (currentEngagement?.id !== id) return;  // the user has opened another engagement
+  reg = data;
   if (!reg.findings.length && regOffset > 0) {  // the page emptied (e.g. after a bulk change)
     regOffset = Math.max(0, regOffset - REG_PAGE);
     return loadRegister();
@@ -834,9 +897,351 @@ async function loadRegister() {
 
 async function loadEngagementActivity() {
   renderActivity($("eng-activity"), await getJSON(`/api/activity?engagement_id=${currentEngagement.id}&limit=100`), false);
+  await loadReview();  // any change to the file can make a sign-off out of date
 }
 
+// Review and sign-off
+
+let rv = null;  // latest /review response
+let rvDrafts = {};  // unsent replies by note id, kept when the notes are redrawn
+const NOTE_STATUS = { open: "Open", responded: "Answered", cleared: "Cleared" };
+
+async function loadReview() {
+  const id = currentEngagement.id;
+  const data = await getJSON(`/api/engagements/${id}/review`);
+  if (currentEngagement?.id !== id) return;  // the user has opened another engagement
+  rv = data;
+  renderReview();
+}
+
+function signoffCell(s, kind) {
+  const so = s[kind];
+  const canSign = kind === "prepared" || me.rank >= (s.id === "completion" ? 3 : 2);
+  const prepOk = s.prepared && !s.prepared.stale;
+  const mine = so && so.user_id === me.id;
+  let html = so ? `${esc(so.user_name)}<div class="tag">${esc(when(so.at))}</div>${so.stale ? '<div class="stale">Changed since</div>' : ""}` : '<span class="muted">–</span>';
+  const buttons = [];
+  if (canSign && (!so || so.stale) && (kind === "prepared" || prepOk)) {
+    const blocked = kind === "reviewed" && (s.open_notes ? `Clear its ${s.open_notes} review note(s) first`
+      : s.prepared.user_id === me.id ? "You prepared it, so someone else reviews it" : "");
+    buttons.push(`<button type="button" class="small${so ? " secondary" : ""}" data-sign="${s.id}" data-kind="${kind}"${blocked ? ` disabled title="${esc(blocked)}"` : ""}>${so ? "Sign again" : "Sign off"}</button>`);
+  }
+  const giveRank = kind === "reviewed" ? (s.id === "completion" ? 3 : 2) : 1;
+  if (so && (mine || me.rank >= Math.max(2, giveRank))) {
+    buttons.push(`<button type="button" class="small secondary" data-unsign="${s.id}" data-kind="${kind}">Take back</button>`);
+  }
+  if (buttons.length) html += `<div class="cell-actions" style="margin-top:4px">${buttons.join("")}</div>`;
+  return html;
+}
+
+function renderReview() {
+  $("rv-cards").innerHTML = [
+    [`${rv.reviewed} of ${rv.total}`, "Sections reviewed"],
+    [rv.open_notes, "Review notes to clear"],
+    [rv.sections.find((s) => s.id === "completion").done ? "Yes" : "No", "Signed off for completion"],
+  ].map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("");
+  $("rv-sections").innerHTML = "<tr><th>Section</th><th>Prepared</th><th>Reviewed</th><th class=\"num\">Notes</th><th>Status</th></tr>" +
+    rv.sections.map((s) => `<tr>
+      <td><strong>${esc(s.label)}</strong><div class="tag">${esc(s.description)}${s.last_change_at ? ` Last changed ${esc(when(s.last_change_at))}.` : ""}</div></td>
+      <td>${signoffCell(s, "prepared")}</td><td>${signoffCell(s, "reviewed")}</td>
+      <td class="num">${s.open_notes || ""}</td>
+      <td class="nowrap">${s.done ? "✓ " : ""}${esc(s.status)}</td></tr>`).join("");
+  const options = rv.sections.map((s) => `<option value="${s.id}">${esc(s.label)}</option>`).join("");
+  for (const [id, first] of [["rv-section", ""], ["rv-filter-section", '<option value="">All sections</option>']]) {
+    const keep = $(id).value;
+    $(id).innerHTML = first + options;
+    if (keep) $(id).value = keep;
+  }
+  renderNotes();
+}
+
+function renderNotes() {
+  $("rv-notes").querySelectorAll("[data-reply]").forEach((f) => {
+    const id = f.closest("[data-note]").dataset.note;
+    if (f.text.value.trim()) rvDrafts[id] = f.text.value; else delete rvDrafts[id];
+  });
+  const preparer = Object.fromEntries(rv.sections.map((s) => [s.id, s.prepared?.user_id]));
+  const todo = $("rv-filter").value === "todo", section = $("rv-filter-section").value;
+  const notes = rv.notes.filter((n) => (!todo || n.status !== "cleared") && (!section || n.section === section));
+  $("rv-notes").innerHTML = notes.length ? notes.map((n) => `<div class="rv-note ${n.status}" data-note="${n.id}">
+      <div class="head"><strong class="status-${n.status}">${NOTE_STATUS[n.status]}</strong><span>${esc(n.section_label)}</span>
+        <span>${esc(n.author)} · ${esc(when(n.created_at))}</span>${n.cleared_by ? `<span>Cleared by ${esc(n.cleared_by)} · ${esc(when(n.cleared_at))}</span>` : ""}</div>
+      <div class="text">${esc(n.text)}</div>
+      ${n.replies.map((r) => `<div class="reply">${esc(r.text)}<div class="tag">${esc(r.author)} · ${esc(when(r.at))}</div></div>`).join("")}
+      <div class="cell-actions">
+        ${n.status === "cleared" ? '<button type="button" class="small secondary min-2" data-note-status="open">Reopen</button>'
+          : `<button type="button" class="small min-2" data-note-status="cleared"${preparer[n.section] === me.id ? ' disabled title="You prepared this section, so another reviewer clears its notes"' : ""}>Clear</button>`}
+        ${n.status === "responded" ? '<button type="button" class="small secondary min-2" data-note-status="open" title="The answer isn\'t enough">Send back</button>' : ""}
+        ${n.author_id === me.id && !n.replies.length ? '<button type="button" class="small secondary danger" data-note-delete>Delete</button>' : ""}
+      </div>
+      ${n.status !== "cleared" ? '<form data-reply><textarea name="text" rows="1" required maxlength="5000" aria-label="Reply to note" placeholder="Reply"></textarea><button type="submit" class="small secondary">Reply</button></form>' : ""}
+    </div>`).join("")
+    : `<p class="muted">${rv.notes.length ? "No notes match." : "No review notes yet."}</p>`;
+  $("rv-notes").querySelectorAll("[data-reply]").forEach((f) => {
+    f.text.value = rvDrafts[f.closest("[data-note]").dataset.note] || "";
+  });
+}
+
+$("rv-filter").addEventListener("change", renderNotes);
+$("rv-filter-section").addEventListener("change", renderNotes);
+
+$("rv-sections").addEventListener("click", (ev) => {
+  const sign = ev.target.closest("[data-sign]"), unsign = ev.target.closest("[data-unsign]");
+  const id = currentEngagement.id;
+  if (sign) busy(sign, async () => {
+    await sendJSON("POST", `/api/engagements/${id}/signoffs`, { section: sign.dataset.sign, kind: sign.dataset.kind });
+    await loadEngagementActivity();
+  });
+  if (unsign) {
+    const s = rv.sections.find((x) => x.id === unsign.dataset.unsign);
+    const both = unsign.dataset.kind === "prepared" && s.reviewed;
+    if (!confirm(`Take back the ${unsign.dataset.kind} sign-off on ${s.label}?${both ? " Its review will show as changed." : ""}`)) return;
+    busy(unsign, async () => {
+      await sendJSON("DELETE", `/api/engagements/${id}/signoffs/${unsign.dataset.unsign}/${unsign.dataset.kind}`);
+      await loadEngagementActivity();
+    });
+  }
+});
+
+$("rv-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("rv-submit"), async () => {
+    await sendJSON("POST", `/api/engagements/${currentEngagement.id}/review-notes`, formObject($("rv-form")));
+    $("rv-text").value = "";
+    await loadEngagementActivity();
+  });
+});
+
+$("rv-notes").addEventListener("click", (ev) => {
+  const status = ev.target.closest("[data-note-status]"), del = ev.target.closest("[data-note-delete]");
+  const note = ev.target.closest("[data-note]")?.dataset.note;
+  if (status) busy(status, async () => {
+    await sendJSON("PATCH", `/api/review-notes/${note}`, { status: status.dataset.noteStatus });
+    await loadEngagementActivity();
+  });
+  if (del && confirm("Delete this review note?")) busy(del, async () => {
+    await sendJSON("DELETE", `/api/review-notes/${note}`);
+    await loadEngagementActivity();
+  });
+});
+$("rv-notes").addEventListener("submit", (ev) => {
+  const form = ev.target.closest("[data-reply]");
+  if (!form) return;
+  ev.preventDefault();
+  const note = form.closest("[data-note]").dataset.note;
+  busy(form.querySelector("button"), async () => {
+    await sendJSON("POST", `/api/review-notes/${note}/replies`, { text: form.text.value.trim() });
+    form.text.value = "";
+    delete rvDrafts[note];
+    await loadEngagementActivity();
+  });
+});
+
+// Client document requests: shared by the team's panel and the client portal
+
+let rq = null;          // latest /requests response for the open engagement
+let rqDrafts = {};      // unsent messages by request id, kept when the list is redrawn
+let portal = null;      // latest /portal/requests response (client users)
+
+function keepDrafts(root) {
+  root.querySelectorAll("[data-rq-message]").forEach((f) => {
+    const id = f.closest("[data-rq]").dataset.rq;
+    if (f.text.value.trim()) rqDrafts[id] = f.text.value; else delete rqDrafts[id];
+  });
+}
+function restoreDrafts(root) {
+  root.querySelectorAll("[data-rq-message]").forEach((f) => {
+    f.text.value = rqDrafts[f.closest("[data-rq]").dataset.rq] || "";
+  });
+}
+
+function requestCard(r, team) {
+  const open = r.status !== "accepted";
+  const files = r.files.map((f) => {
+    const canRemove = open && (f.uploaded_by_id === me.id || (team && me.rank >= 2));
+    return `<li><button type="button" class="small secondary file" data-rq-file="${f.id}">${esc(f.filename)}</button>
+      <span class="tag">${fileSize(f.size)} · ${esc(f.uploaded_by)}${team && f.from_client ? " (client)" : ""} · ${esc(when(f.uploaded_at))}</span>
+      ${canRemove ? `<button type="button" class="link danger-link" data-rq-remove="${f.id}">Remove</button>` : ""}</li>`;
+  }).join("");
+  // One line each: replies keep the message's own line breaks (white-space: pre-wrap).
+  const messages = r.messages.map((m) => `<div class="reply${m.from_client ? " client" : ""}">${
+    m.status_label ? `<strong class="rq-status-${m.status_to}">${esc(m.status_label)}</strong>${m.text ? ": " : ""}` : ""}${esc(m.text)}<div class="tag">${
+    esc(m.author)}${team && m.from_client ? " (client)" : ""} · ${esc(when(m.at))}</div></div>`).join("");
+  const actions = [];
+  if (open) actions.push(`<label class="button small upload">${r.files.length ? "Add a file" : "Upload a file"}<input type="file" multiple data-rq-upload class="visually-hidden"></label>`);
+  if (team && r.status === "submitted") actions.push('<button type="button" class="small" data-rq-accept>Accept files</button>');
+  if (team && open && (!r.files.length || me.rank >= 2)) actions.push('<button type="button" class="small secondary danger" data-rq-delete>Delete request</button>');
+  // Reopening accepted files is for reviewers; the server refuses preparers.
+  const returnable = team && (r.status === "submitted" || (r.status === "accepted" && me.rank >= 2));
+  return `<div class="rq ${r.status}" data-rq="${r.id}">
+    <div class="head"><strong>${r.number}. ${esc(r.title)}</strong>
+      <span class="st rq-${r.status}">${esc(r.status_label)}</span>
+      ${r.due_date ? `<span class="${r.overdue ? "overdue" : "tag"}">Due ${esc(r.due_date)}${r.overdue ? " · overdue" : ""}</span>` : ""}
+      ${team ? `<span class="tag">Asked by ${esc(r.created_by)} · ${esc(when(r.created_at))}</span>` : ""}</div>
+    ${r.details ? `<div class="text">${esc(r.details)}</div>` : ""}
+    ${files ? `<ul class="rq-files">${files}</ul>` : `<p class="tag">${team ? "No files yet." : "Nothing sent yet."}</p>`}
+    ${messages}
+    ${actions.length ? `<div class="cell-actions">${actions.join("")}</div>` : ""}
+    <form data-rq-message><textarea name="text" rows="1" maxlength="5000" aria-label="Message" placeholder="${team ? "Message to the client" : "Message to your auditors"}"></textarea>
+      <button type="submit" class="small secondary">Send message</button>
+      ${returnable ? '<button type="button" class="small secondary" data-rq-return title="Send this request back to the client with the message">Send back with message</button>' : ""}</form>
+  </div>`;
+}
+
+// Click, change and submit handlers for a list of request cards. `reload` redraws it.
+function wireRequests(root, reload) {
+  root.addEventListener("change", (ev) => {
+    const input = ev.target.closest("[data-rq-upload]");
+    if (!input || !input.files.length) return;
+    const id = input.closest("[data-rq]").dataset.rq;
+    busy(input, async () => {
+      try {
+        for (const file of input.files) {
+          const fd = new FormData();
+          fd.append("file", file);
+          await postForm(`/api/requests/${id}/files`, fd);
+        }
+      } finally { await reload(); }
+    });
+  });
+  root.addEventListener("click", (ev) => {
+    const card = ev.target.closest("[data-rq]");
+    if (!card) return;
+    const id = card.dataset.rq;
+    const accept = ev.target.closest("[data-rq-accept]"), del = ev.target.closest("[data-rq-delete]");
+    const remove = ev.target.closest("[data-rq-remove]"), ret = ev.target.closest("[data-rq-return]");
+    const file = ev.target.closest("[data-rq-file]");
+    if (file) busy(file, async () => {  // fetched, so an error shows here instead of replacing the page
+      await saveFile(await request(`/api/request-files/${file.dataset.rqFile}`), file.textContent);
+    });
+    if (accept) busy(accept, async () => {
+      await sendJSON("POST", `/api/requests/${id}/status`, { status: "accepted", message: card.querySelector("[data-rq-message]").text.value.trim() });
+      delete rqDrafts[id];
+      await reload();
+    });
+    if (ret) {
+      const text = card.querySelector("[data-rq-message]").text;
+      if (!text.value.trim()) { showError("Write what's missing or wrong in the message box first."); text.focus(); return; }
+      busy(ret, async () => {
+        await sendJSON("POST", `/api/requests/${id}/status`, { status: "returned", message: text.value.trim() });
+        delete rqDrafts[id];
+        await reload();
+      });
+    }
+    if (remove && confirm("Remove this file? The request keeps a record of it.")) busy(remove, async () => {
+      await sendJSON("DELETE", `/api/request-files/${remove.dataset.rqRemove}`);
+      await reload();
+    });
+    if (del && confirm("Delete this request? The client will no longer see it.")) busy(del, async () => {
+      await sendJSON("DELETE", `/api/requests/${id}`);
+      delete rqDrafts[id];
+      await reload();
+    });
+  });
+  root.addEventListener("submit", (ev) => {
+    const form = ev.target.closest("[data-rq-message]");
+    if (!form) return;
+    ev.preventDefault();
+    const id = form.closest("[data-rq]").dataset.rq;
+    if (!form.text.value.trim()) return;
+    busy(form.querySelector("button[type=submit]"), async () => {
+      await sendJSON("POST", `/api/requests/${id}/messages`, { text: form.text.value.trim() });
+      form.text.value = "";
+      delete rqDrafts[id];
+      await reload();
+    });
+  });
+}
+
+// The team's panel on the engagement page
+
+async function loadRequests() {
+  const id = currentEngagement.id;
+  const data = await getJSON(`/api/engagements/${id}/requests`);
+  if (currentEngagement?.id !== id) return;  // the user has opened another engagement
+  rq = data;
+  renderRequests();
+}
+
+function renderRequests() {
+  const s = rq.summary;
+  $("rq-cards").innerHTML = [
+    [s.open + s.returned, "Waiting for the client"], [s.submitted, "Submitted, to look at"],
+    [s.accepted, "Accepted"], [s.overdue, "Overdue"],
+  ].map(([v, k]) => `<div class="card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+  const active = rq.contacts.filter((c) => c.active);
+  $("rq-contacts").textContent = active.length
+    ? `Client users who can see these: ${active.map((c) => `${c.name} (${c.email})`).join(", ")}.`
+    : "No one at this client has a Client account yet, so they can't see these requests. An admin can add one under Users.";
+  keepDrafts($("rq-list"));
+  const filter = $("rq-filter").value.split(",").filter(Boolean);
+  const list = rq.requests.filter((r) => !filter.length || filter.includes(r.status));
+  $("rq-list").innerHTML = list.length ? list.map((r) => requestCard(r, true)).join("")
+    : `<p class="muted">${rq.requests.length ? "No requests match." : "No requests yet."}</p>`;
+  restoreDrafts($("rq-list"));
+}
+
+async function reloadRequests() {
+  await loadRequests();
+  await loadEngagementActivity();
+}
+
+wireRequests($("rq-list"), reloadRequests);
+$("rq-filter").addEventListener("change", renderRequests);
+
+$("rq-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  busy($("rq-submit"), async () => {
+    const body = formObject($("rq-form"));
+    if (!body.due_date) delete body.due_date;
+    await sendJSON("POST", `/api/engagements/${id}/requests`, body);
+    if (currentEngagement?.id !== id) return;
+    $("rq-form").reset();
+    await reloadRequests();
+  });
+});
+
+document.querySelectorAll("[data-rq-export]").forEach((btn) => btn.addEventListener("click", () => busy(btn, async () => {
+  const format = btn.dataset.rqExport;
+  await saveFile(await request(`/api/engagements/${currentEngagement.id}/requests/export?format=${format}`), `requests.${format}`);
+  await loadEngagementActivity();
+})));
+
+// The client portal
+
+async function showPortal() {
+  portal = await getJSON("/api/portal/requests");
+  renderPortal();
+}
+
+function renderPortal() {
+  if (!portal.client) {
+    $("pt-lead").textContent = "Your account isn't linked to a client yet. Ask your auditors to set it up.";
+    $("pt-list").innerHTML = "";
+    return;
+  }
+  $("pt-lead").textContent = `Documents your auditors have asked ${portal.client} for. Upload a file against each request; they will accept it or tell you what else they need.`;
+  keepDrafts($("pt-list"));
+  const todo = $("pt-filter").value === "todo";
+  const html = portal.engagements.map((e) => {
+    const list = e.requests.filter((r) => !todo || r.status !== "accepted");
+    const owed = e.summary.open + e.summary.returned;
+    return `<section class="panel">
+      <h2>${esc(e.name)} <span class="muted">· period ending ${esc(e.period_end)}</span></h2>
+      <p class="tag" style="margin-top:-6px">${owed ? `${owed} still to send` : "Nothing left to send"}${e.summary.overdue ? ` · <span class="overdue">${e.summary.overdue} overdue</span>` : ""} · ${e.summary.accepted} of ${e.summary.total} accepted</p>
+      ${list.length ? list.map((r) => requestCard(r, false)).join("") : '<p class="muted">Nothing here right now.</p>'}
+    </section>`;
+  }).join("");
+  $("pt-list").innerHTML = html || '<section class="panel muted">Your auditors haven\'t asked for anything yet.</section>';
+  restoreDrafts($("pt-list"));
+}
+
+wireRequests($("pt-list"), showPortal);
+$("pt-filter").addEventListener("change", renderPortal);
+
 function renderRegister() {
+  if (!reg) return;  // this engagement's register is still loading
   const shown = reg.findings;
   const first = reg.offset + 1, last = reg.offset + shown.length;
   $("reg-count").textContent = reg.matching > shown.length
@@ -940,8 +1345,58 @@ function openFinding(f, scroll = true) {
       ${n.text ? `<div>${esc(n.text)}</div>` : ""}</li>`).join("")
     : '<li class="muted">Nothing yet.</li>';
   renderRegister();
+  renderAssistant();
   if (scroll) $("fd").scrollIntoView({ behavior: "smooth" });
 }
+
+// AI assistant (shown only when the server has an API key)
+
+let assistant = { enabled: false };
+let aiAnswer = null;  // {findingId, label, text, model}: the answer on screen
+
+function renderAssistant() {
+  $("ai").hidden = !assistant.enabled || !currentFinding;
+  if (aiAnswer && aiAnswer.findingId !== currentFinding?.id) aiAnswer = null;
+  $("ai-out").hidden = !aiAnswer;
+  if (!aiAnswer) return;
+  $("ai-label").textContent = `${aiAnswer.label} from the AI assistant (${aiAnswer.model}). Check it before using it.`;
+  $("ai-text").textContent = aiAnswer.text;
+}
+
+$("ai").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-ai]");
+  if (!btn) return;
+  const id = currentFinding.id;
+  const buttons = [...$("ai").querySelectorAll("[data-ai]")];
+  buttons.forEach((b) => { b.disabled = true; });  // one question at a time
+  busy(btn, async () => {
+    try {
+      const r = await sendJSON("POST", `/api/findings/${id}/assistant`, { task: btn.dataset.ai });
+      if (currentFinding?.id !== id) return;  // the user has opened another finding
+      aiAnswer = { findingId: id, ...r };
+      renderAssistant();
+    } finally {
+      buttons.forEach((b) => { if (b !== btn) b.disabled = false; });
+      loadEngagementActivity();  // failed requests are logged too
+    }
+  });
+});
+
+$("ai-note").addEventListener("click", () => busy($("ai-note"), async () => {
+  const a = aiAnswer;
+  const out = await sendJSON("POST", `/api/findings/${a.findingId}/notes`, { text: aiNoteText(a) });
+  aiAnswer = null;
+  if (currentFinding?.id === a.findingId) await refreshFinding(out);
+}));
+
+function aiNoteText(a) {
+  return `${a.label} drafted with the AI assistant (${a.model}):\n\n${a.text}`;
+}
+
+$("ai-edit").addEventListener("click", () => {
+  $("fd-note").value = aiNoteText(aiAnswer);
+  $("fd-note").focus();
+});
 
 function closeFinding() {
   currentFinding = null;
@@ -1005,14 +1460,19 @@ let appStarted = false;
 
 function setUser(user) {
   me = user;
+  lastUser = userKey(user);
   document.body.dataset.rank = user.rank;
   $("user-name").textContent = user.name;
   $("user-role").textContent = user.role_label;
-  $("user-chip").hidden = $("nav").hidden = false;
+  $("user-chip").hidden = false;
+  $("nav").hidden = user.role === "client";
 }
 
 function showLogin(needsSetup) {
   me = null;
+  // Nothing of the last user's may reach the next one: unsent messages, the portal.
+  rqDrafts = {}; rvDrafts = {}; rq = null; portal = null;
+  $("pt-list").innerHTML = $("rq-list").innerHTML = "";
   delete document.body.dataset.rank;
   $("user-chip").hidden = $("nav").hidden = true;
   document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== "view-login"; });
@@ -1022,10 +1482,18 @@ function showLogin(needsSetup) {
   (needsSetup ? $("setup-name") : $("login-email")).focus();
 }
 
+let lastUser = null;  // who this page was last set up for, and as what
+const userKey = (u) => `${u.id}:${u.role}:${u.client_id ?? ""}`;
+
 async function signedIn(res) {
-  setUser((await res.json()).user);
+  const user = (await res.json()).user;
+  if (lastUser !== null && lastUser !== userKey(user)) {
+    location.reload();  // someone else, or a new role: start from a clean page (the cookie is set)
+    return;
+  }
+  setUser(user);
   showError("");
-  if (appStarted) route(); else { appStarted = true; await startApp(); }
+  if (me.role === "client" || meta) route(); else await startApp();
 }
 
 $("login-form").addEventListener("submit", (ev) => {
@@ -1049,8 +1517,8 @@ $("setup-form").addEventListener("submit", (ev) => {
 
 $("logout").addEventListener("click", () => guard(async () => {
   await sendJSON("POST", "/api/auth/logout");
-  location.hash = "#/engagements";
-  showLogin(false);
+  location.hash = "";
+  location.reload();  // drop everything the page holds for this user
 }));
 
 $("pw-open").addEventListener("click", () => {
@@ -1072,14 +1540,24 @@ $("pw-form").addEventListener("submit", async (ev) => {
 
 let users = [];
 
+let clients = [];  // for linking client users
+
 async function showUsers() {
-  users = await getJSON("/api/users");
-  const roleOptions = (sel) => roles.map((r) => `<option value="${r.id}"${r.id === sel ? " selected" : ""}>${esc(r.label)}</option>`).join("");
-  $("nu-role").innerHTML = roleOptions("preparer");
+  [users, clients] = await Promise.all([getJSON("/api/users"), getJSON("/api/clients")]);
+  const staff = roles.filter((r) => r.id !== "client");
+  const roleOptions = (sel, list) => list.map((r) => `<option value="${r.id}"${r.id === sel ? " selected" : ""}>${esc(r.label)}</option>`).join("");
+  const clientOptions = (sel) => clients.map((c) => `<option value="${c.id}"${c.id === sel ? " selected" : ""}>${esc(c.name)}</option>`).join("");
+  const keep = $("nu-role").value;
+  $("nu-role").innerHTML = roleOptions(keep || "preparer", [...staff, ...roles.filter((r) => r.id === "client")]);
+  $("nu-client").innerHTML = '<option value="">Pick a client</option>' + clientOptions(Number($("nu-client").value));
+  updateNewUserRole();
   $("users").innerHTML = "<tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Status</th><th></th></tr>" +
     users.map((u) => `<tr data-user="${u.id}">
       <td>${esc(u.name)}${u.id === me.id ? ' <span class="muted">(you)</span>' : ""}</td><td>${esc(u.email)}</td>
-      <td><select class="map" data-role>${roleOptions(u.role)}</select></td>
+      <td><select class="map" data-role aria-label="Role">${roleOptions(u.role, staff)}${
+        u.role === "client" && !u.client_id ? '<option value="" selected>Client (no client)</option>' : ""}
+        <optgroup label="Client user of">${clients.map((c) => `<option value="client:${c.id}"${
+          u.role === "client" && c.id === u.client_id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</optgroup></select></td>
       <td class="nowrap">${esc(when(u.last_login_at)) || '<span class="muted">Never</span>'}</td>
       <td>${u.active ? "Active" : '<span class="muted">Deactivated</span>'}</td>
       <td><div class="cell-actions">
@@ -1088,12 +1566,29 @@ async function showUsers() {
       </div></td></tr>`).join("");
 }
 
+function updateNewUserRole() {
+  const client = $("nu-role").value === "client";
+  $("nu-client-wrap").hidden = !client;
+  $("nu-client").required = client;
+}
+$("nu-role").addEventListener("change", updateNewUserRole);
+
 $("users").addEventListener("change", (ev) => {
   const sel = ev.target.closest("[data-role]");
-  if (!sel) return;
+  if (!sel || !sel.value) return;
   const id = sel.closest("[data-user]").dataset.user;
+  const user = users.find((u) => String(u.id) === id);
+  const toClient = sel.value.startsWith("client:");
+  const body = toClient ? { role: "client", client_id: Number(sel.value.slice(7)) } : { role: sel.value };
+  // Moving between the audit team and a client is a different app: confirm, as it signs them out.
+  if (toClient !== (user.role === "client") && !confirm(toClient
+    ? `Make ${user.name} a client user? They will only see their client's document requests, and be signed out.`
+    : `Move ${user.name} onto the audit team? They will see every engagement, and be signed out.`)) {
+    showUsers();
+    return;
+  }
   guard(async () => {
-    try { await sendJSON("PATCH", `/api/users/${id}`, { role: sel.value }); } finally { await showUsers(); }
+    try { await sendJSON("PATCH", `/api/users/${id}`, body); } finally { await showUsers(); }
   });
 });
 
@@ -1131,7 +1626,9 @@ $("reset-form").addEventListener("submit", async (ev) => {
 $("user-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
   guard(async () => {
-    await sendJSON("POST", "/api/users", formObject($("user-form")));
+    const body = formObject($("user-form"));
+    if (body.role === "client") body.client_id = Number(body.client_id); else delete body.client_id;
+    await sendJSON("POST", "/api/users", body);
     $("user-form").reset();
     await showUsers();
   });
@@ -1280,6 +1777,10 @@ function renderBenford() {
 // --- Start --------------------------------------------------------------------
 
 async function startApp() {
+  if (me.role === "client") {  // the rest is for the audit team, and refuses client users
+    route();
+    return;
+  }
   meta = await getJSON("/api/materiality/benchmarks");
   $("mat-benchmark").innerHTML = meta.benchmarks.map((b) => `<option value="${b.id}">${esc(b.label)}</option>`).join("");
   $("eng-framework").innerHTML = meta.frameworks.map((f) => `<option>${esc(f)}</option>`).join("");
@@ -1289,6 +1790,7 @@ async function startApp() {
   $("smp-confidence").innerHTML = samplingOptions.confidence_levels.map((c) => `<option value="${c}"${c === 95 ? " selected" : ""}>${c}%</option>`).join("");
   $("reg-status").innerHTML = '<option value="">All statuses</option>' +
     (await getJSON("/api/findings/options")).statuses.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join("");
+  try { assistant = await getJSON("/api/assistant/status"); } catch { assistant = { enabled: false }; }
   $("up-kind").innerHTML = meta.upload_kinds.map((k) => `<option value="${k.id}">${esc(k.label)}</option>`).join("");
   appStarted = true;
   route();

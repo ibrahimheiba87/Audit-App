@@ -201,3 +201,151 @@ def test_export_is_safe_and_logged():
     log = client.get("/api/activity", params={"engagement_id": eid}).json()[0]
     assert log["action"] == "statements.download" and len(log["details"]["sha256"]) == 64
     assert log["details"]["entries"] == ["PAJE-1"]
+
+
+# --- Review fixes ---------------------------------------------------------------
+
+
+def test_suggestions_match_whole_words_in_the_right_order():
+    s = statements.suggest_line
+    assert s("1300", "Other current assets") == "other_current_assets"  # not "rent"
+    assert s("2600", "Current portion of long-term debt") == "borrowings"
+    assert s("3000", "Common stock") == "share_capital"  # not inventory
+    assert s("1250", "Loan receivable") == "receivables"
+    assert s("2150", "Customer deposits") == "accruals"
+    assert s("1260", "Accrued income") == "other_current_assets"
+    assert s("2160", "Payroll liabilities") == "accruals"
+    assert s("Cash at bank", None) == "cash"  # account names with no description column
+
+
+def test_unmapped_proposed_entry_accounts_block_the_conclusion():
+    paje = entry("proposed", [("X1", 500, 0), ("X2", 0, 500)], "PAJE-1")
+    mat = {"overall_materiality": 100, "performance_materiality": 75, "trivial_threshold": 5}
+    unc = statements.build(TB, None, MAPPING, [paje], mat)["uncorrected"]
+    assert unc["unclassified"] == ["X1", "X2"]
+    assert unc["conclusion"].startswith("Map X1, X2") and "trivial" not in unc["conclusion"]
+
+
+def test_entry_totals_must_be_finite_and_balance_to_the_cent():
+    big = [{"account": "1", "debit": 1.7e308}, {"account": "1", "debit": 1.7e308},
+           {"account": "2", "credit": 1.7e308}, {"account": "2", "credit": 1.7e308},
+           {"account": "2", "credit": 1.7e308}]
+    with pytest.raises(statements.StatementsError, match="too large"):
+        statements.check_entry_lines(big)
+    eid = engagement(with_prior=False)
+    assert post_entry(eid, lines=[{"account": "1", "debit": 1e14},
+                                  {"account": "2", "credit": 1e14}]).status_code == 422
+    r = post_entry(eid, lines=[{"account": "6200", "debit": 100.004},
+                               {"account": "2100", "credit": 100}])
+    assert r.status_code == 201 and r.json()["lines"][0]["debit"] == 100.0
+
+
+def test_blank_and_numeric_account_codes_are_normalized():
+    from app import loader
+    csv = b"account,description,amount\n1000,Cash,5\n,Misc,1\n   ,Petty,2\n2000,Payables,-8\n"
+    df = loader.load("tb.csv", csv).df
+    balances = statements._balances(df)
+    assert list(balances) == ["1000", "(blank)", "2000"]
+    assert balances["(blank)"] == {"balance": 3.0, "name": "Misc"}
+
+
+def test_export_leaves_prior_year_blank_without_a_prior_tb():
+    eid = engagement(with_prior=False)
+    map_all(eid)
+    book = openpyxl.load_workbook(io.BytesIO(
+        client.get(f"/api/engagements/{eid}/statements/export").content))
+    ws = book["Statements"]
+    assert ws["D1"].value == "Prior" and all(c.value is None for c in ws["D"][1:])
+    assert any(isinstance(c.value, (int, float)) for c in ws["C"][1:])
+
+
+def test_entry_numbers_are_never_reused():
+    eid = engagement(with_prior=False)
+    a1, a2 = post_entry(eid).json(), post_entry(eid).json()
+    client.delete(f"/api/adjusting-entries/{a2['id']}")
+    assert post_entry(eid).json()["ref"] == "AJE-3"
+    client.patch(f"/api/adjusting-entries/{a1['id']}", json={"kind": "proposed"})
+    assert post_entry(eid).json()["ref"] == "AJE-4"
+
+
+def _race(monkeypatch, call, n=2):
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app import leadsheets
+    real = leadsheets.log
+
+    def slow_log(*args, **kwargs):  # widen the window between reading and committing
+        time.sleep(0.2)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(leadsheets, "log", slow_log)
+    barrier = threading.Barrier(n)
+    quiet = TestClient(app, raise_server_exceptions=False)
+
+    def run(_):
+        barrier.wait()
+        return call(quiet)
+
+    with ThreadPoolExecutor(n) as pool:
+        return list(pool.map(run, range(n)))
+
+
+def test_concurrent_mapping_saves_do_not_fail(monkeypatch):
+    eid = engagement(with_prior=False)
+    codes = _race(monkeypatch, lambda c: c.put(f"/api/engagements/{eid}/mapping",
+                                               json={"mappings": {"1000": "cash"}}).status_code)
+    assert sorted(codes) == [200, 200]
+
+
+def test_concurrent_mark_booked_books_once(monkeypatch):
+    eid = engagement(with_prior=False)
+    p1 = post_entry(eid, "proposed").json()
+    refs = _race(monkeypatch, lambda c: c.patch(f"/api/adjusting-entries/{p1['id']}",
+                                                json={"kind": "adjusting"}).json()["ref"])
+    assert refs == ["AJE-1", "AJE-1"]
+    log = client.get("/api/activity", params={"engagement_id": eid}).json()
+    assert [x["action"] for x in log].count("entry.update") == 1
+
+
+# --- Copilot review fixes -------------------------------------------------------
+
+
+def test_keywords_need_the_whole_word():
+    s = statements.suggest_line
+    assert s("3100", "Stockholders' equity") == "retained_earnings"  # not inventory
+    assert s("6900", "Bankruptcy costs") == "other_expenses"  # not cash
+    assert s("1400", "Inventories") == "inventory"  # stems still match
+    assert s("6400", "Administrative expenses") == "admin"
+
+
+def test_only_saved_mappings_classify_misstatements():
+    paje = entry("proposed", [("6100", 5, 0), ("1200", 0, 5)], "PAJE-1")
+    mat = {"overall_materiality": 1000, "performance_materiality": 750, "trivial_threshold": 50}
+    mapping = {k: v for k, v in MAPPING.items() if k != "6100"}  # suggested, but not saved
+    unc = statements.build(TB, None, mapping, [paje], mat)["uncorrected"]
+    assert unc["unclassified"] == ["6100"] and unc["conclusion"].startswith("Map 6100")
+    unc = statements.build(TB, None, MAPPING, [paje], mat)["uncorrected"]
+    assert unc["unclassified"] == [] and "trivial" in unc["conclusion"]
+
+
+def test_long_entries_of_large_amounts_balance_exactly():
+    lines = [{"account": "1", "debit": 9999999999999.99}] * 100 + \
+            [{"account": "2", "credit": 9999999999999.99}] * 100
+    statements.check_entry_lines(lines)
+    with pytest.raises(statements.StatementsError, match="must be equal"):
+        statements.check_entry_lines(lines[:-1] + [{"account": "2", "credit": 9999999999999.98}])
+
+
+def test_numbers_from_before_the_counter_are_not_reused():
+    from app import db
+    eid = engagement(with_prior=False)
+    post_entry(eid)
+    a2 = post_entry(eid).json()
+    with db.SessionLocal() as s:  # a database from before entry numbers had counters
+        s.query(db.Guard).filter(db.Guard.key.like("entry-number:%")).delete(
+            synchronize_session=False)
+        s.commit()
+    client.delete(f"/api/adjusting-entries/{a2['id']}")
+    assert post_entry(eid).json()["ref"] == "AJE-3"

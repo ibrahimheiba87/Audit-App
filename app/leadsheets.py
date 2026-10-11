@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from . import auth, statements
 from .auth import current_user, log, require
-from .db import AccountMapping, AdjustingEntry, AdjustingLine, Engagement, Upload, User, get_session
+from .db import AccountMapping, AdjustingEntry, AdjustingLine, Engagement, Guard, Upload, User, get_session
 from .engagements import get_or_404, load_upload, materiality_out, safe_stem, upload_out
 from .exports import attachment
 from .statements import ENTRY_KINDS, LINE
@@ -21,8 +21,9 @@ from .statements import ENTRY_KINDS, LINE
 router = APIRouter(prefix="/api")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-Account = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+Account = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Kind = Literal["adjusting", "reclassification", "proposed"]
+MAX_AMOUNT = 1e13  # far above any real balance, small enough that sums stay exact to the cent
 
 
 class MappingIn(BaseModel):
@@ -31,8 +32,8 @@ class MappingIn(BaseModel):
 
 class EntryLineIn(BaseModel):
     account: Account
-    debit: float = Field(default=0.0, ge=0, allow_inf_nan=False)
-    credit: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    debit: float = Field(default=0.0, ge=0, le=MAX_AMOUNT, allow_inf_nan=False)
+    credit: float = Field(default=0.0, ge=0, le=MAX_AMOUNT, allow_inf_nan=False)
     memo: str = Field(default="", max_length=500)
 
 
@@ -112,6 +113,7 @@ def get_statements(engagement_id: int, upload_id: int | None = None,
 def save_mapping(engagement_id: int, body: MappingIn, user: User = Depends(require("prepare")),
                  session: Session = Depends(get_session)) -> dict:
     """Map accounts to FS lines; a null line removes the mapping."""
+    auth.hold(session, f"mapping:{engagement_id}")  # so two saves can't both add an account
     e = get_or_404(session, Engagement, engagement_id)
     bad = sorted({v for v in body.mappings.values() if v is not None and v not in LINE})
     if bad:
@@ -145,13 +147,16 @@ def save_mapping(engagement_id: int, body: MappingIn, user: User = Depends(requi
 @router.post("/engagements/{engagement_id}/adjusting-entries", status_code=201)
 def create_entry(engagement_id: int, body: EntryIn, user: User = Depends(require("prepare")),
                  session: Session = Depends(get_session)) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
-    lines = [ln.model_dump() for ln in body.lines]
+    if ENTRY_KINDS[body.kind]["booked"]:
+        auth.ensure(user, "review")  # as for marking a proposed entry booked
+    lines = [{**ln.model_dump(), "debit": round(ln.debit, 2), "credit": round(ln.credit, 2)}
+             for ln in body.lines]
     try:
         statements.check_entry_lines(lines)
     except statements.StatementsError as exc:
         raise HTTPException(400, str(exc)) from exc
-    auth.hold(session, f"entries:{e.id}")  # so two new entries can't take the same number
+    auth.hold(session, f"entries:{engagement_id}")  # so two new entries can't take the same number
+    e = get_or_404(session, Engagement, engagement_id)
     entry = AdjustingEntry(
         kind=body.kind, number=next_number(session, e.id, body.kind),
         description=body.description, date=body.date.isoformat() if body.date else None,
@@ -169,18 +174,46 @@ def create_entry(engagement_id: int, body: EntryIn, user: User = Depends(require
 
 
 def next_number(session: Session, engagement_id: int, kind: str) -> int:
-    return (session.scalar(select(func.max(AdjustingEntry.number)).where(
-        AdjustingEntry.engagement_id == engagement_id, AdjustingEntry.kind == kind)) or 0) + 1
+    """The next entry number for a type. Numbers only go up, so a deleted entry's number isn't
+    given to a later one. Call with the engagement's entries guard held."""
+    highest = session.scalar(select(func.max(AdjustingEntry.number)).where(
+        AdjustingEntry.engagement_id == engagement_id, AdjustingEntry.kind == kind)) or 0
+    return _advance(session, engagement_id, kind, highest)
+
+
+def _counter(session: Session, engagement_id: int, kind: str) -> Guard:
+    key = f"entry-number:{engagement_id}:{kind}"
+    counter = session.get(Guard, key)
+    if counter is None:  # the first entry of this type, or one from before the counter existed
+        counter = Guard(key=key, n=0)
+        session.add(counter)
+    return counter
+
+
+def _advance(session: Session, engagement_id: int, kind: str, highest: int) -> int:
+    counter = _counter(session, engagement_id, kind)
+    counter.n = max(counter.n, highest) + 1
+    session.flush()
+    return counter.n
+
+
+def use_number(session: Session, entry: AdjustingEntry) -> None:
+    """Record an entry's number as used before it's deleted or retyped, so it isn't reused."""
+    counter = _counter(session, entry.engagement_id, entry.kind)
+    counter.n = max(counter.n, entry.number)
 
 
 @router.patch("/adjusting-entries/{entry_id}")
 def update_entry(entry_id: int, body: EntryPatch, user: User = Depends(require("review")),
                  session: Session = Depends(get_session)) -> dict:
     """Change an entry's type, e.g. a proposed entry the client has agreed to book."""
+    engagement_id = get_or_404(session, AdjustingEntry, entry_id).engagement_id
+    auth.hold(session, f"entries:{engagement_id}")
+    session.expire_all()  # another request may have changed it before we held the guard
     entry = get_or_404(session, AdjustingEntry, entry_id)
     if body.kind != entry.kind:
         old = entry_ref(entry)
-        auth.hold(session, f"entries:{entry.engagement_id}")
+        use_number(session, entry)
         number = next_number(session, entry.engagement_id, body.kind)
         entry.kind, entry.number = body.kind, number
         log(session, user, "entry.update", f"Changed {old} to {entry_ref(entry)} "
@@ -193,7 +226,11 @@ def update_entry(entry_id: int, body: EntryPatch, user: User = Depends(require("
 @router.delete("/adjusting-entries/{entry_id}", status_code=204)
 def delete_entry(entry_id: int, user: User = Depends(require("review")),
                  session: Session = Depends(get_session)) -> Response:
+    engagement_id = get_or_404(session, AdjustingEntry, entry_id).engagement_id
+    auth.hold(session, f"entries:{engagement_id}")
+    session.expire_all()  # another request may have changed it before we held the guard
     entry = get_or_404(session, AdjustingEntry, entry_id)
+    use_number(session, entry)
     out = entry_out(entry)
     log(session, user, "entry.delete", f"Deleted {out['ref']}: {entry.description}",
         entry.engagement, details={"entry_id": entry.id, "ref": out["ref"],

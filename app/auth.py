@@ -2,11 +2,18 @@
 
 Roles, lowest to highest. Each role can do everything the roles below it can:
     preparer  upload files, run checks, comparisons and samples, add findings, notes and
-              evidence, mark findings reviewed, map accounts, post adjusting entries
-    reviewer  clear and reopen findings, change severity, remove evidence and files, book or
-              delete adjusting entries, add and edit clients and engagements
-    partner   set materiality, delete clients and engagements
+              evidence, mark findings reviewed, map accounts, post proposed entries, sign
+              off sections as prepared, reply to review notes
+    reviewer  clear and reopen findings, change severity, remove evidence and files, post
+              booked entries, mark proposed entries booked, delete adjusting entries, raise
+              and clear review notes, sign off sections as reviewed, add and edit clients
+              and engagements
+    partner   set materiality, sign off completion, delete clients and engagements
     admin     manage users, see the whole activity log
+
+Client users are outside this ladder: they belong to one client and can only use the
+document request portal (portal.py) for that client's engagements. Every other endpoint
+refuses them.
 """
 
 from __future__ import annotations
@@ -25,8 +32,10 @@ from sqlalchemy.orm import Session
 
 from .db import Activity, AuthSession, Engagement, Guard, User, get_session, utcnow
 
-ROLES = {"preparer": "Preparer", "reviewer": "Reviewer", "partner": "Partner", "admin": "Admin"}
-RANK = {role: i for i, role in enumerate(ROLES, start=1)}
+ROLES = {"client": "Client", "preparer": "Preparer", "reviewer": "Reviewer",
+         "partner": "Partner", "admin": "Admin"}
+RANK = {role: i for i, role in enumerate(ROLES)}  # client 0, preparer 1 ... admin 4
+STAFF_ROLES = [r for r in ROLES if r != "client"]
 # Lowest role allowed to do each kind of thing.
 PERMISSIONS = {"prepare": "preparer", "review": "reviewer", "manage": "partner", "admin": "admin"}
 PERMISSION_TEXT = {
@@ -111,15 +120,23 @@ def user_for_token(session: Session, token: str | None) -> User | None:
     return s.user
 
 
-def current_user(request: Request, session: Session = Depends(get_session)) -> User:
+def signed_in_user(request: Request, session: Session = Depends(get_session)) -> User:
+    """Dependency: whoever is signed in, client users included."""
     user = user_for_token(session, request.cookies.get(COOKIE))
     if user is None:
         raise HTTPException(401, "Please sign in.")
     return user
 
 
+def current_user(user: User = Depends(signed_in_user)) -> User:
+    """Dependency: the signed-in member of the audit team. Client users get a 403."""
+    if user.role == "client":
+        raise HTTPException(403, "Client accounts can only use the document requests portal.")
+    return user
+
+
 def can(user: User, permission: str) -> bool:
-    return RANK[user.role] >= RANK[PERMISSIONS[permission]]
+    return user.role != "client" and RANK[user.role] >= RANK[PERMISSIONS[permission]]
 
 
 def ensure(user: User, permission: str) -> None:
@@ -189,7 +206,9 @@ def user_out(u: User) -> dict:
     return {"id": u.id, "email": u.email, "name": u.name, "role": u.role,
             "role_label": ROLES[u.role], "rank": RANK[u.role], "active": u.active,
             "created_at": u.created_at.isoformat(),
-            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}
+            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+            "client_id": u.client_id,
+            "client_name": u.client_link.client.name if u.client_link else None}
 
 
 def activity_out(a: Activity) -> dict:
