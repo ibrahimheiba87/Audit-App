@@ -232,7 +232,7 @@ def ask(finding_id: int, body: AssistantIn, user: User = Depends(require("prepar
     if not enabled():
         raise HTTPException(503, "The AI assistant is off. An administrator turns it on by "
                                  "setting ANTHROPIC_API_KEY on the server.")
-    f = get_or_404(session, Finding, finding_id)
+    f = get_or_404(session, Finding, finding_id, user)
     engagement_id = f.engagement_id
     prompt, sent, total = build_prompt(f, body.task)
     session.rollback()  # don't hold a transaction open while waiting on the API

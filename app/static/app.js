@@ -185,7 +185,8 @@ async function renderClients(activeId) {
       ${c.industry ? `<div class="muted" style="font-size:13px">${esc(c.industry)}</div>` : ""}
       <ul>${c.engagements.map((e) => `<li><a href="#/engagements/${e.id}" class="${e.id === activeId ? "active" : ""}">
         ${esc(e.name)} <span class="muted">· ${esc(e.period_end)}</span></a></li>`).join("")}</ul>
-    </div>`).join("") : '<p class="muted">No clients yet.</p>';
+    </div>`).join("") : `<p class="muted">${me.role === "admin" ? "No clients yet."
+    : "No clients yet, or none with an engagement you're on. An admin adds you to an engagement's team."}</p>`;
   $("new-client").open = !clients.length;
 }
 
@@ -248,6 +249,7 @@ async function openEngagement(id) {
   $("eng-detail").hidden = false;
   $("eng-title").textContent = `${e.client.name} · ${e.name}`;
   $("eng-meta").textContent = `${e.period_start ? e.period_start + " to " : "Period ending "}${e.period_end} · ${e.framework}`;
+  renderTeam(e.team);
   renderMateriality(e.materiality);
   renderUploads(e.uploads);
   renderRuns(e.runs);
@@ -261,6 +263,46 @@ async function openEngagement(id) {
   await loadStatements();
   await loadRegister();
 }
+
+// Engagement team: who (besides admins) can see the engagement. Admins change it.
+
+function renderTeam(team) {
+  $("eng-team").textContent = team.length
+    ? `Team: ${team.map((m) => m.name + (m.active ? "" : " (deactivated)")).join(", ")}`
+    : "No one is on the team yet, so only admins can see this engagement.";
+}
+
+$("eng-team-edit").addEventListener("click", () => guard(async () => {
+  const e = currentEngagement;
+  const staff = (await getJSON("/api/users")).filter((u) => u.role !== "client");
+  const on = new Set(e.team.map((m) => m.id));
+  $("team-who").textContent = `${e.client.name} · ${e.name}`;
+  $("team-list").innerHTML = staff.map((u) => u.role === "admin"
+    ? `<label><input type="checkbox" disabled checked> ${esc(u.name)} <span class="tag">Admin, sees every engagement</span></label>`
+    : `<label><input type="checkbox" value="${u.id}"${on.has(u.id) ? " checked" : ""}> ${esc(u.name)} <span class="tag">${esc(u.role_label)}${u.active ? "" : " · deactivated"}</span></label>`).join("")
+    || '<p class="muted">Add people on the Users page first.</p>';
+  $("team-error").hidden = true;
+  $("team-form").dataset.engagement = e.id;
+  $("team-dialog").showModal();
+}));
+$("team-cancel").addEventListener("click", () => $("team-dialog").close());
+$("team-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const id = Number($("team-form").dataset.engagement);
+  const ids = [...$("team-list").querySelectorAll("input:checked:not(:disabled)")].map((x) => Number(x.value));
+  try {
+    const r = await sendJSON("PUT", `/api/engagements/${id}/team`, { user_ids: ids });
+    $("team-dialog").close();
+    if (currentEngagement?.id === id) {
+      currentEngagement.team = r.team;
+      renderTeam(r.team);
+      loadEngagementActivity();
+    }
+  } catch (err) {
+    $("team-error").textContent = err.message;
+    $("team-error").hidden = false;
+  }
+});
 
 $("eng-delete").addEventListener("click", () => {
   const e = currentEngagement;

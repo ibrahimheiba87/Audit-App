@@ -87,14 +87,17 @@ def client_user(user: User = Depends(signed_in_user)) -> User:
     return user
 
 
-def check_access(user: User, client_id: int, permission: str = "prepare",
-                 missing: str = "Request not found.") -> None:
-    """Clients may act on their own client's engagements; the team needs `permission`."""
+def check_access(session: Session, user: User, engagement_id: int, client_id: int,
+                 permission: str = "prepare", missing: str = "Request not found.") -> None:
+    """Clients may act on their own client's engagements; the team needs `permission` and to
+    be on the engagement."""
     if is_client(user):
         if user.client_id is None or client_id != user.client_id:
             # Same answer as a missing one, so clients can't probe other clients' ids.
             raise HTTPException(404, missing)
     else:
+        if not auth.on_engagement(session, user, engagement_id):
+            raise HTTPException(404, missing)
         auth.ensure(user, permission)
 
 
@@ -109,7 +112,7 @@ def lock_request(session: Session, user: User, request_id: int,
                           .join(Engagement).where(DocumentRequest.id == request_id)).first()
     if row is None:
         raise HTTPException(404, missing)
-    check_access(user, row.client_id, missing=missing)
+    check_access(session, user, row.engagement_id, row.client_id, missing=missing)
     auth.hold(session, f"requests:{row.engagement_id}")
     session.expire_all()
     req = session.get(DocumentRequest, request_id)
@@ -203,7 +206,7 @@ def summary(requests: list[DocumentRequest]) -> dict:
 @router.get("/engagements/{engagement_id}/requests")
 def list_requests(engagement_id: int, user: User = Depends(require("prepare")),
                   session: Session = Depends(get_session)) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     contacts = [{"name": cu.user.name, "email": cu.user.email, "active": cu.user.active}
                 for cu in e.client.portal_users]
     return {"requests": [request_out(r) for r in e.document_requests],
@@ -215,7 +218,7 @@ def list_requests(engagement_id: int, user: User = Depends(require("prepare")),
 def create_request(engagement_id: int, body: RequestIn, user: User = Depends(require("prepare")),
                    session: Session = Depends(get_session)) -> dict:
     number = next_number(session, engagement_id)  # holds before any other read or write
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     req = DocumentRequest(engagement=e, number=number, title=body.title,
                           details=body.details.strip(), due_date=body.due_date,
                           created_by=user.name)
@@ -303,7 +306,7 @@ def export_requests(engagement_id: int, format: str = "xlsx",
                     session: Session = Depends(get_session)) -> Response:
     if format not in ("csv", "xlsx"):
         raise HTTPException(400, "Format must be csv or xlsx.")
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     log(session, user, "request.download", f"Downloaded the client request list ({format})", e)
     session.commit()
     stem = safe_stem(f"{e.client.name}-{e.name}-requests")
@@ -406,7 +409,8 @@ def download_file(file_id: int, user: User = Depends(signed_in_user),
     if f is None:
         raise HTTPException(404, "File not found.")
     req = f.request
-    check_access(user, req.engagement.client_id, missing="File not found.")
+    check_access(session, user, req.engagement_id, req.engagement.client_id,
+                 missing="File not found.")
     content = f.content  # before the commit below, which a concurrent delete could beat
     log(session, user, "request.file_download", f"Downloaded {f.filename} from {label(req)}",
         req.engagement, details={"request_id": req.id, "file_id": f.id, "sha256": f.sha256,

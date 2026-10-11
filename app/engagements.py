@@ -15,7 +15,20 @@ from sqlalchemy.orm import Session, object_session
 
 from . import auth, checks, loader, materiality, register, report
 from .auth import current_user, log, require
-from .db import Client, Comparison, Engagement, Finding, Run, Sample, Upload, User, get_session
+from .db import (
+    Client,
+    Comparison,
+    Engagement,
+    EngagementMember,
+    Evidence,
+    Finding,
+    RequestFile,
+    Run,
+    Sample,
+    Upload,
+    User,
+    get_session,
+)
 from .exports import attachment
 from .uploads import parse_mapping, read_upload
 
@@ -62,6 +75,10 @@ class MaterialityIn(BaseModel):
     rationale: str = ""
 
 
+class TeamIn(BaseModel):
+    user_ids: list[int] = Field(max_length=500)
+
+
 class RunIn(BaseModel):
     upload_id: int
     cutoff_days: int = Field(default=5, ge=0)
@@ -70,11 +87,12 @@ class RunIn(BaseModel):
 
 # --- Serialization ----------------------------------------------------------
 
-def client_out(c: Client, with_engagements: bool = True) -> dict:
+def client_out(c: Client, engagements: list[Engagement] | None = None) -> dict:
+    """The client, with `engagements` (the ones the viewer may see) when given."""
     out = {"id": c.id, "name": c.name, "industry": c.industry, "notes": c.notes,
            "created_at": c.created_at.isoformat()}
-    if with_engagements:
-        out["engagements"] = [engagement_brief(e) for e in c.engagements]
+    if engagements is not None:
+        out["engagements"] = [engagement_brief(e) for e in engagements]
     return out
 
 
@@ -116,7 +134,7 @@ def run_brief(r: Run) -> dict:
 
 def engagement_out(e: Engagement) -> dict:
     return {
-        "id": e.id, "client": client_out(e.client, with_engagements=False), "name": e.name,
+        "id": e.id, "client": client_out(e.client), "name": e.name,
         "period_start": e.period_start.isoformat() if e.period_start else None,
         "period_end": e.period_end.isoformat(), "framework": e.framework,
         "created_at": e.created_at.isoformat(), "materiality": materiality_out(e),
@@ -125,7 +143,15 @@ def engagement_out(e: Engagement) -> dict:
         "comparisons": [comparison_brief(c) for c in reversed(e.comparisons)],
         "samples": [sample_brief(x) for x in reversed(e.samples)],
         "findings_summary": findings_summary(e),
+        "team": team_out(e),
     }
+
+
+def team_out(e: Engagement) -> list[dict]:
+    members = [{"id": m.user.id, "name": m.user.name, "email": m.user.email,
+                "role": m.user.role, "role_label": auth.ROLES[m.user.role],
+                "active": m.user.active} for m in e.team]
+    return sorted(members, key=lambda m: m["name"].lower())
 
 
 def findings_summary(e: Engagement) -> dict:
@@ -159,11 +185,48 @@ def safe_stem(text: str) -> str:
 
 # --- Lookups ----------------------------------------------------------------
 
-def get_or_404(session: Session, model, id_: int):
+def engagement_id_of(obj) -> int | None:
+    """The engagement a record belongs to, or None for records that don't belong to one."""
+    if isinstance(obj, Engagement):
+        return obj.id
+    if isinstance(obj, Evidence):
+        return obj.finding.engagement_id
+    if isinstance(obj, RequestFile):
+        return obj.request.engagement_id
+    return getattr(obj, "engagement_id", None)
+
+
+def get_or_404(session: Session, model, id_: int, user: User | None = None):
+    """The record, or a 404. Records of an engagement `user` isn't on get the same 404, so
+    nobody can tell which engagements exist."""
     obj = session.get(model, id_)
     if obj is None:
         raise HTTPException(404, f"{model.__name__} {id_} not found.")
+    engagement_id = engagement_id_of(obj)
+    if engagement_id is not None:
+        if user is None:
+            raise RuntimeError(f"Pass the user to look up a {model.__name__}.")
+        if not auth.on_engagement(session, user, engagement_id):
+            raise HTTPException(404, f"{model.__name__} {id_} not found.")
     return obj
+
+
+def visible_engagements(session: Session, user: User, engagements: list[Engagement]
+                        ) -> list[Engagement]:
+    if auth.sees_all_engagements(user):
+        return list(engagements)
+    assigned = set(session.scalars(auth.assigned_engagement_ids(user)))
+    return [e for e in engagements if e.id in assigned]
+
+
+def get_client_or_404(session: Session, user: User, client_id: int) -> Client:
+    """A client the user may see: one with an engagement they're on, or with none yet (so
+    whoever adds a client can add its first engagement)."""
+    client = session.get(Client, client_id)
+    if client is None or (client.engagements
+                          and not visible_engagements(session, user, client.engagements)):
+        raise HTTPException(404, f"Client {client_id} not found.")
+    return client
 
 
 def hold_requests(session: Session, engagement_ids: list[int]) -> None:
@@ -220,8 +283,14 @@ def calculate(body: MaterialityIn) -> dict:
 # --- Clients ----------------------------------------------------------------
 
 @router.get("/clients")
-def list_clients(session: Session = Depends(get_session)) -> list[dict]:
-    return [client_out(c) for c in session.scalars(select(Client).order_by(Client.name))]
+def list_clients(user: User = Depends(current_user),
+                 session: Session = Depends(get_session)) -> list[dict]:
+    out = []
+    for c in session.scalars(select(Client).order_by(Client.name)):
+        engagements = visible_engagements(session, user, c.engagements)
+        if engagements or not c.engagements:
+            out.append(client_out(c, engagements))
+    return out
 
 
 @router.post("/clients", status_code=201)
@@ -234,18 +303,20 @@ def create_client(body: ClientIn, user: User = Depends(require("review")),
         session.commit()
     except IntegrityError as exc:
         raise HTTPException(409, f"A client named {body.name!r} already exists.") from exc
-    return client_out(client)
+    return client_out(client, [])
 
 
 @router.get("/clients/{client_id}")
-def get_client(client_id: int, session: Session = Depends(get_session)) -> dict:
-    return client_out(get_or_404(session, Client, client_id))
+def get_client(client_id: int, user: User = Depends(current_user),
+               session: Session = Depends(get_session)) -> dict:
+    client = get_client_or_404(session, user, client_id)
+    return client_out(client, visible_engagements(session, user, client.engagements))
 
 
 @router.patch("/clients/{client_id}")
 def update_client(client_id: int, body: ClientPatch, user: User = Depends(require("review")),
                   session: Session = Depends(get_session)) -> dict:
-    client = get_or_404(session, Client, client_id)
+    client = get_client_or_404(session, user, client_id)
     changes = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
     for key, value in changes.items():
         setattr(client, key, value.strip() if key == "name" else value)
@@ -254,7 +325,7 @@ def update_client(client_id: int, body: ClientPatch, user: User = Depends(requir
         session.commit()
     except IntegrityError as exc:
         raise HTTPException(409, f"A client named {body.name!r} already exists.") from exc
-    return client_out(client)
+    return client_out(client, visible_engagements(session, user, client.engagements))
 
 
 @router.delete("/clients/{client_id}", status_code=204)
@@ -262,7 +333,10 @@ def delete_client(client_id: int, user: User = Depends(require("manage")),
                   session: Session = Depends(get_session)) -> Response:
     ids = sorted(session.scalars(select(Engagement.id).where(Engagement.client_id == client_id)))
     hold_requests(session, ids)
-    client = get_or_404(session, Client, client_id)
+    client = get_client_or_404(session, user, client_id)
+    if len(visible_engagements(session, user, client.engagements)) < len(client.engagements):
+        raise HTTPException(403, "This client has engagements you aren't assigned to, so an "
+                                 "admin has to delete it.")
     log(session, user, "client.delete",
         f"Deleted client {client.name} and its {len(client.engagements)} engagements",
         details={"request_files": request_files(client.engagements)})
@@ -276,11 +350,13 @@ def delete_client(client_id: int, user: User = Depends(require("manage")),
 @router.post("/clients/{client_id}/engagements", status_code=201)
 def create_engagement(client_id: int, body: EngagementIn, user: User = Depends(require("review")),
                       session: Session = Depends(get_session)) -> dict:
-    client = get_or_404(session, Client, client_id)
+    client = get_client_or_404(session, user, client_id)
     check_period(body.period_start, body.period_end)
     check_framework(body.framework)
     engagement = Engagement(client=client, name=body.name.strip(), period_end=body.period_end,
                             period_start=body.period_start, framework=body.framework)
+    if not auth.sees_all_engagements(user):
+        engagement.team.append(EngagementMember(user_id=user.id))  # or they'd lose it at once
     session.add(engagement)
     session.flush()
     log(session, user, "engagement.create",
@@ -290,15 +366,16 @@ def create_engagement(client_id: int, body: EngagementIn, user: User = Depends(r
 
 
 @router.get("/engagements/{engagement_id}")
-def get_engagement(engagement_id: int, session: Session = Depends(get_session)) -> dict:
-    return engagement_out(get_or_404(session, Engagement, engagement_id))
+def get_engagement(engagement_id: int, user: User = Depends(current_user),
+                   session: Session = Depends(get_session)) -> dict:
+    return engagement_out(get_or_404(session, Engagement, engagement_id, user))
 
 
 @router.patch("/engagements/{engagement_id}")
 def update_engagement(engagement_id: int, body: EngagementPatch,
                       user: User = Depends(require("review")),
                       session: Session = Depends(get_session)) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     changes = body.model_dump(exclude_unset=True)
     if changes.get("framework") is not None:
         check_framework(changes["framework"])
@@ -316,7 +393,7 @@ def update_engagement(engagement_id: int, body: EngagementPatch,
 def delete_engagement(engagement_id: int, user: User = Depends(require("manage")),
                       session: Session = Depends(get_session)) -> Response:
     hold_requests(session, [engagement_id])
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     log(session, user, "engagement.delete", f"Deleted engagement {e.name} with "
         f"{len(e.uploads)} files and {len(e.findings)} findings", e,
         details={"request_files": request_files([e])})
@@ -325,11 +402,42 @@ def delete_engagement(engagement_id: int, user: User = Depends(require("manage")
     return Response(status_code=204)
 
 
+@router.put("/engagements/{engagement_id}/team")
+def set_team(engagement_id: int, body: TeamIn, user: User = Depends(require("admin")),
+             session: Session = Depends(get_session)) -> dict:
+    """Choose who on the audit team works on the engagement (and so can see it)."""
+    auth.hold(session, f"team:{engagement_id}")  # two admins editing at once take turns
+    session.expire_all()
+    e = get_or_404(session, Engagement, engagement_id, user)
+    wanted = set(body.user_ids)
+    users = {u.id: u for u in session.scalars(select(User).where(User.id.in_(wanted)))}
+    if wanted - users.keys():
+        raise HTTPException(400, f"User {min(wanted - users.keys())} not found.")
+    if any(u.role == "client" for u in users.values()):
+        raise HTTPException(400, "Client users can't join the audit team; they see their "
+                                 "client's requests in the portal.")
+    current = {m.user_id: m for m in e.team}
+    added, removed = sorted(wanted - current.keys()), sorted(current.keys() - wanted)
+    removed_names = [current[uid].user.name for uid in removed]
+    for uid in removed:
+        e.team.remove(current[uid])
+    for uid in added:
+        e.team.append(EngagementMember(user_id=uid))
+    if added or removed:
+        parts = ([f"added {', '.join(users[uid].name for uid in added)}"] if added else []) + (
+            [f"removed {', '.join(removed_names)}"] if removed else [])
+        log(session, user, "engagement.team", f"Changed the team: {'; '.join(parts)}", e,
+            details={"added": added, "removed": removed})
+    session.commit()
+    session.refresh(e)
+    return {"team": team_out(e)}
+
+
 @router.put("/engagements/{engagement_id}/materiality")
 def set_materiality(engagement_id: int, body: MaterialityIn,
                     user: User = Depends(require("manage")),
                     session: Session = Depends(get_session)) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     m = calc(body)
     for key, value in m.to_dict().items():
         setattr(e, key, value)
@@ -354,7 +462,7 @@ async def create_upload(
     user: User = Depends(require("prepare")),
     session: Session = Depends(get_session),
 ) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     if kind not in UPLOAD_KINDS:
         raise HTTPException(400, f"Kind must be one of: {', '.join(UPLOAD_KINDS)}.")
     content = await read_upload(file)
@@ -381,7 +489,7 @@ async def create_upload(
 @router.delete("/uploads/{upload_id}", status_code=204)
 def delete_upload(upload_id: int, user: User = Depends(require("review")),
                   session: Session = Depends(get_session)) -> Response:
-    upload = get_or_404(session, Upload, upload_id)
+    upload = get_or_404(session, Upload, upload_id, user)
     findings = list(session.scalars(select(Finding).where(Finding.upload_id == upload_id)))
     worked = [f for f in findings if register.is_worked(f)]
     if worked:
@@ -430,8 +538,8 @@ def engagement_settings(e: Engagement, cutoff_days: int, round_threshold: float)
 @router.post("/engagements/{engagement_id}/runs", status_code=201)
 def create_run(engagement_id: int, body: RunIn, user: User = Depends(require("prepare")),
                session: Session = Depends(get_session)) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
-    upload = get_or_404(session, Upload, body.upload_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
+    upload = get_or_404(session, Upload, body.upload_id, user)
     if upload.engagement_id != e.id:
         raise HTTPException(400, "That upload belongs to another engagement.")
     loaded = load_upload(upload)
@@ -456,15 +564,16 @@ def create_run(engagement_id: int, body: RunIn, user: User = Depends(require("pr
 
 
 @router.get("/runs/{run_id}")
-def get_run(run_id: int, session: Session = Depends(get_session)) -> dict:
-    run = get_or_404(session, Run, run_id)
+def get_run(run_id: int, user: User = Depends(current_user),
+            session: Session = Depends(get_session)) -> dict:
+    run = get_or_404(session, Run, run_id, user)
     return {**run_brief(run), "engagement_id": run.engagement_id, "result": run.result}
 
 
 @router.get("/runs/{run_id}/report")
 def run_report(run_id: int, format: str = "xlsx", user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> Response:
-    run = get_or_404(session, Run, run_id)
+    run = get_or_404(session, Run, run_id, user)
     e = run.engagement
     if format in ("csv", "xlsx"):
         log(session, user, "run.download", f"Downloaded run #{run.id} report ({format})", e,

@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 
 from app import db
 from app.main import app
-from tests.test_auth import add_user, admin, at_once, login
+from tests.test_auth import add_user, admin, at_once, join, login
 
 pytestmark = pytest.mark.usefixtures("real_auth")
 
@@ -30,6 +30,7 @@ def setup():
     eid = a.post(f"/api/clients/{acme['id']}/engagements",
                  json={"name": "FY2026", "period_end": "2026-12-31"}).json()["id"]
     cl = add_client_user(a, acme["id"])
+    join(a, eid, prep, rev)
     return a, prep, rev, cl, acme["id"], eid
 
 
@@ -163,6 +164,7 @@ def test_clients_only_see_their_own_clients_requests():
     other = a.post("/api/clients", json={"name": "Globex"}).json()
     oeid = a.post(f"/api/clients/{other['id']}/engagements",
                   json={"name": "FY2026", "period_end": "2026-12-31"}).json()["id"]
+    join(a, oeid, prep)
     theirs = ask(prep, oeid, "Globex payroll")
     upload(prep, theirs["id"])
     fid = prep.get(f"/api/engagements/{oeid}/requests").json()["requests"][0]["files"][0]["id"]
@@ -261,6 +263,7 @@ def test_deleting_the_client_unlinks_its_portal_users_and_requests():
     req = ask(prep, eid)
     upload(cl, req["id"])
     partner = add_user(a, "partner")
+    join(a, eid, partner)
     assert partner.delete(f"/api/clients/{cid}").status_code == 204
     assert cl.get("/api/portal/requests").json() == {"client": None, "engagements": []}
     with db.SessionLocal() as s:
@@ -329,6 +332,7 @@ def test_file_ownership_stays_on_the_senders_side():
     uid = cl.get("/api/auth/me").json()["id"]
     a.patch(f"/api/users/{uid}", json={"role": "preparer"})
     staff = login("client@example.com", "long enough pw")
+    join(a, eid, staff)
     assert staff.delete(f"/api/request-files/{client_file}").status_code == 403
     assert rev.delete(f"/api/request-files/{client_file}").status_code == 204
 
@@ -338,6 +342,7 @@ def test_other_clients_ids_look_missing_and_deactivated_clients_are_out():
     other = a.post("/api/clients", json={"name": "Globex"}).json()
     oeid = a.post(f"/api/clients/{other['id']}/engagements",
                   json={"name": "FY2026", "period_end": "2026-12-31"}).json()["id"]
+    join(a, oeid, prep)
     theirs = ask(prep, oeid)
     fid = upload(prep, theirs["id"]).json()["files"][0]["id"]
     for path, missing in ((f"/api/request-files/{fid}", f"/api/request-files/{fid + 99}"),):
@@ -366,6 +371,7 @@ def test_deleting_an_engagement_logs_the_client_documents():
     a, prep, _, cl, _, eid = setup()
     upload(cl, ask(prep, eid)["id"])
     partner = add_user(a, "partner")
+    join(a, eid, partner)
     assert partner.delete(f"/api/engagements/{eid}").status_code == 204
     log = a.get("/api/activity", params={"action": "engagement.delete"}).json()[0]
     assert log["details"]["request_files"][0]["filename"] == "bank.pdf"

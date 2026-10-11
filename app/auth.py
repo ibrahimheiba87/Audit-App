@@ -9,7 +9,10 @@ Roles, lowest to highest. Each role can do everything the roles below it can:
               and clear review notes, sign off sections as reviewed, add and edit clients
               and engagements
     partner   set materiality, sign off completion, delete clients and engagements
-    admin     manage users, see the whole activity log
+    admin     manage users, assign the team to engagements, see the whole activity log
+
+Everyone but admins sees only the engagements they are assigned to (on_engagement); the rest
+answer 404 as if they didn't exist. Admins see every engagement.
 
 Client users are outside this ladder: they belong to one client and can only use the
 document request portal (portal.py) for that client's engagements. Every other endpoint
@@ -30,7 +33,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
-from .db import Activity, AuthSession, Engagement, Guard, User, get_session, utcnow
+from .db import Activity, AuthSession, Engagement, EngagementMember, Guard, User, get_session, utcnow
 
 ROLES = {"client": "Client", "preparer": "Preparer", "reviewer": "Reviewer",
          "partner": "Partner", "admin": "Admin"}
@@ -152,6 +155,28 @@ def require(permission: str):
         return user
     dependency.__name__ = f"require_{permission}"
     return dependency
+
+
+# --- Engagement access --------------------------------------------------------
+
+
+def sees_all_engagements(user: User) -> bool:
+    return user.role == "admin"
+
+
+def on_engagement(session: Session, user: User, engagement_id: int) -> bool:
+    """Whether a member of the audit team may see the engagement. Client users never do here;
+    the portal (portal.py) decides what they see."""
+    if user.role == "client":
+        return False
+    if sees_all_engagements(user):
+        return True
+    return session.get(EngagementMember, (engagement_id, user.id)) is not None
+
+
+def assigned_engagement_ids(user: User):
+    """A subquery of the engagements `user` is assigned to, for filtering lists."""
+    return select(EngagementMember.engagement_id).where(EngagementMember.user_id == user.id)
 
 
 # --- Activity log -------------------------------------------------------------

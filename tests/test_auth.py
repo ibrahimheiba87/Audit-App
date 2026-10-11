@@ -118,6 +118,14 @@ def test_user_management_is_admin_only():
     assert last_admin.status_code == 400
 
 
+def join(a, eid, *members):
+    """As admin `a`, add the signed-in users `members` to the engagement's team."""
+    ids = [m.get("/api/auth/me").json()["id"] for m in members]
+    current = [u["id"] for u in a.get(f"/api/engagements/{eid}").json()["team"]]
+    r = a.put(f"/api/engagements/{eid}/team", json={"user_ids": sorted(set(current + ids))})
+    assert r.status_code == 200, r.text
+
+
 def setup_engagement(c):
     cl = c.post("/api/clients", json={"name": "Acme"}).json()
     e = c.post(f"/api/clients/{cl['id']}/engagements",
@@ -132,6 +140,7 @@ def test_role_permissions():
     prep, rev, partner = (add_user(a, r) for r in ("preparer", "reviewer", "partner"))
     assert prep.post("/api/clients", json={"name": "Nope"}).status_code == 403
     eid, uid = setup_engagement(rev)  # reviewers can add clients and engagements
+    join(a, eid, prep, partner)
     mat = {"benchmark": "revenue", "benchmark_amount": 6_000_000}
     denied = rev.put(f"/api/engagements/{eid}/materiality", json=mat)
     assert denied.status_code == 403 and "partner or admin" in denied.json()["detail"]
@@ -158,9 +167,11 @@ def test_activity_log():
     a = admin()
     prep = add_user(a, "preparer")
     eid, uid = setup_engagement(a)
+    join(a, eid, prep)
     prep.post(f"/api/engagements/{eid}/runs", json={"upload_id": uid})
     prep.get("/api/runs/1/report")
-    log = prep.get("/api/activity", params={"engagement_id": eid}).json()
+    log = [x for x in prep.get("/api/activity", params={"engagement_id": eid}).json()
+           if x["action"] != "engagement.team"]
     actions = [x["action"] for x in log]
     assert actions[:3] == ["run.download", "run.create", "upload.create"]
     run = log[1]
@@ -292,6 +303,7 @@ def test_adjusting_entry_permissions():
     a = admin()
     prep = add_user(a, "preparer")
     eid, _ = setup_engagement(a)
+    join(a, eid, prep)
     entry = {"kind": "proposed", "description": "Cut-off",
              "lines": [{"account": "4000", "debit": 10}, {"account": "1200", "credit": 10}]}
     r = prep.post(f"/api/engagements/{eid}/adjusting-entries", json=entry)

@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from . import auth
-from .auth import log, require
+from .auth import current_user, log, require
 from .db import Activity, Engagement, ReviewNote, ReviewReply, SignOff, User, get_session, utcnow
 from .engagements import get_or_404
 
@@ -208,8 +208,9 @@ def review_out(session: Session, e: Engagement) -> dict:
 
 
 @router.get("/engagements/{engagement_id}/review")
-def get_review(engagement_id: int, session: Session = Depends(get_session)) -> dict:
-    return review_out(session, get_or_404(session, Engagement, engagement_id))
+def get_review(engagement_id: int, user: User = Depends(current_user),
+               session: Session = Depends(get_session)) -> dict:
+    return review_out(session, get_or_404(session, Engagement, engagement_id, user))
 
 
 def withdraw_review(session: Session, user: User, e: Engagement, section: str,
@@ -242,7 +243,7 @@ def sign_off(engagement_id: int, body: SignOffIn, user: User = Depends(require("
              session: Session = Depends(get_session)) -> dict:
     auth.ensure(user, permission_to_give(body.section, body.kind))
     auth.hold(session, f"review:{engagement_id}")  # notes and sign-offs change one at a time
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     section = SECTION[body.section]
     state = {s["id"]: s for s in section_state(e, last_changes(session, e.id))}
     mine = state[section.id]
@@ -297,7 +298,7 @@ def remove_sign_off(engagement_id: int, section: SectionId, kind: Kind,
     (and are at least a reviewer). Taking back the preparer's sign-off leaves the review
     showing as changed, since there is no longer prepared work for it to stand on."""
     auth.hold(session, f"review:{engagement_id}")
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     target = next((s for s in e.signoffs if s.section == section and s.kind == kind), None)
     if target is None:
         raise HTTPException(404, "That section isn't signed off.")
@@ -317,7 +318,7 @@ def remove_sign_off(engagement_id: int, section: SectionId, kind: Kind,
 def add_note(engagement_id: int, body: NoteIn, user: User = Depends(require("review")),
              session: Session = Depends(get_session)) -> dict:
     auth.hold(session, f"review:{engagement_id}")
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     note = ReviewNote(section=body.section, text=body.text, author_id=user.id,
                       author=user.name)
     e.review_notes.append(note)
@@ -331,18 +332,19 @@ def add_note(engagement_id: int, body: NoteIn, user: User = Depends(require("rev
     return note_out(note)
 
 
-def note_and_engagement(session: Session, note_id: int) -> tuple[ReviewNote, Engagement]:
-    engagement_id = get_or_404(session, ReviewNote, note_id).engagement_id
+def note_and_engagement(session: Session, user: User, note_id: int
+                        ) -> tuple[ReviewNote, Engagement]:
+    engagement_id = get_or_404(session, ReviewNote, note_id, user).engagement_id
     auth.hold(session, f"review:{engagement_id}")
     session.expire_all()  # it may have changed before we held the guard
-    note = get_or_404(session, ReviewNote, note_id)
+    note = get_or_404(session, ReviewNote, note_id, user)
     return note, note.engagement
 
 
 @router.post("/review-notes/{note_id}/replies", status_code=201)
 def reply_to_note(note_id: int, body: ReplyIn, user: User = Depends(require("prepare")),
                   session: Session = Depends(get_session)) -> dict:
-    note, e = note_and_engagement(session, note_id)
+    note, e = note_and_engagement(session, user, note_id)
     if note.status == "cleared":
         raise HTTPException(400, "This note is cleared. A reviewer can reopen it first.")
     note.replies.append(ReviewReply(text=body.text, author_id=user.id, author=user.name))
@@ -361,7 +363,7 @@ def reply_to_note(note_id: int, body: ReplyIn, user: User = Depends(require("pre
 def update_note(note_id: int, body: NotePatch, user: User = Depends(require("review")),
                 session: Session = Depends(get_session)) -> dict:
     """Clear a note once its answer is satisfactory, reopen it, or send an answer back."""
-    note, e = note_and_engagement(session, note_id)
+    note, e = note_and_engagement(session, user, note_id)
     label = SECTION[note.section].label
     if body.status == "cleared" and note.status != "cleared":
         if user.id == preparer_id(e, note.section):
@@ -387,7 +389,7 @@ def update_note(note_id: int, body: NotePatch, user: User = Depends(require("rev
 def delete_note(note_id: int, user: User = Depends(require("review")),
                 session: Session = Depends(get_session)) -> Response:
     """Delete a note raised by mistake: only its author, and only before anyone replies."""
-    note, e = note_and_engagement(session, note_id)
+    note, e = note_and_engagement(session, user, note_id)
     if note.author_id != user.id or note.replies:
         raise HTTPException(400, "Only the reviewer who raised a note can delete it, and only "
                                  "before anyone replies. Clear it instead.")

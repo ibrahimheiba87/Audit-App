@@ -64,6 +64,16 @@
     </form>
   </dialog>
 
+  <dialog id="team-dialog">
+    <form id="team-form" class="stack">
+      <h2>Team for <span id="team-who"></span></h2>
+      <p class="muted">Only the people ticked here, and admins, can see this engagement.</p>
+      <fieldset id="team-list" class="team-list"></fieldset>
+      <div class="actions"><button type="submit">Save team</button><button type="button" class="secondary" id="team-cancel">Cancel</button></div>
+      <div class="error" id="team-error" hidden></div>
+    </form>
+  </dialog>
+
   <!-- Client portal (client users) --------------------------------------->
   <div id="view-portal" class="view" hidden>
     <p class="lead" id="pt-lead">Documents your auditors have asked for. Upload a file against each request; they will accept it or tell you what else they need.</p>
@@ -165,8 +175,12 @@
               <div>
                 <h2 id="eng-title"></h2>
                 <p class="muted" id="eng-meta"></p>
+                <p class="muted" id="eng-team"></p>
               </div>
-              <button type="button" class="secondary danger min-3" id="eng-delete">Delete engagement</button>
+              <div class="cell-actions">
+                <button type="button" class="secondary min-4" id="eng-team-edit">Change team</button>
+                <button type="button" class="secondary danger min-3" id="eng-delete">Delete engagement</button>
+              </div>
             </div>
           </section>
 

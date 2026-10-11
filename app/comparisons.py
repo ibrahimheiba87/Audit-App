@@ -38,9 +38,9 @@ def run_compare(current, prior, settings: compare.CompareSettings) -> dict:
 def create_comparison(engagement_id: int, body: ComparisonIn,
                       user: User = Depends(require("prepare")),
                       session: Session = Depends(get_session)) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
-    current = get_or_404(session, Upload, body.current_upload_id)
-    prior = get_or_404(session, Upload, body.prior_upload_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
+    current = get_or_404(session, Upload, body.current_upload_id, user)
+    prior = get_or_404(session, Upload, body.prior_upload_id, user)
     if current.engagement_id != e.id or prior.engagement_id != e.id:
         raise HTTPException(400, "Both files must belong to this engagement.")
     if current.id == prior.id:
@@ -66,15 +66,16 @@ def create_comparison(engagement_id: int, body: ComparisonIn,
 
 
 @router.get("/comparisons/{comparison_id}")
-def get_comparison(comparison_id: int, session: Session = Depends(get_session)) -> dict:
-    c = get_or_404(session, Comparison, comparison_id)
+def get_comparison(comparison_id: int, user: User = Depends(current_user),
+                   session: Session = Depends(get_session)) -> dict:
+    c = get_or_404(session, Comparison, comparison_id, user)
     return {**comparison_brief(c), "engagement_id": c.engagement_id, "result": c.result}
 
 
 @router.get("/comparisons/{comparison_id}/report")
 def comparison_report(comparison_id: int, user: User = Depends(current_user),
                       session: Session = Depends(get_session)) -> Response:
-    c = get_or_404(session, Comparison, comparison_id)
+    c = get_or_404(session, Comparison, comparison_id, user)
     e = c.engagement
     log(session, user, "comparison.download", f"Downloaded comparison #{c.id}", e,
         details={"comparison_id": c.id, "current_sha256": c.current_upload.sha256,

@@ -123,10 +123,10 @@ def options() -> dict:
 
 @router.get("/engagements/{engagement_id}/findings")
 def list_findings(engagement_id: int, status: str = "", severity: str = "", check: str = "",
-                  offset: int = 0, limit: int = 200,
+                  offset: int = 0, limit: int = 200, user: User = Depends(current_user),
                   session: Session = Depends(get_session)) -> dict:
     """One page of the register (filtered), plus totals for the whole engagement."""
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     register.sync_engagement(session, e)
     offset, limit = max(offset, 0), min(max(limit, 1), MAX_PAGE)
     where = [Finding.engagement_id == e.id]
@@ -150,7 +150,7 @@ def list_findings(engagement_id: int, status: str = "", severity: str = "", chec
 @router.post("/engagements/{engagement_id}/findings", status_code=201)
 def create_finding(engagement_id: int, body: FindingIn, user: User = Depends(require("prepare")),
                    session: Session = Depends(get_session)) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     f = Finding(engagement=e, source="manual", severity=body.severity, detail=body.detail,
                 account=body.account or None, description=body.description or None,
                 entry_id=body.entry_id or None, amount=body.amount,
@@ -167,7 +167,7 @@ def create_finding(engagement_id: int, body: FindingIn, user: User = Depends(req
 @router.post("/engagements/{engagement_id}/findings/bulk")
 def bulk_update(engagement_id: int, body: BulkIn, user: User = Depends(require("prepare")),
                 session: Session = Depends(get_session)) -> dict:
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     found = list(session.scalars(select(Finding).where(Finding.id.in_(body.ids))))
     if len(found) != len(set(body.ids)) or any(f.engagement_id != e.id for f in found):
         raise HTTPException(400, "Some findings were not found in this engagement.")
@@ -183,7 +183,7 @@ def bulk_update(engagement_id: int, body: BulkIn, user: User = Depends(require("
 @router.get("/engagements/{engagement_id}/findings/export")
 def export_findings(engagement_id: int, user: User = Depends(current_user),
                     session: Session = Depends(get_session)) -> Response:
-    e = get_or_404(session, Engagement, engagement_id)
+    e = get_or_404(session, Engagement, engagement_id, user)
     findings = engagement_findings(session, e)
     log(session, user, "finding.download", "Downloaded the findings register", e)
     session.commit()
@@ -195,14 +195,15 @@ def export_findings(engagement_id: int, user: User = Depends(current_user),
 
 
 @router.get("/findings/{finding_id}")
-def get_finding(finding_id: int, session: Session = Depends(get_session)) -> dict:
-    return finding_out(get_or_404(session, Finding, finding_id))
+def get_finding(finding_id: int, user: User = Depends(current_user),
+                session: Session = Depends(get_session)) -> dict:
+    return finding_out(get_or_404(session, Finding, finding_id, user))
 
 
 @router.patch("/findings/{finding_id}")
 def update_finding(finding_id: int, body: FindingPatch, user: User = Depends(require("prepare")),
                    session: Session = Depends(get_session)) -> dict:
-    f = get_or_404(session, Finding, finding_id)
+    f = get_or_404(session, Finding, finding_id, user)
     note = body.note.strip()
     if body.severity and body.severity != f.severity:
         auth.ensure(user, "review")
@@ -225,7 +226,7 @@ def update_finding(finding_id: int, body: FindingPatch, user: User = Depends(req
 @router.delete("/findings/{finding_id}", status_code=204)
 def delete_finding(finding_id: int, user: User = Depends(require("review")),
                    session: Session = Depends(get_session)) -> Response:
-    f = get_or_404(session, Finding, finding_id)
+    f = get_or_404(session, Finding, finding_id, user)
     if f.source != "manual":
         raise HTTPException(400, "Findings from a check run can't be deleted; clear them instead.")
     log(session, user, "finding.delete", f"Deleted finding #{f.id}: {f.detail}", f.engagement,
@@ -238,7 +239,7 @@ def delete_finding(finding_id: int, user: User = Depends(require("review")),
 @router.post("/findings/{finding_id}/notes", status_code=201)
 def add_note(finding_id: int, body: NoteIn, user: User = Depends(require("prepare")),
              session: Session = Depends(get_session)) -> dict:
-    f = get_or_404(session, Finding, finding_id)
+    f = get_or_404(session, Finding, finding_id, user)
     f.notes.append(FindingNote(text=body.text, author=user.name))
     log(session, user, "finding.note", f"Note on finding #{f.id}: {body.text}",
         f.engagement, details={"finding_id": f.id})
@@ -251,7 +252,7 @@ def add_note(finding_id: int, body: NoteIn, user: User = Depends(require("prepar
 async def add_evidence(finding_id: int, file: UploadFile = File(...),
                        user: User = Depends(require("prepare")),
                        session: Session = Depends(get_session)) -> dict:
-    f = get_or_404(session, Finding, finding_id)
+    f = get_or_404(session, Finding, finding_id, user)
     content = await file.read()
     if not content:
         raise HTTPException(400, "The file is empty.")
@@ -274,7 +275,7 @@ async def add_evidence(finding_id: int, file: UploadFile = File(...),
 @router.get("/evidence/{evidence_id}")
 def download_evidence(evidence_id: int, user: User = Depends(current_user),
                       session: Session = Depends(get_session)) -> Response:
-    ev = get_or_404(session, Evidence, evidence_id)
+    ev = get_or_404(session, Evidence, evidence_id, user)
     log(session, user, "evidence.download", f"Downloaded {ev.filename} from finding "
         f"#{ev.finding_id}", ev.finding.engagement,
         details={"evidence_id": ev.id, "finding_id": ev.finding_id, "sha256": ev.sha256,
@@ -287,7 +288,7 @@ def download_evidence(evidence_id: int, user: User = Depends(current_user),
 @router.delete("/evidence/{evidence_id}", status_code=204)
 def delete_evidence(evidence_id: int, user: User = Depends(require("review")),
                     session: Session = Depends(get_session)) -> Response:
-    ev = get_or_404(session, Evidence, evidence_id)
+    ev = get_or_404(session, Evidence, evidence_id, user)
     f = ev.finding
     if f.status == "cleared":
         raise HTTPException(400, "Reopen the finding before removing its evidence.")

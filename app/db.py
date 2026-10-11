@@ -115,6 +115,9 @@ class Engagement(Base):
     document_requests: Mapped[list[DocumentRequest]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="DocumentRequest.number"
     )
+    team: Mapped[list[EngagementMember]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan"
+    )
 
 
 class Upload(Base):
@@ -473,6 +476,20 @@ class ClientUser(Base):
 
     user: Mapped[User] = relationship(back_populates="client_link")
     client: Mapped[Client] = relationship(back_populates="portal_users")
+
+
+class EngagementMember(Base):
+    """A member of the audit team assigned to an engagement. Only admins see engagements
+    they aren't assigned to (auth.on_engagement)."""
+
+    __tablename__ = "engagement_members"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True, index=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="team")
+    user: Mapped[User] = relationship()
 
 
 class AuthSession(Base):
