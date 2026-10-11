@@ -211,12 +211,31 @@ def get_or_404(session: Session, model, id_: int, user: User | None = None):
     return obj
 
 
-def visible_engagements(session: Session, user: User, engagements: list[Engagement]
-                        ) -> list[Engagement]:
+def assigned_ids(session: Session, user: User) -> set[int] | None:
+    """Ids of the engagements the user is on, or None if they see every engagement."""
+    if auth.sees_all_engagements(user):
+        return None
+    return set(session.scalars(auth.assigned_engagement_ids(user)))
+
+
+def visible_engagements(session: Session, user: User, engagements: list[Engagement],
+                        assigned: set[int] | None = None) -> list[Engagement]:
+    """The engagements the user may see. Pass `assigned` (from assigned_ids) when calling this
+    for many clients, so it is looked up once."""
     if auth.sees_all_engagements(user):
         return list(engagements)
-    assigned = set(session.scalars(auth.assigned_engagement_ids(user)))
+    if assigned is None:
+        assigned = assigned_ids(session, user)
     return [e for e in engagements if e.id in assigned]
+
+
+def held_engagement(session: Session, user: User, engagement_id: int, key: str) -> Engagement:
+    """The engagement, with the guard `key` held (see auth.hold). Access is checked before
+    holding, so someone off the team can't hold up the team's work."""
+    get_or_404(session, Engagement, engagement_id, user)
+    auth.hold(session, key)
+    session.expire_all()  # it may have changed before we held the guard
+    return get_or_404(session, Engagement, engagement_id, user)
 
 
 def get_client_or_404(session: Session, user: User, client_id: int) -> Client:
@@ -229,12 +248,13 @@ def get_client_or_404(session: Session, user: User, client_id: int) -> Client:
     return client
 
 
-def hold_requests(session: Session, engagement_ids: list[int]) -> None:
-    """Hold the engagements' document requests (portal.py) before deleting them, so a request
-    or file can't be added to an engagement as it goes."""
+def hold_for_delete(session: Session, engagement_ids: list[int]) -> None:
+    """Hold the engagements' document requests (portal.py) and teams before deleting them, so
+    a request, file or team member can't be added to an engagement as it goes."""
     for eid in engagement_ids:
         auth.hold(session, f"request-number:{eid}")
         auth.hold(session, f"requests:{eid}")
+        auth.hold(session, f"team:{eid}")
     session.expire_all()
 
 
@@ -285,9 +305,9 @@ def calculate(body: MaterialityIn) -> dict:
 @router.get("/clients")
 def list_clients(user: User = Depends(current_user),
                  session: Session = Depends(get_session)) -> list[dict]:
-    out = []
+    out, assigned = [], assigned_ids(session, user)
     for c in session.scalars(select(Client).order_by(Client.name)):
-        engagements = visible_engagements(session, user, c.engagements)
+        engagements = visible_engagements(session, user, c.engagements, assigned)
         if engagements or not c.engagements:
             out.append(client_out(c, engagements))
     return out
@@ -331,8 +351,9 @@ def update_client(client_id: int, body: ClientPatch, user: User = Depends(requir
 @router.delete("/clients/{client_id}", status_code=204)
 def delete_client(client_id: int, user: User = Depends(require("manage")),
                   session: Session = Depends(get_session)) -> Response:
+    get_client_or_404(session, user, client_id)  # before holding anything
     ids = sorted(session.scalars(select(Engagement.id).where(Engagement.client_id == client_id)))
-    hold_requests(session, ids)
+    hold_for_delete(session, ids)
     client = get_client_or_404(session, user, client_id)
     if len(visible_engagements(session, user, client.engagements)) < len(client.engagements):
         raise HTTPException(403, "This client has engagements you aren't assigned to, so an "
@@ -392,7 +413,8 @@ def update_engagement(engagement_id: int, body: EngagementPatch,
 @router.delete("/engagements/{engagement_id}", status_code=204)
 def delete_engagement(engagement_id: int, user: User = Depends(require("manage")),
                       session: Session = Depends(get_session)) -> Response:
-    hold_requests(session, [engagement_id])
+    get_or_404(session, Engagement, engagement_id, user)  # before holding anything
+    hold_for_delete(session, [engagement_id])
     e = get_or_404(session, Engagement, engagement_id, user)
     log(session, user, "engagement.delete", f"Deleted engagement {e.name} with "
         f"{len(e.uploads)} files and {len(e.findings)} findings", e,
@@ -405,7 +427,10 @@ def delete_engagement(engagement_id: int, user: User = Depends(require("manage")
 @router.put("/engagements/{engagement_id}/team")
 def set_team(engagement_id: int, body: TeamIn, user: User = Depends(require("admin")),
              session: Session = Depends(get_session)) -> dict:
-    """Choose who on the audit team works on the engagement (and so can see it)."""
+    """Choose who on the audit team works on the engagement (and so can see it). Admins see
+    every engagement, so they aren't added; one who joined before becoming an admin stays on,
+    and keeps the engagement if they stop being an admin."""
+    auth.hold(session, "admins")  # so nobody becomes a client user while joining the team
     auth.hold(session, f"team:{engagement_id}")  # two admins editing at once take turns
     session.expire_all()
     e = get_or_404(session, Engagement, engagement_id, user)
@@ -417,7 +442,12 @@ def set_team(engagement_id: int, body: TeamIn, user: User = Depends(require("adm
         raise HTTPException(400, "Client users can't join the audit team; they see their "
                                  "client's requests in the portal.")
     current = {m.user_id: m for m in e.team}
-    added, removed = sorted(wanted - current.keys()), sorted(current.keys() - wanted)
+    if any(u.role == "admin" and uid not in current for uid, u in users.items()):
+        raise HTTPException(400, "Admins already see every engagement, so they aren't added "
+                                 "to teams.")
+    kept_admins = {uid for uid, m in current.items() if m.user.role == "admin"}
+    added = sorted(wanted - current.keys())
+    removed = sorted(current.keys() - wanted - kept_admins)
     removed_names = [current[uid].user.name for uid in removed]
     for uid in removed:
         e.team.remove(current[uid])

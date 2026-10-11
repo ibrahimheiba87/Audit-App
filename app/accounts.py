@@ -260,7 +260,7 @@ def update_user(user_id: int, body: UserPatch, request: Request,
 def activity(engagement_id: int | None = None, user_id: int | None = None, action: str = "",
              limit: int = 200, user: User = Depends(current_user),
              session: Session = Depends(get_session)) -> list[dict]:
-    """The activity log. Anyone can see an engagement's log; the full log is for admins."""
+    """The activity log. An engagement's team sees its log; the full log is for admins."""
     engagement = None
     if engagement_id is None:
         auth.ensure(user, "admin")
