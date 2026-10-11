@@ -351,13 +351,17 @@ def update_client(client_id: int, body: ClientPatch, user: User = Depends(requir
 @router.delete("/clients/{client_id}", status_code=204)
 def delete_client(client_id: int, user: User = Depends(require("manage")),
                   session: Session = Depends(get_session)) -> Response:
-    get_client_or_404(session, user, client_id)  # before holding anything
+    def deletable() -> Client:
+        client = get_client_or_404(session, user, client_id)
+        if len(visible_engagements(session, user, client.engagements)) < len(client.engagements):
+            raise HTTPException(403, "This client has engagements you aren't assigned to, so an "
+                                     "admin has to delete it.")
+        return client
+
+    deletable()  # before holding anything, then again in case it changed meanwhile
     ids = sorted(session.scalars(select(Engagement.id).where(Engagement.client_id == client_id)))
     hold_for_delete(session, ids)
-    client = get_client_or_404(session, user, client_id)
-    if len(visible_engagements(session, user, client.engagements)) < len(client.engagements):
-        raise HTTPException(403, "This client has engagements you aren't assigned to, so an "
-                                 "admin has to delete it.")
+    client = deletable()
     log(session, user, "client.delete",
         f"Deleted client {client.name} and its {len(client.engagements)} engagements",
         details={"request_files": request_files(client.engagements)})

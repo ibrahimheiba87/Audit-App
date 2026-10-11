@@ -245,15 +245,18 @@ def test_becoming_a_client_user_takes_someone_off_every_team():
     assert "taken off 1 engagements" in log["summary"]
 
 
-def test_deleting_a_client_needs_every_engagement():
+def test_deleting_a_client_needs_every_engagement(monkeypatch):
     a = admin()
     partner = add_user(a, "partner")
     acme = a.post("/api/clients", json={"name": "Acme"}).json()
     ids = [a.post(f"/api/clients/{acme['id']}/engagements",
                   json={"name": n, "period_end": "2026-12-31"}).json()["id"] for n in "AB"]
     join(a, ids[0], partner)
+    held, hold = [], auth.hold
+    monkeypatch.setattr(auth, "hold", lambda s, key: (held.append(key), hold(s, key)))
     r = partner.delete(f"/api/clients/{acme['id']}")
     assert r.status_code == 403 and "admin" in r.json()["detail"]
+    assert not held  # nothing of the engagement they aren't on was held up
     join(a, ids[1], partner)
     assert partner.delete(f"/api/clients/{acme['id']}").status_code == 204
 
