@@ -2,7 +2,7 @@
 
 import pytest
 
-from app import assistant, db
+from app import assistant, auth, db
 from app.main import app
 from tests.test_auth import add_user, admin, join, setup_engagement
 from tests.test_portal import PDF, add_client_user
@@ -131,10 +131,14 @@ def test_every_engagement_route_looks_missing_to_someone_not_on_it(monkeypatch):
         "add new routes with ids to bodies() or NOT_ENGAGEMENT_ROUTES"
     # A partner can do anything but admin work, so a refusal can only come from the team check.
     outsider = add_user(a, "partner")
+    held, hold = [], auth.hold
+    monkeypatch.setattr(auth, "hold", lambda s, key: (held.append(key), hold(s, key)))
     for (method, path), kwargs in table.items():
         url = path.format(**ids)
         r = outsider.request(method, url, **kwargs)
         assert r.status_code == 404, (method, path, r.status_code, r.text)
+        # Holding the engagement's guards, even briefly, would hold up the team's work.
+        assert not held, (method, path, held)
     # Nothing was changed, and the same requests work once they are on the team.
     with db.SessionLocal() as s:
         assert s.get(db.Engagement, ids["engagement_id"]).name == "FY2026"
@@ -194,6 +198,27 @@ def test_team_changes_are_for_admins_and_logged():
     assert len(a.get("/api/activity", params={"action": "engagement.team"}).json()) == 2
 
 
+def test_admins_are_not_added_to_teams_but_keep_a_place_they_had():
+    a = admin()
+    prep, other = add_user(a, "preparer"), add_user(a, "preparer", "other@example.com")
+    eid, _ = setup_engagement(a)
+    join(a, eid, prep, other)
+    pid = prep.get("/api/auth/me").json()["id"]
+    oid = other.get("/api/auth/me").json()["id"]
+    r = a.put(f"/api/engagements/{eid}/team",
+              json={"user_ids": [oid, a.get("/api/auth/me").json()["id"]]})
+    assert r.status_code == 400 and "Admins" in r.json()["detail"]
+    # Someone on the team who becomes an admin stays on it when the team is saved without them
+    # (the team dialog can't untick admins), so they keep it if they stop being an admin.
+    a.patch(f"/api/users/{pid}", json={"role": "admin"})
+    r = a.put(f"/api/engagements/{eid}/team", json={"user_ids": []})
+    assert [m["id"] for m in r.json()["team"]] == [pid]
+    assert a.get("/api/activity", params={"action": "engagement.team"}).json()[0]["details"] \
+        == {"added": [], "removed": [oid]}
+    a.patch(f"/api/users/{pid}", json={"role": "preparer"})
+    assert prep.get(f"/api/engagements/{eid}").status_code == 200
+
+
 def test_whoever_creates_an_engagement_is_on_its_team():
     a = admin()
     rev = add_user(a, "reviewer")
@@ -220,15 +245,18 @@ def test_becoming_a_client_user_takes_someone_off_every_team():
     assert "taken off 1 engagements" in log["summary"]
 
 
-def test_deleting_a_client_needs_every_engagement():
+def test_deleting_a_client_needs_every_engagement(monkeypatch):
     a = admin()
     partner = add_user(a, "partner")
     acme = a.post("/api/clients", json={"name": "Acme"}).json()
     ids = [a.post(f"/api/clients/{acme['id']}/engagements",
                   json={"name": n, "period_end": "2026-12-31"}).json()["id"] for n in "AB"]
     join(a, ids[0], partner)
+    held, hold = [], auth.hold
+    monkeypatch.setattr(auth, "hold", lambda s, key: (held.append(key), hold(s, key)))
     r = partner.delete(f"/api/clients/{acme['id']}")
     assert r.status_code == 403 and "admin" in r.json()["detail"]
+    assert not held  # nothing of the engagement they aren't on was held up
     join(a, ids[1], partner)
     assert partner.delete(f"/api/clients/{acme['id']}").status_code == 204
 

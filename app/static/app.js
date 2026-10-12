@@ -185,8 +185,11 @@ async function renderClients(activeId) {
       ${c.industry ? `<div class="muted" style="font-size:13px">${esc(c.industry)}</div>` : ""}
       <ul>${c.engagements.map((e) => `<li><a href="#/engagements/${e.id}" class="${e.id === activeId ? "active" : ""}">
         ${esc(e.name)} <span class="muted">· ${esc(e.period_end)}</span></a></li>`).join("")}</ul>
-    </div>`).join("") : `<p class="muted">${me.role === "admin" ? "No clients yet."
-    : "No clients yet, or none with an engagement you're on. An admin adds you to an engagement's team."}</p>`;
+    </div>`).join("") : `<p class="muted">No clients yet.</p>`;
+  if (me.role !== "admin" && !clients.some((c) => c.engagements.length)) {
+    $("client-list").insertAdjacentHTML("beforeend", `<p class="muted">You only see engagements
+      whose team you're on. An admin adds you to an engagement's team.</p>`);
+  }
   $("new-client").open = !clients.length;
 }
 

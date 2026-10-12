@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session, selectinload
 from . import auth
 from .auth import current_user, log, require
 from .db import Activity, Engagement, ReviewNote, ReviewReply, SignOff, User, get_session, utcnow
-from .engagements import get_or_404
+from .engagements import get_or_404, held_engagement
 
 router = APIRouter(prefix="/api")
 
@@ -242,8 +242,8 @@ def preparer_id(e: Engagement, section: str) -> int | None:
 def sign_off(engagement_id: int, body: SignOffIn, user: User = Depends(require("prepare")),
              session: Session = Depends(get_session)) -> dict:
     auth.ensure(user, permission_to_give(body.section, body.kind))
-    auth.hold(session, f"review:{engagement_id}")  # notes and sign-offs change one at a time
-    e = get_or_404(session, Engagement, engagement_id, user)
+    # Notes and sign-offs change one at a time.
+    e = held_engagement(session, user, engagement_id, f"review:{engagement_id}")
     section = SECTION[body.section]
     state = {s["id"]: s for s in section_state(e, last_changes(session, e.id))}
     mine = state[section.id]
@@ -297,8 +297,7 @@ def remove_sign_off(engagement_id: int, section: SectionId, kind: Kind,
     """Take back a sign-off: your own, or someone else's if you could have given it yourself
     (and are at least a reviewer). Taking back the preparer's sign-off leaves the review
     showing as changed, since there is no longer prepared work for it to stand on."""
-    auth.hold(session, f"review:{engagement_id}")
-    e = get_or_404(session, Engagement, engagement_id, user)
+    e = held_engagement(session, user, engagement_id, f"review:{engagement_id}")
     target = next((s for s in e.signoffs if s.section == section and s.kind == kind), None)
     if target is None:
         raise HTTPException(404, "That section isn't signed off.")
@@ -317,8 +316,7 @@ def remove_sign_off(engagement_id: int, section: SectionId, kind: Kind,
 @router.post("/engagements/{engagement_id}/review-notes", status_code=201)
 def add_note(engagement_id: int, body: NoteIn, user: User = Depends(require("review")),
              session: Session = Depends(get_session)) -> dict:
-    auth.hold(session, f"review:{engagement_id}")
-    e = get_or_404(session, Engagement, engagement_id, user)
+    e = held_engagement(session, user, engagement_id, f"review:{engagement_id}")
     note = ReviewNote(section=body.section, text=body.text, author_id=user.id,
                       author=user.name)
     e.review_notes.append(note)

@@ -217,7 +217,9 @@ def list_requests(engagement_id: int, user: User = Depends(require("prepare")),
 @router.post("/engagements/{engagement_id}/requests", status_code=201)
 def create_request(engagement_id: int, body: RequestIn, user: User = Depends(require("prepare")),
                    session: Session = Depends(get_session)) -> dict:
-    number = next_number(session, engagement_id)  # holds before any other read or write
+    get_or_404(session, Engagement, engagement_id, user)  # before holding the counter
+    number = next_number(session, engagement_id)
+    session.expire_all()  # it may have changed before we held the counter
     e = get_or_404(session, Engagement, engagement_id, user)
     req = DocumentRequest(engagement=e, number=number, title=body.title,
                           details=body.details.strip(), due_date=body.due_date,

@@ -118,7 +118,16 @@ exports, findings, requests and AI assistant answer "not found". An admin picks 
 **Change team** on the engagement page; whoever creates an engagement joins its team. A client
 with no engagements yet is visible to the whole audit team, so someone can add its first
 engagement. Deleting a client needs someone on every one of its engagements (or an admin).
-Team changes are logged, and making someone a client user takes them off every team.
+Team changes are logged, and making someone a client user takes them off every team. Admins
+aren't added to teams, since they already see everything.
+
+Client names are unique across the firm, so adding or renaming a client to a name that's taken
+says so even when the existing client belongs to engagements you aren't on. Adding a new
+engagement to such a client is for an admin or someone on its team.
+
+**Upgrading from a version without teams:** engagements that already exist start with an empty
+team, so only admins see them. Before your team signs in, an admin opens each engagement and
+uses **Change team** to add the people who work on it.
 
 **Client** users are outside this list: an admin links each one to a client. They only see the
 document request portal for that client's engagements (upload files, remove their own files
@@ -203,7 +212,8 @@ All endpoints need a signed-in session cookie except `/api/health`, `GET /api/au
 - `GET /api/auth/status`, `POST /api/auth/setup` (first admin, only while there are no users),
   `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`
 - `GET|POST /api/users`, `PATCH /api/users/{id}` (`name`, `role`, `active`, `password`, `client_id` for client users); admin only
-- `GET /api/activity?engagement_id=&user_id=&action=&limit=`; without `engagement_id`, admin only
+- `GET /api/activity?engagement_id=&user_id=&action=&limit=`; without `engagement_id`, admin
+  only; with it, admins and the engagement's team
 
 - `POST /api/preview`: multipart form with `file` and optional `sheet`. Returns the columns,
   sheet names, first rows and a suggested mapping.
@@ -219,7 +229,8 @@ Engagement endpoints (JSON unless noted):
 - `GET/POST /api/clients`, `GET/PATCH/DELETE /api/clients/{id}`
 - `POST /api/clients/{id}/engagements`, `GET/PATCH/DELETE /api/engagements/{id}` (the
   engagement includes its `team`)
-- `PUT /api/engagements/{id}/team` (`user_ids`): set who is on the engagement; admin only
+- `PUT /api/engagements/{id}/team` (`user_ids`): set who is on the engagement (not admins or
+  client users); admin only
 - `GET /api/materiality/benchmarks`, `POST /api/materiality/calculate`,
   `PUT /api/engagements/{id}/materiality`
 - `POST /api/engagements/{id}/uploads` (multipart: `file`, `kind` = `gl`, `tb` or `prior_tb`,

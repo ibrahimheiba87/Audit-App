@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from . import auth, statements
 from .auth import current_user, log, require
 from .db import AccountMapping, AdjustingEntry, AdjustingLine, Engagement, Guard, Upload, User, get_session
-from .engagements import get_or_404, load_upload, materiality_out, safe_stem, upload_out
+from .engagements import get_or_404, held_engagement, load_upload, materiality_out, safe_stem, upload_out
 from .exports import attachment
 from .statements import ENTRY_KINDS, LINE
 
@@ -113,8 +113,8 @@ def get_statements(engagement_id: int, upload_id: int | None = None,
 def save_mapping(engagement_id: int, body: MappingIn, user: User = Depends(require("prepare")),
                  session: Session = Depends(get_session)) -> dict:
     """Map accounts to FS lines; a null line removes the mapping."""
-    auth.hold(session, f"mapping:{engagement_id}")  # so two saves can't both add an account
-    e = get_or_404(session, Engagement, engagement_id, user)
+    # So two saves can't both add an account.
+    e = held_engagement(session, user, engagement_id, f"mapping:{engagement_id}")
     bad = sorted({v for v in body.mappings.values() if v is not None and v not in LINE})
     if bad:
         raise HTTPException(400, f"Unknown financial statement line: {', '.join(bad)}.")
@@ -155,8 +155,8 @@ def create_entry(engagement_id: int, body: EntryIn, user: User = Depends(require
         statements.check_entry_lines(lines)
     except statements.StatementsError as exc:
         raise HTTPException(400, str(exc)) from exc
-    auth.hold(session, f"entries:{engagement_id}")  # so two new entries can't take the same number
-    e = get_or_404(session, Engagement, engagement_id, user)
+    # So two new entries can't take the same number.
+    e = held_engagement(session, user, engagement_id, f"entries:{engagement_id}")
     entry = AdjustingEntry(
         kind=body.kind, number=next_number(session, e.id, body.kind),
         description=body.description, date=body.date.isoformat() if body.date else None,
