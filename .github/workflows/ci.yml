@@ -20,3 +20,28 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: pytest -q
+
+  postgres:
+    # The server runs PostgreSQL 13, so the tests run against it too.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: audit
+          POSTGRES_PASSWORD: audit
+          POSTGRES_DB: audit
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U audit" --health-interval 5s --health-timeout 5s
+          --health-retries 10
+    env:
+      AUDIT_TEST_DB_URL: postgresql+psycopg://audit:audit@127.0.0.1:5432/audit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q

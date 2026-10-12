@@ -69,6 +69,21 @@ def test_first_run_setup():
     assert again.status_code == 409
 
 
+def test_setup_needs_the_setup_code_when_one_is_set(monkeypatch):
+    monkeypatch.setenv("AUDIT_SETUP_CODE", "open-sesame-42")
+    with db.SessionLocal() as s:
+        s.query(db.User).delete()
+        s.commit()
+    c = TestClient(app)
+    assert c.get("/api/auth/status").json()["setup_code_required"] is True
+    body = {"email": "boss@firm.com", "name": "Boss", "password": "a long password"}
+    for code in ("", "wrong"):
+        r = c.post("/api/auth/setup", json={**body, "setup_code": code})
+        assert r.status_code == 403 and "setup code" in r.json()["detail"]
+    assert c.post("/api/auth/setup", json={**body, "setup_code": " open-sesame-42 "}).status_code == 201
+    assert TestClient(app).get("/api/auth/status").json()["setup_code_required"] is False
+
+
 def test_login_logout_and_cookie():
     c = TestClient(app)
     bad = c.post("/api/auth/login", json={"email": ADMIN["email"], "password": "nope"})

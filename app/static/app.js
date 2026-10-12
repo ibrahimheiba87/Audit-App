@@ -1848,6 +1848,8 @@ async function startApp() {
     setUser(status.user);
     await startApp();
   } else {
+    $("setup-code-row").hidden = !status.setup_code_required;
+    $("setup-code").required = status.setup_code_required;
     showLogin(status.needs_setup);
   }
 })();
