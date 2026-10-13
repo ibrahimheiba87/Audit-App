@@ -49,3 +49,10 @@ def test_page_asks_for_the_current_scripts():
     assert res.headers["cache-control"] == "no-cache"
     for name in ("i18n.js", "ar.js", "app.js", "app.css"):
         assert re.search(rf'"/static/{re.escape(name)}\?v=[0-9a-f]{{12}}"', res.text), name
+
+
+def test_figures_always_use_western_digits():
+    # Without a locale, a browser set to an Arabic region would show ٠١٢٣ in figures and dates.
+    script = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert 'numberingSystem: "latn"' in script
+    assert not re.search(r"toLocale\w*String\((?!LOCALE)", script)

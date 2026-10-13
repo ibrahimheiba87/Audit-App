@@ -4,9 +4,17 @@ const $ = (id) => document.getElementById(id);
 const data = (v) => `<bdi translate="no">${esc(v)}</bdi>`;
 const esc = (v) => v == null ? "" : String(v).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const money = (n) => n == null ? "" : Number(n).toLocaleString(undefined,
+// The browser's own number and date style, but always Western digits (0-9) and the
+// Gregorian calendar, so figures and dates match the source files even where the
+// browser is set to an Arabic region.
+const LOCALE = (() => {
+  const options = { numberingSystem: "latn", calendar: "gregory" };
+  try { return new Intl.Locale(navigator.language || "en", options).toString(); }
+  catch { return "en"; }
+})();
+const money = (n) => n == null ? "" : Number(n).toLocaleString(LOCALE,
   { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const when = (iso) => iso ? new Date(iso + "Z").toLocaleString() : "";
+const when = (iso) => iso ? new Date(iso + "Z").toLocaleString(LOCALE) : "";
 const MAX_ROWS = 1000;
 
 let meta = null;       // benchmarks, frameworks and upload kinds from the server
@@ -112,7 +120,7 @@ function Mapper(root, onChange = () => {}) {
         <select class="map" data-field="${f.id}">${options(p.suggested[f.id])}</select>
       </div>`).join("");
     q("[data-note]").textContent =
-      `First ${p.rows.length} of ${p.row_count.toLocaleString()} rows in the file:`;
+      `First ${p.rows.length} of ${p.row_count.toLocaleString(LOCALE)} rows in the file:`;
     q("[data-preview]").innerHTML = "<tr>" + p.columns.map((c) => `<th>${esc(c)}</th>`).join("") + "</tr>" +
       p.rows.map((r) => "<tr>" + r.map((v) => `<td title="${esc(v)}">${esc(v)}</td>`).join("") + "</tr>").join("");
     q(".mapper").hidden = false;
@@ -403,7 +411,7 @@ function renderUploads(uploads) {
     uploads.map((u) => `<tr>
       <td>${data(u.filename)}<div class="muted" style="font-size:12px" title="SHA-256">${esc(u.sha256.slice(0, 12))}…</div></td>
       <td>${esc(u.kind_label)}</td>
-      <td class="num">${u.import.rows_used.toLocaleString()}</td>
+      <td class="num">${u.import.rows_used.toLocaleString(LOCALE)}</td>
       <td class="nowrap">${esc(when(u.uploaded_at))}</td>
       <td class="muted">${u.import.warnings.length ? esc(u.import.warnings.join(" ")) : "OK"}</td>
       <td><div class="cell-actions">
@@ -442,7 +450,7 @@ function renderRuns(runs) {
   $("runs").innerHTML = runs.length ? "<tr><th>Run</th><th>When</th><th>File</th><th>Rows</th><th>High</th><th>Medium</th><th>Low</th><th></th></tr>" +
     runs.map((r) => `<tr>
       <td>#${r.id}</td><td class="nowrap">${esc(when(r.created_at))}</td><td>${data(r.filename)}</td>
-      <td class="num">${r.rows.toLocaleString()}</td>
+      <td class="num">${r.rows.toLocaleString(LOCALE)}</td>
       <td class="num">${r.findings_by_severity.high}</td><td class="num">${r.findings_by_severity.medium}</td>
       <td class="num">${r.findings_by_severity.low}</td>
       <td><div class="cell-actions">
@@ -883,7 +891,7 @@ function showSample(s) {
   $("smp-actions").innerHTML = `<a class="button" href="/api/samples/${s.id}/export">Download workpaper</a>`;
   const cards = [
     ["Items selected", r.sample_size], ["Value selected", money(r.sample_value)],
-    ["Population lines", r.population.lines.toLocaleString()], ["Population value", money(r.population.value)],
+    ["Population lines", r.population.lines.toLocaleString(LOCALE)], ["Population value", money(r.population.value)],
     ["Seed", r.seed],
   ];
   if (d.interval != null) cards.push(["Interval", r.method === "mus" ? money(d.interval) : d.interval]);
@@ -1803,11 +1811,11 @@ function showResults(r, title, actionsHtml) {
   $("results-actions").innerHTML = actionsHtml;
 
   const cards = [
-    ["Rows read", imp ? imp.rows_read.toLocaleString() : s.rows.toLocaleString()],
-    ["Rows analysed", s.rows.toLocaleString()],
+    ["Rows read", imp ? imp.rows_read.toLocaleString(LOCALE) : s.rows.toLocaleString(LOCALE)],
+    ["Rows analysed", s.rows.toLocaleString(LOCALE)],
     ["Total debits", money(s.total_debits)],
     ["Total credits", money(s.total_credits)],
-    ["Rows with findings", s.flagged_rows.toLocaleString()],
+    ["Rows with findings", s.flagged_rows.toLocaleString(LOCALE)],
     ["High", s.findings_by_severity.high],
     ["Medium", s.findings_by_severity.medium],
     ["Low", s.findings_by_severity.low],
@@ -1850,7 +1858,7 @@ function renderBenford() {
   const b = result.benford;
   $("benford-note").textContent = b.n < 100
     ? `Only ${b.n} amounts of 10 or more, so this is shown for reference only.`
-    : `${b.conformity}, MAD ${b.mad.toFixed(4)} across ${b.n.toLocaleString()} amounts. ` +
+    : `${b.conformity}, MAD ${b.mad.toFixed(4)} across ${b.n.toLocaleString(LOCALE)} amounts. ` +
       "Bars are actual frequency; the line marks the expected frequency.";
   const max = Math.max(...b.digits.map((d) => Math.max(d.actual, d.expected)), 0.01);
   $("benford").innerHTML = b.digits.map((d) => `
