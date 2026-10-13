@@ -131,7 +131,7 @@ class Upload(Base):
     filename: Mapped[str] = mapped_column(String(255))
     sha256: Mapped[str] = mapped_column(String(64))
     size: Mapped[int] = mapped_column(Integer)
-    content: Mapped[bytes] = mapped_column(LargeBinary)
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)  # loaded when read
     sheet: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mapping: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     import_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)

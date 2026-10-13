@@ -86,12 +86,16 @@ async function saveFile(res, fallback) {
 
 // --- Column mapping component ----------------------------------------------
 
+let mapperCount = 0;
+
 function Mapper(root, onChange = () => {}) {
   let file = null;
+  let loads = 0;  // only the latest preview is shown, if an older one answers later
+  const uid = `mapper${++mapperCount}`;  // ids that tie each label to its select
   root.innerHTML = `
     <div class="mapper" hidden>
       <div class="grid" data-sheet-wrap hidden style="margin-top:14px">
-        <div><label>Sheet</label><select class="map" data-sheet></select></div>
+        <div><label for="${uid}-sheet">Sheet</label><select class="map" id="${uid}-sheet" data-sheet></select></div>
       </div>
       <h2 style="margin-top:18px">Column mapping</h2>
       <p class="muted">Check which column in your file holds each field. Map either a signed Amount column, or Debit and Credit columns.</p>
@@ -103,12 +107,14 @@ function Mapper(root, onChange = () => {}) {
 
   async function load(f, sheet = "") {
     file = f;
+    const mine = ++loads;
     q(".mapper").hidden = true;
     if (!f) return;
     const fd = new FormData();
     fd.append("file", f);
     if (sheet) fd.append("sheet", sheet);
     const p = await (await postForm("/api/preview", fd)).json();
+    if (mine !== loads) return;  // another file or sheet was picked meanwhile
     q("[data-sheet-wrap]").hidden = p.sheets.length < 2;
     q("[data-sheet]").innerHTML = p.sheets.map((s) =>
       `<option ${s === p.sheet ? "selected" : ""} translate="no">${esc(s)}</option>`).join("");
@@ -116,8 +122,8 @@ function Mapper(root, onChange = () => {}) {
       `<option value="${esc(c)}" ${c === selected ? "selected" : ""} translate="no">${esc(c)}</option>`).join("");
     q("[data-mapping]").innerHTML = p.fields.map((f) => `
       <div>
-        <label>${esc(f.label)}</label>
-        <select class="map" data-field="${f.id}">${options(p.suggested[f.id])}</select>
+        <label for="${uid}-${f.id}">${esc(f.label)}</label>
+        <select class="map" id="${uid}-${f.id}" data-field="${f.id}">${options(p.suggested[f.id])}</select>
       </div>`).join("");
     q("[data-note]").textContent =
       `First ${p.rows.length} of ${p.row_count.toLocaleString(LOCALE)} rows in the file:`;
@@ -126,12 +132,15 @@ function Mapper(root, onChange = () => {}) {
     q(".mapper").hidden = false;
   }
 
-  q("[data-sheet]").addEventListener("change", () => guard(() => load(file, q("[data-sheet]").value)));
+  q("[data-sheet]").addEventListener("change", () => {
+    onChange();  // a different sheet is different data: earlier results no longer apply
+    guard(() => load(file, q("[data-sheet]").value));
+  });
   q("[data-mapping]").addEventListener("change", onChange);
 
   return {
     load: (f) => guard(() => load(f)),
-    reset: () => { file = null; q(".mapper").hidden = true; },
+    reset: () => { file = null; loads++; q(".mapper").hidden = true; },
     addTo(fd) {
       if (q(".mapper").hidden) return fd;
       const mapping = {};
@@ -428,13 +437,18 @@ $("uploads").addEventListener("click", (e) => {
     guard(async () => {
       run.disabled = true;
       run.textContent = "Running…";
-      const r = await sendJSON("POST", `/api/engagements/${currentEngagement.id}/runs`, {
-        upload_id: Number(run.dataset.run),
-        cutoff_days: Number($("run-cutoff").value || 0),
-        round_threshold: Number($("run-round").value || 1000),
-      });
-      await openEngagement(currentEngagement.id);
-      showRun(r);
+      try {
+        const r = await sendJSON("POST", `/api/engagements/${currentEngagement.id}/runs`, {
+          upload_id: Number(run.dataset.run),
+          cutoff_days: Number($("run-cutoff").value || 0),
+          round_threshold: Number($("run-round").value || 1000),
+        });
+        await openEngagement(currentEngagement.id);
+        showRun(r);
+      } finally {  // so a failed run can be tried again
+        run.disabled = false;
+        run.textContent = "Run audit";
+      }
     });
   } else if (del && confirm("Delete this file and the audit runs made from it?")) {
     guard(async () => {
@@ -475,7 +489,14 @@ function showRun(r) {
 
 // Prior-year comparison
 
+let comparisonFormFor = null;
+
 function renderComparisonForm(e) {
+  if (comparisonFormFor !== e.id) {  // another engagement: don't carry its thresholds over
+    comparisonFormFor = e.id;
+    $("cmp-amount").value = "";
+    $("cmp-pct").value = "10";
+  }
   const opts = (kinds, preferred) => e.uploads
     .filter((u) => kinds.includes(u.kind))
     .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
@@ -604,6 +625,7 @@ function renderStatementsPanel(error = null) {
     [fs.entries.length, "Adjusting entries"],
   ];
   if (Math.abs(st.difference.current) >= 0.005) cards.push([signed(st.difference.current), "Balance sheet out by"]);
+  if (fs.has_prior && Math.abs(st.difference.prior) >= 0.005) cards.push([signed(st.difference.prior), "Prior-year balance sheet out by"]);
   $("fs-cards").innerHTML = cards.map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("");
   renderMapping();
   renderEntries();
@@ -642,7 +664,7 @@ function renderMapping() {
       const hint = !a.line && a.suggested && !(a.account in fsMapEdits)
         ? `<div class="tag">Suggested: ${esc(lineLabel[a.suggested])}</div>` : "";
       return `<tr data-account="${esc(a.account)}"${a.account in fsMapEdits ? ' class="changed"' : ""}>
-        <td>${data(a.account)}${a.in_tb ? "" : ` <span class="tag">(${a.prior != null ? "prior year only" : "from entries"})</span>`}</td><td>${data(a.name)}</td>
+        <td>${data(a.account)}${a.in_tb ? "" : ` <span class="tag">(${a.prior != null ? "prior year only" : a.proposed_only ? "proposed entries only" : "from entries"})</span>`}</td><td>${data(a.name)}</td>
         <td class="num">${drcr(a.adjusted)}</td>
         <td><select class="map" aria-label="Line for account ${esc(a.account)}">${lineOptions(value)}</select>${hint}</td></tr>`;
     }).join("");
@@ -794,13 +816,24 @@ function renderStatementTables() {
   $("fs-is").innerHTML = table(fs.statements.income_statement);
   $("fs-bs").innerHTML = table(fs.statements.balance_sheet);
   const diff = fs.statements.difference.current;
-  $("fs-diff").hidden = Math.abs(diff) < 0.005;
+  const priorDiff = fs.has_prior ? fs.statements.difference.prior : 0;
+  const curOut = Math.abs(diff) >= 0.005, priorOut = Math.abs(priorDiff) >= 0.005;
+  $("fs-diff").hidden = !curOut && !priorOut;
   const tbOut = Math.abs(fs.totals.adjusted) >= 0.005;
+  const priorTbOut = fs.has_prior && Math.abs(fs.totals.prior) >= 0.005;
   const n = fs.unmapped.length;
-  $("fs-diff").textContent = `The balance sheet is out by ${signed(diff)}. ` + [
-    n ? `${n} account${n === 1 ? " isn't" : "s aren't"} mapped yet; map ${n === 1 ? "it" : "them"} on the Account mapping tab.` : "",
+  const mapHint = n ? `${n} account${n === 1 ? " isn't" : "s aren't"} mapped yet; map ${n === 1 ? "it" : "them"} on the Account mapping tab.` : "";
+  // Each year in its own sentence, so each is translated on its own.
+  const parts = [];
+  if (curOut) parts.push(`The balance sheet is out by ${signed(diff)}. ` + [
+    mapHint,
     tbOut ? `The adjusted trial balance itself doesn't balance (it totals ${drcr(fs.totals.adjusted)}).` : "",
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean).join(" "));
+  if (priorOut) parts.push(`The prior-year balance sheet is out by ${signed(priorDiff)}.` + [
+    !curOut && mapHint ? ` ${mapHint}` : "",
+    priorTbOut ? ` The prior-year trial balance itself doesn't balance (it totals ${drcr(fs.totals.prior)}).` : "",
+  ].join(""));
+  $("fs-diff").innerHTML = parts.map((t) => `<span>${esc(t)}</span>`).join(" ");
 }
 
 function renderUncorrected() {
@@ -1021,9 +1054,9 @@ function renderNotes() {
   const notes = rv.notes.filter((n) => (!todo || n.status !== "cleared") && (!section || n.section === section));
   $("rv-notes").innerHTML = notes.length ? notes.map((n) => `<div class="rv-note ${n.status}" data-note="${n.id}">
       <div class="head"><strong class="status-${n.status}">${NOTE_STATUS[n.status]}</strong><span>${esc(n.section_label)}</span>
-        <span>${esc(n.author)} · ${esc(when(n.created_at))}</span>${n.cleared_by ? `<span>Cleared by ${esc(n.cleared_by)} · ${esc(when(n.cleared_at))}</span>` : ""}</div>
+        <span>${data(n.author)} · ${esc(when(n.created_at))}</span>${n.cleared_by ? `<span>Cleared by ${esc(n.cleared_by)} · ${esc(when(n.cleared_at))}</span>` : ""}</div>
       <div class="text">${data(n.text)}</div>
-      ${n.replies.map((r) => `<div class="reply">${data(r.text)}<div class="tag">${esc(r.author)} · ${esc(when(r.at))}</div></div>`).join("")}
+      ${n.replies.map((r) => `<div class="reply">${data(r.text)}<div class="tag">${data(r.author)} · ${esc(when(r.at))}</div></div>`).join("")}
       <div class="cell-actions">
         ${n.status === "cleared" ? '<button type="button" class="small secondary min-2" data-note-status="open">Reopen</button>'
           : `<button type="button" class="small min-2" data-note-status="cleared"${preparer[n.section] === me.id ? ' disabled title="You prepared this section, so another reviewer clears its notes"' : ""}>Clear</button>`}
@@ -1122,7 +1155,7 @@ function requestCard(r, team) {
   // One line each: replies keep the message's own line breaks (white-space: pre-wrap).
   const messages = r.messages.map((m) => `<div class="reply${m.from_client ? " client" : ""}">${
     m.status_label ? `<strong class="rq-status-${m.status_to}">${esc(m.status_label)}</strong>${m.text ? ": " : ""}` : ""}${data(m.text)}<div class="tag">${
-    esc(m.author)}${team && m.from_client ? " (client)" : ""} · ${esc(when(m.at))}</div></div>`).join("");
+    team && m.from_client ? esc(m.author) + " (client)" : data(m.author)} · ${esc(when(m.at))}</div></div>`).join("");
   const actions = [];
   if (open) actions.push(`<label class="button small upload">${r.files.length ? "Add a file" : "Upload a file"}<input type="file" multiple data-rq-upload class="visually-hidden"></label>`);
   if (team && r.status === "submitted") actions.push('<button type="button" class="small" data-rq-accept>Accept files</button>');
@@ -1397,13 +1430,13 @@ function openFinding(f, scroll = true) {
   $("fd-evidence").innerHTML = f.attachments.length
     ? "<tr><th>File</th><th>Size</th><th>Added</th><th>SHA-256</th><th></th></tr>" + f.attachments.map((a) => `<tr>
         <td>${data(a.filename)}</td><td class="num">${fileSize(a.size)}</td>
-        <td class="nowrap">${esc(when(a.uploaded_at))}${a.author ? " · " + esc(a.author) : ""}</td>
+        <td class="nowrap">${esc(when(a.uploaded_at))}${a.author ? " · " + data(a.author) : ""}</td>
         <td class="muted" title="${esc(a.sha256)}">${esc(a.sha256.slice(0, 12))}…</td>
         <td><div class="cell-actions"><a class="button" href="/api/evidence/${a.id}">Download</a>
           ${f.status === "cleared" ? "" : `<button type="button" class="small secondary danger min-2" data-remove-ev="${a.id}">Remove</button>`}</div></td></tr>`).join("")
     : '<tr><td class="muted">No evidence attached.</td></tr>';
   $("fd-trail").innerHTML = f.trail.length ? [...f.trail].reverse().map((n) => `<li>
-      <div class="who">${esc(when(n.created_at))}${n.author ? " · " + esc(n.author) : ""}</div>
+      <div class="who">${esc(when(n.created_at))}${n.author ? " · " + data(n.author) : ""}</div>
       ${n.status_to ? `<div>Status: ${esc(n.status_from)} → <strong>${esc(n.status_to)}</strong></div>` : ""}
       ${n.text ? `<div>${data(n.text)}</div>` : ""}</li>`).join("")
     : '<li class="muted">Nothing yet.</li>';
@@ -1774,10 +1807,10 @@ function quickForm(extra = {}) {
   return fd;
 }
 
-$("file").addEventListener("change", () => {
-  $("dl-xlsx").disabled = $("dl-csv").disabled = true;
-  quickMapper.load($("file").files[0]);
-});
+$("file").addEventListener("change", () => quickMapper.load($("file").files[0]));
+// Any change to the file or a setting makes the shown results out of date: the downloads
+// would be built from the new values, so run again first.
+$("form").addEventListener("input", () => { $("dl-xlsx").disabled = $("dl-csv").disabled = true; });
 
 $("form").addEventListener("submit", (e) => {
   e.preventDefault();

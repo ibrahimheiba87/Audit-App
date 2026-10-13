@@ -61,7 +61,8 @@ def compare(current: pd.DataFrame, prior: pd.DataFrame, s: CompareSettings) -> d
         elif pd.isna(r["balance_cur"]) and abs(p) >= 0.005:
             reasons.append("Account not in this year's file")
         big = abs(change) >= s.threshold_amount
-        if big and (pct is None or abs(pct) >= s.threshold_pct):
+        # Test the unrounded %: 9.96% shows as 10.0% but is below a 10% threshold.
+        if big and (pct is None or abs(change / p * 100) >= s.threshold_pct):
             reasons.append("Change at or above threshold")
         if p and c and (p > 0) != (c > 0) and abs(change) >= s.threshold_amount:
             reasons.append("Balance switched between debit and credit")

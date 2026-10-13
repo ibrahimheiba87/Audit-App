@@ -70,8 +70,9 @@ def _money(x: float) -> str:
 def check_duplicates(df: pd.DataFrame, s: Settings) -> CheckResult:
     res = CheckResult("duplicates", "Duplicate entries")
     keys = [c for c in ("date", "account", "description") if c in df] + ["amount"]
-    if keys == ["amount"]:
-        res.status, res.note = "skipped", "Needs a date, account or description column."
+    if "date" not in keys or len(keys) < 3:
+        # Without a date, repeated balances (e.g. on a trial balance) aren't duplicates.
+        res.status, res.note = "skipped", "Needs a date column and an account or description column."
         return res
     dupes = df[df.duplicated(subset=keys, keep=False)]
     res.note = "Rows matching on " + ", ".join(keys) + "."
@@ -167,7 +168,8 @@ def check_round_amounts(df: pd.DataFrame, s: Settings) -> CheckResult:
     t = s.round_threshold
     res.note = f"Amounts of {_money(t)} or more that are exact multiples of {_money(t)}."
     amounts = df["amount"].abs().round(2)
-    flagged = df[(amounts >= t) & ((amounts % t) == 0)]
+    rest = amounts % t  # float remainders: 3.3 % 1.1 is 1.0999…, so allow half a cent either way
+    flagged = df[(amounts >= t) & ((rest < 0.005) | (t - rest < 0.005))]
     for _, r in flagged.iterrows():
         res.findings.append(_finding(res.id, MEDIUM, r, f"Exact multiple of {_money(t)}"))
     return res

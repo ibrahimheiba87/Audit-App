@@ -219,6 +219,10 @@ def read_file(filename: str, content: bytes, sheet: str | None = None,
     except Exception as exc:  # pandas raises many different error types
         raise LoadError(f"Could not read {filename}: {exc}") from exc
     raw.columns = [str(c).strip() for c in raw.columns]
+    dupes = sorted({c for c in raw.columns if list(raw.columns).count(c) > 1})
+    if dupes:
+        raise LoadError("The file has more than one column named " +
+                        ", ".join(repr(c) for c in dupes) + ". Rename them so each is unique.")
     raw.attrs["header_row"] = header
     return raw
 
