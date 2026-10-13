@@ -456,6 +456,7 @@ class User(Base):
     client_link: Mapped[ClientUser | None] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    settings: Mapped[UserSetting | None] = relationship(cascade="all, delete-orphan")
 
     @property
     def client_id(self) -> int | None:
@@ -476,6 +477,18 @@ class ClientUser(Base):
 
     user: Mapped[User] = relationship(back_populates="client_link")
     client: Mapped[Client] = relationship(back_populates="portal_users")
+
+
+class UserSetting(Base):
+    """A user's own preferences, such as the language the app shows in.
+
+    A separate table so databases made before it get it without a migration.
+    """
+
+    __tablename__ = "user_settings"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    language: Mapped[str] = mapped_column(String(10), default="en")
 
 
 class EngagementMember(Base):

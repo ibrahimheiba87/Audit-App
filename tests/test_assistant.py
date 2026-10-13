@@ -207,6 +207,13 @@ def test_no_ledger_lines(monkeypatch):
     assert "(no ledger lines available)" in prompt and (sent, total) == (0, 0)
 
 
+def test_arabic_answers_keep_the_figures(monkeypatch):
+    f = fake_finding(monkeypatch, pd.DataFrame(), upload=None)
+    assert "Arabic" not in assistant.build_prompt(f, "draft")[0]
+    prompt = assistant.build_prompt(f, "draft", "ar")[0]
+    assert prompt.endswith(assistant.LANGUAGES["ar"]) and "Western digits" in prompt
+
+
 class FakeResponse(io.BytesIO):
     def __enter__(self):
         return self

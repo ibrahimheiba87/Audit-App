@@ -68,8 +68,14 @@ TASKS = {
 TASK_LABELS = {"explain": "Explanation", "draft": "Draft write-up"}
 
 
+LANGUAGES = {"ar": ("Write your answer in Modern Standard Arabic, using standard Arabic audit and "
+                    "accounting terms. Keep amounts, dates, account codes and entry numbers exactly "
+                    "as given, in Western digits.")}
+
+
 class AssistantIn(BaseModel):
     task: Literal["explain", "draft"]
+    language: Literal["en", "ar"] = "en"
 
 
 class AssistantError(Exception):
@@ -182,7 +188,7 @@ def as_json(d: dict) -> str:
     return text.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
 
 
-def build_prompt(f: Finding, task: str) -> tuple[str, int, int]:
+def build_prompt(f: Finding, task: str, language: str = "en") -> tuple[str, int, int]:
     """The user message for `task`, how many ledger lines it includes, and how many exist."""
     e = f.engagement
     finding = {
@@ -215,6 +221,8 @@ def build_prompt(f: Finding, task: str) -> tuple[str, int, int]:
     prompt = (f"<engagement>{as_json(engagement)}</engagement>\n"
               f"<finding>{as_json(finding)}</finding>\n"
               f"<ledger>\n{ledger}\n</ledger>\n\n{TASKS[task]}")
+    if language in LANGUAGES:
+        prompt += f"\n\n{LANGUAGES[language]}"
     return prompt, count, total
 
 
@@ -234,7 +242,7 @@ def ask(finding_id: int, body: AssistantIn, user: User = Depends(require("prepar
                                  "setting ANTHROPIC_API_KEY on the server.")
     f = get_or_404(session, Finding, finding_id, user)
     engagement_id = f.engagement_id
-    prompt, sent, total = build_prompt(f, body.task)
+    prompt, sent, total = build_prompt(f, body.task, body.language)
     session.rollback()  # don't hold a transaction open while waiting on the API
     label = TASK_LABELS[body.task].lower()
     details = {"finding_id": finding_id, "model": model(), "ledger_rows_sent": sent,
