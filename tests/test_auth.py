@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from app import accounts, auth, db
 from app.main import app
@@ -346,3 +347,22 @@ def test_each_user_keeps_their_language():
     assert c.get("/api/auth/me").json()["language"] == "en"
     assert c.put("/api/auth/language", json={"language": "fr"}).status_code == 422
     assert TestClient(app).put("/api/auth/language", json={"language": "ar"}).status_code == 401
+
+
+def test_two_first_language_saves_at_once():
+    c = admin()
+    user_id = c.get("/api/auth/me").json()["id"]
+
+    def saved_meanwhile(session, *_):
+        # Another request saves this user's first choice between our read and our write.
+        with db.SessionLocal() as other:
+            other.add(db.UserSetting(user_id=user_id, language="en"))
+            other.commit()
+
+    event.listen(db.SessionLocal, "before_flush", saved_meanwhile, once=True)
+    try:
+        assert c.put("/api/auth/language", json={"language": "ar"}).status_code == 204
+    finally:
+        if event.contains(db.SessionLocal, "before_flush", saved_meanwhile):
+            event.remove(db.SessionLocal, "before_flush", saved_meanwhile)
+    assert c.get("/api/auth/me").json()["language"] == "ar"

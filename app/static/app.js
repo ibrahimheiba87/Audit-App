@@ -1303,7 +1303,7 @@ function renderRegister() {
       shown.map((f) => `<tr class="clickable${currentFinding?.id === f.id ? " current" : ""}" data-finding="${f.id}">
         <td><input type="checkbox" data-select="${f.id}" ${regSelected.has(f.id) ? "checked" : ""}></td>
         <td>${statusPill(f)}</td><td><span class="sev ${f.severity}">${f.severity}</span></td>
-        <td class="finding-cell"><button type="button" class="link finding-open" aria-label="Open finding ${f.id}: ${esc(f.check_name)}">${esc(f.check_name)}</button>${f.detail && f.detail !== f.check_name ? `<div class="muted">${esc(f.detail)}</div>` : ""}</td>
+        <td class="finding-cell"><button type="button" class="link finding-open" aria-label="Open finding ${f.id}: ${esc(f.check_name)}">${esc(f.check_name)}</button>${f.detail && f.detail !== f.check_name ? `<div class="muted">${findingDetail(f)}</div>` : ""}</td>
         <td>${esc(f.entry_id)}</td><td class="nowrap">${esc(f.date)}</td>
         <td>${data(f.account)}</td><td class="num">${money(f.amount)}</td>
         <td class="nowrap muted">${f.notes ? `${f.notes} note${f.notes > 1 ? "s" : ""}` : ""}${f.notes && f.evidence ? " · " : ""}${f.evidence ? `${f.evidence} file${f.evidence > 1 ? "s" : ""}` : ""}</td>
@@ -1362,6 +1362,10 @@ $("reg-form").addEventListener("submit", (ev) => {
   });
 });
 
+// A check's detail is the app's own text and is translated; a finding added by hand is the
+// auditor's own words and never is.
+const findingDetail = (f) => f.source === "manual" ? data(f.detail) : esc(f.detail);
+
 function openFinding(f, scroll = true) {
   currentFinding = f;
   $("fd").hidden = false;
@@ -1371,7 +1375,7 @@ function openFinding(f, scroll = true) {
     f.account && data(f.account), f.amount != null && money(f.amount),
     f.row && `<span>row ${f.row} of</span> ${data(f.filename)}`].filter(Boolean);
   $("fd-meta").innerHTML = [`<span>${esc(f.check_name)}</span>`, ...where].join(" · ");
-  $("fd-detail").innerHTML = [f.description && data(f.description), f.detail && `<span>${esc(f.detail)}</span>`]
+  $("fd-detail").innerHTML = [f.description && data(f.description), f.detail && `<span>${findingDetail(f)}</span>`]
     .filter(Boolean).join(": ");
   // Preparers can move findings between open and reviewed; clearing and reopening is for reviewers up.
   const statuses = me.rank >= 2 ? ["open", "reviewed", "cleared"] : f.status === "cleared" ? ["cleared"] : ["open", "reviewed"];
@@ -1520,11 +1524,16 @@ function pickLanguage(picked) {
   languagePicked = picked;
   try { if (picked) sessionStorage.setItem("audit-lang-picked", "1"); else sessionStorage.removeItem("audit-lang-picked"); } catch {}
 }
-// One save at a time, in order, so quick switches can't leave the older choice saved.
+// One save at a time, in order, so quick switches can't leave the older choice saved. A
+// failed save (signed out meanwhile) is kept as a pick for the next sign-in, until a later
+// save of the latest choice gets through.
 let languageSaves = Promise.resolve();
+let latestLanguage = null;
 function saveLanguage(language) {
-  languageSaves = languageSaves.then(() => sendJSON("PUT", "/api/auth/language", { language }))
-    .catch(() => pickLanguage(true));  // e.g. signed out meanwhile: save it at the next sign-in
+  latestLanguage = language;
+  languageSaves = languageSaves.then(() => sendJSON("PUT", "/api/auth/language", { language }).then(
+    () => { if (language === latestLanguage) pickLanguage(false); },
+    () => pickLanguage(true)));
 }
 
 $("lang-toggle").addEventListener("click", () => {
