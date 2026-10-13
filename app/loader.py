@@ -40,7 +40,8 @@ FIELD_IDS = [f["id"] for f in FIELDS]
 # Source header spellings for each normalized column, compared after lowercasing
 # and stripping everything that is not a letter or digit.
 COLUMN_SYNONYMS: dict[str, list[str]] = {
-    "entry_id": ["entryid", "entry", "journalid", "journal", "je", "jeno", "jenumber",
+    "entry_id": ["entryid", "entry", "entryno", "entrynumber", "journalid", "journal",
+                 "journalno", "journalnumber", "je", "jeno", "jenumber", "jv", "jvno", "jvnumber",
                  "journalentry", "journalentryid", "documentno", "documentnumber",
                  "docno", "voucher", "voucherno", "transactionid", "txnid", "reference", "ref"],
     "date": ["date", "transactiondate", "txndate", "entrydate", "effectivedate",
@@ -69,6 +70,7 @@ class ImportReport:
     rows_read: int = 0
     rows_used: int = 0
     skipped_rows: list[int] = field(default_factory=list)  # source row numbers
+    total_rows: list[int] = field(default_factory=list)
     bad_dates: dict[str, list[int]] = field(default_factory=dict)
     both_sides_rows: list[int] = field(default_factory=list)
     total_debits: float = 0.0
@@ -81,6 +83,11 @@ class ImportReport:
             warnings.append(
                 f"{len(self.skipped_rows)} rows skipped because the amount is blank or not a "
                 f"number (rows {_row_list(self.skipped_rows)})."
+            )
+        if self.total_rows:
+            warnings.append(
+                f"{len(self.total_rows)} rows left out because they look like totals: they "
+                f"have an amount but no account, entry or date (rows {_row_list(self.total_rows)})."
             )
         for col, rows in self.bad_dates.items():
             warnings.append(
@@ -95,7 +102,7 @@ class ImportReport:
         return {
             "rows_read": self.rows_read,
             "rows_used": self.rows_used,
-            "rows_skipped": len(self.skipped_rows),
+            "rows_skipped": len(self.skipped_rows) + len(self.total_rows),
             "total_debits": round(self.total_debits, 2),
             "total_credits": round(self.total_credits, 2),
             "mapping": self.mapping,
@@ -115,7 +122,40 @@ def _row_list(rows: list[int], limit: int = 10) -> str:
 
 
 def _key(name: object) -> str:
-    return re.sub(r"[^a-z0-9]", "", str(name).lower())
+    """A header reduced for matching: lowercase letters and digits, without anything in
+    brackets (so "Debit (EGP)" matches "debit")."""
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"[(\[{].*?[)\]}]", "", str(name).lower()))
+
+
+HEADER_SEARCH_ROWS = 30  # how far down a report's title rows can push the header
+
+
+def _header_score(cells) -> int:
+    keys = {_key(c) for c in cells if isinstance(c, str)}
+    return sum(1 for synonyms in COLUMN_SYNONYMS.values() if keys & set(synonyms))
+
+
+def _header_row(top: pd.DataFrame) -> int:
+    """The row holding the column headers, 0-based. Exports from accounting systems often
+    start with a few title rows (company, report name, period); the header is the first row
+    that names the most known columns, if it names at least two. Otherwise the first row."""
+    best, best_score = 0, 1
+    for i, cells in enumerate(top.itertuples(index=False)):
+        score = _header_score(cells)
+        if score > best_score:
+            best, best_score = i, score
+    return best
+
+
+def _csv_top(content: bytes) -> pd.DataFrame:
+    """The first rows of a CSV, split on its delimiter (the most common of , ; tab |).
+    csv.Sniffer gives up on files whose title rows have no delimiters, so it isn't used."""
+    import csv
+
+    text = content[:256 * 1024].decode("utf-8-sig", errors="replace")
+    lines = text.splitlines()[:HEADER_SEARCH_ROWS]
+    delimiter = max(",;\t|", key=lambda d: sum(line.count(d) for line in lines))
+    return pd.DataFrame(list(csv.reader(lines, delimiter=delimiter)))
 
 
 def sheet_names(filename: str, content: bytes) -> list[str]:
@@ -132,9 +172,13 @@ def read_file(filename: str, content: bytes, sheet: str | None = None) -> pd.Dat
     lower = filename.lower()
     try:
         if lower.endswith((".xlsx", ".xlsm", ".xls")):
-            raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0)
+            top = pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=None,
+                                nrows=HEADER_SEARCH_ROWS)
+            header = _header_row(top)
+            raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=header)
         elif lower.endswith((".csv", ".txt")):
-            raw = pd.read_csv(io.BytesIO(content), sep=None, engine="python")
+            header = _header_row(_csv_top(content))
+            raw = pd.read_csv(io.BytesIO(content), sep=None, engine="python", skiprows=header)
         else:
             raise LoadError("Unsupported file type. Upload a .csv or .xlsx file.")
     except LoadError:
@@ -146,18 +190,21 @@ def read_file(filename: str, content: bytes, sheet: str | None = None) -> pd.Dat
     except Exception as exc:  # pandas raises many different error types
         raise LoadError(f"Could not read {filename}: {exc}") from exc
     raw.columns = [str(c).strip() for c in raw.columns]
+    raw.attrs["header_row"] = header
     return raw
 
 
 def suggest_mapping(columns: list[str]) -> dict[str, str]:
-    """Guess which source column holds each field, from common header names."""
+    """Guess which source column holds each field, from common header names. Closer matches
+    win: with "Account Code", "Account Name" and "Narration", the account is the code and the
+    description the narration."""
+    candidates = sorted((synonyms.index(_key(col)), pos, target, col)
+                        for pos, col in enumerate(columns)
+                        for target, synonyms in COLUMN_SYNONYMS.items() if _key(col) in synonyms)
     mapping: dict[str, str] = {}
-    for col in columns:
-        k = _key(col)
-        for target, synonyms in COLUMN_SYNONYMS.items():
-            if target not in mapping and k in synonyms:
-                mapping[target] = col
-                break
+    for _, _, target, col in candidates:
+        if target not in mapping and col not in mapping.values():
+            mapping[target] = col
     return mapping
 
 
@@ -180,6 +227,31 @@ def validate_mapping(mapping: dict[str, str], columns: list[str]) -> dict[str, s
     return clean
 
 
+DATE_PARTS = re.compile(r"^\s*(\d{1,2})[/.\-](\d{1,2})[/.\-]\d{2,4}\b")
+
+
+def _day_first(columns: list[pd.Series]) -> bool:
+    """Whether dates written like 03/04/2026 put the day first. Decided by the dates that
+    can only be read one way (13/04/2026 or 04/13/2026); day first if nothing settles it,
+    since that's how most of the world writes dates."""
+    if not columns:
+        return False
+    parts = pd.concat([c.astype("string").str.extract(DATE_PARTS) for c in columns]).dropna()
+    if parts.empty:
+        return False  # no such dates: ISO dates and real spreadsheet dates are unambiguous
+    first, second = parts[0].astype(int), parts[1].astype(int)
+    return bool((first > 12).any() or not (second > 12).any())
+
+
+def _whole_numbers(series: pd.Series) -> pd.Series:
+    """A blank cell makes pandas read a column of codes as floats (1000.0); keep 1000."""
+    if pd.api.types.is_float_dtype(series):
+        codes = series.dropna()
+        if (codes == codes.round()).all() and codes.abs().lt(2**53).all():
+            return series.astype("Int64")
+    return series
+
+
 def _to_number(series: pd.Series) -> pd.Series:
     """Parse amounts like '1,234.50', '(500.00)' and '$ 75' into floats."""
     if pd.api.types.is_numeric_dtype(series):
@@ -193,13 +265,14 @@ def _to_number(series: pd.Series) -> pd.Series:
 
 def normalize(raw: pd.DataFrame, mapping: dict[str, str] | None = None) -> Loaded:
     """Map source columns onto the normalized schema."""
+    header_row = raw.attrs.get("header_row", 0)
     raw = raw.dropna(how="all")
     columns = list(raw.columns)
     chosen = validate_mapping(mapping if mapping is not None else suggest_mapping(columns), columns)
     report = ImportReport(rows_read=len(raw), mapping=chosen)
 
     df = pd.DataFrame({f: raw[c] for f, c in chosen.items()}, index=raw.index)
-    df.insert(0, "row", raw.index.to_numpy() + 2)
+    df.insert(0, "row", raw.index.to_numpy() + header_row + 2)  # as numbered in the source
 
     for col in ("debit", "credit", "amount"):
         if col in df:
@@ -213,25 +286,35 @@ def normalize(raw: pd.DataFrame, mapping: dict[str, str] | None = None) -> Loade
         amount = debit.fillna(0) - credit.fillna(0)
         df["amount"] = amount.where(debit.notna() | credit.notna())
 
+    dayfirst = _day_first([df[c] for c in ("date", "posted") if c in df])
     for col, label in (("date", "transaction date"), ("posted", "posting date")):
         if col in df:
-            parsed = pd.to_datetime(df[col], errors="coerce", format="mixed")
+            parsed = pd.to_datetime(df[col], errors="coerce", format="mixed", dayfirst=dayfirst)
             bad = parsed.isna() & df[col].notna()
             if bad.any():
                 report.bad_dates[label] = df.loc[bad, "row"].tolist()
             df[col] = parsed
 
     for col in ("entry_id", "account"):
-        # A blank cell makes pandas read a column of codes as floats (1000.0); keep 1000.
-        if col in df and pd.api.types.is_float_dtype(df[col]):
-            codes = df[col].dropna()
-            if (codes == codes.round()).all() and codes.abs().lt(2**53).all():
-                df[col] = df[col].astype("Int64")
+        if col in df:
+            df[col] = _whole_numbers(df[col])
 
     for col in ("entry_id", "account", "description", "user"):
         if col in df:
             df[col] = df[col].astype("string").str.strip()
 
+    # A total or subtotal line has an amount but no account, entry or date, and says "Total"
+    # (or nothing) where the description goes.
+    keys = [c for c in ("account", "entry_id", "date") if c in df]
+    if keys:
+        unnamed = pd.concat([df[c].isna() | (df[c].astype("string").str.strip() == "")
+                             for c in keys], axis=1).all(axis=1)
+        if "description" in df:
+            text = df["description"].astype("string").str.strip().fillna("")
+            unnamed &= (text == "") | text.str.contains("total", case=False, regex=False)
+        report.total_rows = df.loc[unnamed & df["amount"].notna(), "row"].tolist()
+        report.both_sides_rows = [r for r in report.both_sides_rows if r not in report.total_rows]
+        df = df[~unnamed | df["amount"].isna()]
     report.skipped_rows = df.loc[df["amount"].isna(), "row"].tolist()
     df = df[df["amount"].notna()].reset_index(drop=True)
     if df.empty:
@@ -246,7 +329,7 @@ def preview(filename: str, content: bytes, sheet: str | None = None, rows: int =
     """Columns, a few sample rows and a suggested mapping, for the mapping screen."""
     sheets = sheet_names(filename, content)
     raw = read_file(filename, content, sheet).dropna(how="all")
-    sample = raw.head(rows).astype("string").fillna("")
+    sample = raw.head(rows).apply(_whole_numbers).astype("string").fillna("")
     return {
         "sheets": sheets,
         "sheet": sheet or (sheets[0] if sheets else None),

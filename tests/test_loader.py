@@ -116,3 +116,81 @@ def test_missing_sheet_is_rejected():
     pd.DataFrame({"Amount": [1]}).to_excel(buf, index=False)
     with pytest.raises(loader.LoadError, match="not found"):
         loader.load("gl.xlsx", buf.getvalue(), sheet="Nope")
+
+
+def export_xlsx(rows):
+    """A spreadsheet laid out like an accounting system's report: title rows, then a table."""
+    buf = io.BytesIO()
+    pd.DataFrame(rows).to_excel(buf, index=False, header=False)
+    return buf.getvalue()
+
+
+def test_title_rows_above_the_header_are_skipped():
+    content = export_xlsx([
+        ["Nile Trading S.A.E.", None, None, None, None, None],
+        ["General Ledger Detail", None, None, None, None, None],
+        [None] * 6,
+        ["Date", "Journal No.", "Account Code", "Account Name", "Debit (EGP)", "Credit (EGP)"],
+        ["13/03/2026", "JV-1", 6500, "Professional Fees", "250,000.00", None],
+        ["13/03/2026", "JV-1", 1010, "Cash at Bank", None, "250,000.00"],
+        [None, None, None, "Total", "250,000.00", "250,000.00"],
+    ])
+    preview = loader.preview("gl.xlsx", content)
+    assert preview["columns"][:3] == ["Date", "Journal No.", "Account Code"]
+    assert preview["suggested"]["debit"] == "Debit (EGP)"
+    loaded = loader.load("gl.xlsx", content)
+    df = loaded.df
+    assert list(df["row"]) == [5, 6]  # numbered as in the spreadsheet
+    assert list(df["account"]) == ["6500", "1010"] and list(df["entry_id"]) == ["JV-1", "JV-1"]
+    assert df["date"].dt.strftime("%Y-%m-%d").tolist() == ["2026-03-13", "2026-03-13"]
+    report = loaded.report.to_dict()
+    assert report["rows_skipped"] == 1 and report["total_debits"] == 250_000
+    assert report["warnings"] == ["1 rows left out because they look like totals: they have an "
+                                  "amount but no account, entry or date (rows 7)."]
+
+
+def test_title_rows_in_a_csv_are_skipped():
+    csv = (b"Trial Balance\nAs at 31 December 2026\n\n"
+           b"Account Code,Account Name,Debit,Credit\n1010,Cash,100,\n4010,Sales,,100\n,Total,100,100\n")
+    loaded = loader.load("tb.csv", csv)
+    assert list(loaded.df["account"]) == ["1010", "4010"]
+    assert list(loaded.df["row"]) == [5, 6]
+    assert loaded.report.total_rows == [7]
+
+
+def test_closer_header_matches_win():
+    mapping = loader.suggest_mapping(["Account Name", "Narration", "Account Code", "Amount"])
+    assert mapping == {"account": "Account Code", "description": "Narration", "amount": "Amount"}
+    # With nothing closer, an account name is still the account.
+    assert loader.suggest_mapping(["Account Name", "Amount"])["account"] == "Account Name"
+
+
+@pytest.mark.parametrize("dates,expected", [
+    (["03/04/2026", "13/04/2026"], ["2026-04-03", "2026-04-13"]),  # day first
+    (["03/04/2026", "04/13/2026"], ["2026-03-04", "2026-04-13"]),  # month first
+    (["03/04/2026", "05/06/2026"], ["2026-04-03", "2026-06-05"]),  # can't tell: day first
+    (["2026-03-04", "2026-04-13"], ["2026-03-04", "2026-04-13"]),  # ISO
+])
+def test_slash_dates_are_read_the_way_the_file_writes_them(dates, expected):
+    csv = "Date,Account,Amount\n" + "".join(f"{d},Cash,{i + 1}\n" for i, d in enumerate(dates))
+    df = loader.load("gl.csv", csv.encode()).df
+    assert df["date"].dt.strftime("%Y-%m-%d").tolist() == expected
+
+
+def test_rows_without_an_account_are_kept_unless_they_say_total():
+    csv = b"Account,Description,Amount\n1000,Cash,5\n,Misc,1\n,Subtotal,6\n,,6\n"
+    loaded = loader.load("tb.csv", csv)
+    assert list(loaded.df["amount"]) == [5.0, 1.0]
+    assert loaded.report.total_rows == [4, 5]
+
+
+def test_sample_exports_import_cleanly():
+    from pathlib import Path
+    data = Path(__file__).resolve().parent.parent / "sample_data"
+    gl = loader.load("gl.xlsx", (data / "nile_trading_gl_2026.xlsx").read_bytes())
+    assert gl.report.mapping["description"] == "Narration" and gl.report.total_rows
+    assert gl.df["date"].notna().all() and gl.df["posted"].notna().all()
+    assert round(gl.report.total_debits - gl.report.total_credits, 2) == 200  # planted
+    for year in (2025, 2026):
+        tb = loader.load("tb.xlsx", (data / f"nile_trading_tb_{year}.xlsx").read_bytes())
+        assert round(tb.df["amount"].sum(), 2) == 0 and len(tb.df) == 18
