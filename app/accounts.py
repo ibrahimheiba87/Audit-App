@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hmac
+import os
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -24,6 +26,13 @@ class SetupIn(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     name: str = Field(min_length=1, max_length=200)
     password: str = Field(max_length=200)
+    setup_code: str = Field(default="", max_length=200)
+
+
+def setup_code() -> str:
+    """AUDIT_SETUP_CODE, if set: the first admin must enter it, so that on a server that's
+    already online, a stranger can't set the app up before you do."""
+    return os.environ.get("AUDIT_SETUP_CODE", "").strip()
 
 
 class LoginIn(BaseModel):
@@ -101,13 +110,18 @@ def active_admins(session: Session) -> int:
 def status(request: Request, session: Session = Depends(get_session)) -> dict:
     user = auth.user_for_token(session, request.cookies.get(COOKIE))
     needs_setup = session.scalar(select(func.count(User.id))) == 0
-    return {"needs_setup": needs_setup, "user": user_out(user) if user else None,
+    return {"needs_setup": needs_setup, "setup_code_required": needs_setup and bool(setup_code()),
+            "user": user_out(user) if user else None,
             "roles": [{"id": k, "label": v} for k, v in ROLES.items()]}
 
 
 @router.post("/auth/setup", status_code=201)
 def setup(body: SetupIn, request: Request, session: Session = Depends(get_session)) -> Response:
     """Create the first admin. Only works while there are no users."""
+    code = setup_code()
+    if code and not hmac.compare_digest(body.setup_code.strip().encode(), code.encode()):
+        raise HTTPException(403, "That setup code is wrong. It's AUDIT_SETUP_CODE in the "
+                                 "server's settings.")
     auth.check_password_strength(body.password)
     auth.hold(session, "setup")  # so two first-run requests can't both create an admin
     if session.scalar(select(func.count(User.id))):

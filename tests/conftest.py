@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from fastapi import Depends
 
@@ -11,10 +13,21 @@ def signed_in_admin(session=Depends(db.get_session)):
     return session.get(db.User, 1)
 
 
+# Set AUDIT_TEST_DB_URL to run the tests against PostgreSQL (as CI does); each test starts it
+# empty. Otherwise each test gets its own SQLite file.
+TEST_DB_URL = os.environ.get("AUDIT_TEST_DB_URL", "")
+
+
 @pytest.fixture(autouse=True)
 def fresh_db(tmp_path):
     """Give every test its own database with one admin, signed in for every request."""
-    db.configure(f"sqlite:///{tmp_path / 'test.db'}")
+    if TEST_DB_URL:
+        db.engine.dispose()
+        db.engine = db._make_engine(TEST_DB_URL)
+        db.Base.metadata.drop_all(db.engine)
+        db.configure(TEST_DB_URL)
+    else:
+        db.configure(f"sqlite:///{tmp_path / 'test.db'}")
     with db.SessionLocal() as s:
         s.add(db.User(email=ADMIN["email"], name=ADMIN["name"], role="admin",
                       password_hash=auth.hash_password(ADMIN["password"])))
