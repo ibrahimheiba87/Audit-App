@@ -46,7 +46,8 @@ def test_excel_report():
     assert r.status_code == 200
     assert "audit-report.xlsx" in r.headers["content-disposition"]
     sheets = pd.read_excel(io.BytesIO(r.content), sheet_name=None)
-    assert set(sheets) == {"Summary", "Findings", "Benford"}
+    assert set(sheets) == {"Summary", "Risk ranking", "Findings", "Benford"}
+    assert sheets["Risk ranking"]["Score"].is_monotonic_decreasing
     assert len(sheets["Findings"]) > 0
 
 

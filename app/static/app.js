@@ -160,7 +160,7 @@ function Mapper(root, onChange = () => {}) {
 // --- Views and routing ------------------------------------------------------
 
 // Lowest rank that can open each view; anything else falls back to engagements.
-const VIEW_RANK = { engagements: 1, users: 4, activity: 4 };
+const VIEW_RANK = { engagements: 1, quick: 1, users: 4, activity: 4 };
 
 function route() {
   if (!me) return;
@@ -447,6 +447,8 @@ $("uploads").addEventListener("click", (e) => {
           upload_id: Number(run.dataset.run),
           cutoff_days: Number($("run-cutoff").value || 0),
           round_threshold: Number($("run-round").value || 1000),
+          weekend: $("run-weekend").value,
+          keywords: $("run-keywords").value.split(/[,،\n]/),
         });
         await openEngagement(currentEngagement.id);
         showRun(r);
@@ -1871,8 +1873,34 @@ function showResults(r, title, actionsHtml) {
   $("f-sev").value = "";
   $("f-check").innerHTML = '<option value="">All checks</option>' +
     r.checks.filter((c) => c.flagged).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  renderRisk();
   renderFindings();
   renderBenford();
+}
+
+const RISK_ROWS = 50;
+
+function renderRisk() {
+  const risk = result.risk;  // runs saved before risk scoring have none
+  $("risk-panel").hidden = !risk;
+  if (!risk) return;
+  const unit = risk.basis === "entry" ? "entries" : "lines";
+  const parts = risk.scored
+    ? [`Each of the ${risk.scored} flagged ${unit} scores up to 100: points for every check it fails, ` +
+       `plus up to 20 for its size against ${risk.size_basis}. ` +
+       `High ${risk.by_level.high}, medium ${risk.by_level.medium}, low ${risk.by_level.low}.`]
+    : ["Nothing was flagged, so there is nothing to rank."];
+  if (risk.scored > RISK_ROWS) parts.push(`Showing the top ${RISK_ROWS}; download the Excel report for the rest.`);
+  $("risk-note").innerHTML = parts.map((t) => `<span>${esc(t)}</span>`).join(" ");
+  $("risk").innerHTML = risk.scored ? "<tr><th>Rank</th><th>Score</th><th>Entry</th><th>Date</th><th>Account</th>" +
+    "<th>Description</th><th>Amount</th><th>Why</th></tr>" +
+    risk.entries.slice(0, RISK_ROWS).map((e) => `<tr><td class="num">${e.rank}</td>
+      <td class="nowrap"><span class="sev ${esc(e.level)}">${e.score}</span></td>
+      <td>${data(e.entry_id ?? "")}<div class="muted" style="font-size:12px">${esc(e.lines === 1 ? `Row ${e.row}` : `Row ${e.row}, ${e.lines} lines`)}</div></td>
+      <td class="nowrap">${esc(e.date)}</td>
+      <td>${e.account != null ? data(e.account) : e.accounts ? esc(`${e.accounts} accounts`) : ""}</td><td>${data(e.description)}</td>
+      <td class="num">${money(e.amount)}</td>
+      <td>${e.reasons.map((c) => esc(checkNames[c] || c)).join("<br>")}</td></tr>`).join("") : "";
 }
 
 function renderFindings() {
@@ -1925,6 +1953,18 @@ async function startApp() {
   $("reg-status").innerHTML = '<option value="">All statuses</option>' +
     (await getJSON("/api/findings/options")).statuses.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join("");
   try { assistant = await getJSON("/api/assistant/status"); } catch { assistant = { enabled: false }; }
+  const checkOptions = await getJSON("/api/checks/options");
+  let weekend = "sat-sun";
+  try { weekend = localStorage.getItem("audit-weekend") || weekend; } catch {}
+  document.querySelectorAll(".weekend-choice").forEach((sel) => {
+    sel.innerHTML = checkOptions.weekends.map((w) => `<option value="${w.id}">${esc(w.label)}</option>`).join("");
+    if (checkOptions.weekends.some((w) => w.id === weekend)) sel.value = weekend;
+    sel.addEventListener("change", () => {
+      document.querySelectorAll(".weekend-choice").forEach((other) => { other.value = sel.value; });
+      try { localStorage.setItem("audit-weekend", sel.value); } catch {}
+    });
+  });
+  document.querySelectorAll(".keyword-list").forEach((input) => { input.value = checkOptions.keywords.join(", "); });
   $("up-kind").innerHTML = meta.upload_kinds.map((k) => `<option value="${k.id}">${esc(k.label)}</option>`).join("");
   appStarted = true;
   route();

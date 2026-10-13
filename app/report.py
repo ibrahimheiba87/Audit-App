@@ -16,6 +16,21 @@ def findings_frame(result: dict) -> pd.DataFrame:
     return pd.DataFrame(result["findings"], columns=FINDING_COLUMNS)
 
 
+RISK_COLUMNS = ["Rank", "Score", "Level", "Entry", "Row", "Lines", "Date", "Account",
+                "Description", "Amount", "Why"]
+
+
+def risk_frame(result: dict) -> pd.DataFrame:
+    names = {c["id"]: c["name"] for c in result["checks"]}
+    return pd.DataFrame([{
+        "Rank": e["rank"], "Score": e["score"], "Level": e["level"], "Entry": e["entry_id"],
+        "Row": e["row"], "Lines": e["lines"], "Date": e["date"],
+        "Account": e["account"] or (f"{e['accounts']} accounts" if e["accounts"] else None),
+        "Description": e["description"], "Amount": e["amount"],
+        "Why": ", ".join(names.get(c, c) for c in e["reasons"]),
+    } for e in result["risk"]["entries"]], columns=RISK_COLUMNS)
+
+
 def to_csv(result: dict) -> bytes:
     return csv_safe_frame(findings_frame(result)).to_csv(index=False).encode("utf-8")
 
@@ -56,6 +71,8 @@ def to_excel(result: dict, source_name: str = "", context: dict | None = None) -
         pd.DataFrame(summary_rows, columns=["Item", "Value"]).to_excel(
             xl, sheet_name="Summary", index=False)
         checks.to_excel(xl, sheet_name="Summary", index=False, startrow=len(summary_rows) + 2)
+        if result.get("risk"):  # runs saved before risk scoring have none
+            risk_frame(result).to_excel(xl, sheet_name="Risk ranking", index=False)
         findings_frame(result).to_excel(xl, sheet_name="Findings", index=False)
         benford.to_excel(xl, sheet_name="Benford", index=False)
         finish_workbook(xl.book)
