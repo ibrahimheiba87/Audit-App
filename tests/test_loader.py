@@ -170,6 +170,8 @@ def test_closer_header_matches_win():
     (["03/04/2026", "04/13/2026"], ["2026-03-04", "2026-04-13"]),  # month first
     (["03/04/2026", "05/06/2026"], ["2026-04-03", "2026-06-05"]),  # can't tell: day first
     (["2026-03-04", "2026-04-13"], ["2026-03-04", "2026-04-13"]),  # ISO
+    (["2026-03-04", "13/04/2026"], ["2026-03-04", "2026-04-13"]),  # ISO stays ISO
+    (["2026-03-04 10:00:00", "13/04/2026"], ["2026-03-04", "2026-04-13"]),
 ])
 def test_slash_dates_are_read_the_way_the_file_writes_them(dates, expected):
     csv = "Date,Account,Amount\n" + "".join(f"{d},Cash,{i + 1}\n" for i, d in enumerate(dates))
@@ -182,6 +184,54 @@ def test_rows_without_an_account_are_kept_unless_they_say_total():
     loaded = loader.load("tb.csv", csv)
     assert list(loaded.df["amount"]) == [5.0, 1.0]
     assert loaded.report.total_rows == [4, 5]
+
+
+def test_iso_dates_keep_their_order_when_another_column_is_day_first():
+    csv = b"Date,Posted Date,Account,Amount\n2026-03-04,13/03/2026 09:00,1000,1\n"
+    df = loader.load("gl.csv", csv).df
+    assert df["date"][0] == pd.Timestamp("2026-03-04")
+    assert df["posted"][0] == pd.Timestamp("2026-03-13 09:00")
+
+
+def test_rows_with_an_unreadable_date_are_not_totals():
+    csv = b"Date,Description,Amount\n01/03/2026,Sale,5\n31/02/2026,,7\nTBD,,9\n"
+    loaded = loader.load("gl.csv", csv)
+    assert list(loaded.df["amount"]) == [5.0, 7.0, 9.0]
+    assert loaded.report.total_rows == [] and loaded.report.bad_dates["transaction date"] == [3, 4]
+
+
+def test_a_description_starting_with_total_is_not_a_total():
+    csv = b"Account,Description,Amount\n1000,Cash,5\n,TotalEnergies fuel accrual,-5\n,Grand Total,0\n"
+    loaded = loader.load("tb.csv", csv)
+    assert list(loaded.df["amount"]) == [5.0, -5.0] and loaded.report.total_rows == [4]
+
+
+def test_bracketed_dr_and_cr_mean_debit_and_credit():
+    assert loader.suggest_mapping(["Account", "Amount (Dr)", "Amount (Cr)"]) == {
+        "account": "Account", "debit": "Amount (Dr)", "credit": "Amount (Cr)"}
+    assert loader.suggest_mapping(["Account", "Balance (Dr)", "Balance (Cr)"])["credit"] == \
+        "Balance (Cr)"
+
+
+def test_a_data_row_does_not_replace_a_header_with_unusual_names():
+    content = export_xlsx([
+        ["GL Code", "Particulars", "Source", "Dr/Cr", "Amount"],
+        [1000, "Cash", "Journal", "Dr", 5],
+        [2000, "Sales", "Journal", "Cr", -5],
+    ])
+    mapping = {"account": "GL Code", "description": "Particulars", "amount": "Amount"}
+    df = loader.load("gl.xlsx", content, mapping).df
+    assert list(df["account"]) == ["1000", "2000"] and list(df["row"]) == [2, 3]
+
+
+def test_mappings_saved_before_title_rows_were_skipped_still_load():
+    content = export_xlsx([
+        ["Nile Trading GL", None, None],
+        ["Date", "Account", "Amount"],
+        ["01/03/2026", 1000, 5],
+    ])
+    loaded = loader.load("gl.xlsx", content, {"account": "Unnamed: 1", "amount": "Unnamed: 2"})
+    assert list(loaded.df["account"]) == ["1000"]
 
 
 def test_sample_exports_import_cleanly():

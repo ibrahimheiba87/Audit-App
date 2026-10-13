@@ -53,8 +53,9 @@ COLUMN_SYNONYMS: dict[str, list[str]] = {
     "description": ["description", "memo", "narration", "narrative", "details", "text",
                     "linedescription", "comment", "accountname", "accountdescription", "name"],
     "user": ["user", "createdby", "postedby", "enteredby", "preparer", "username", "userid"],
-    "debit": ["debit", "debits", "dr", "debitamount"],
-    "credit": ["credit", "credits", "cr", "creditamount"],
+    "debit": ["debit", "debits", "dr", "debitamount", "amountdr", "balancedr", "debitbalance"],
+    "credit": ["credit", "credits", "cr", "creditamount", "amountcr", "balancecr",
+               "creditbalance"],
     "amount": ["amount", "value", "netamount", "balance", "amt", "signedamount"],
 }
 
@@ -121,10 +122,16 @@ def _row_list(rows: list[int], limit: int = 10) -> str:
     return shown + (f" and {len(rows) - limit} more" if len(rows) > limit else "")
 
 
+def _bracket(match: re.Match) -> str:
+    """Drop bracketed text such as a currency, but keep a side: "Amount (Dr)" is the debit."""
+    inner = match.group(1)
+    return inner if re.fullmatch(r"\s*(dr|cr|debit|credit)\.?\s*", inner) else ""
+
+
 def _key(name: object) -> str:
     """A header reduced for matching: lowercase letters and digits, without anything in
-    brackets (so "Debit (EGP)" matches "debit")."""
-    return re.sub(r"[^a-z0-9]", "", re.sub(r"[(\[{].*?[)\]}]", "", str(name).lower()))
+    brackets (so "Debit (EGP)" matches "debit") unless it says which side ("Amount (Dr)")."""
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"[(\[{](.*?)[)\]}]", _bracket, str(name).lower()))
 
 
 HEADER_SEARCH_ROWS = 30  # how far down a report's title rows can push the header
@@ -135,15 +142,28 @@ def _header_score(cells) -> int:
     return sum(1 for synonyms in COLUMN_SYNONYMS.values() if keys & set(synonyms))
 
 
+def _filled(cell: object) -> bool:
+    return cell.strip() != "" if isinstance(cell, str) else cell is not None and not pd.isna(cell)
+
+
 def _header_row(top: pd.DataFrame) -> int:
     """The row holding the column headers, 0-based. Exports from accounting systems often
     start with a few title rows (company, report name, period); the header is the first row
-    that names the most known columns, if it names at least two. Otherwise the first row."""
+    that names the most known columns, if it names at least two and is mostly text.
+    Otherwise the first row. A row is passed over if one above it already looks like a
+    header (names a known column across several cells), so a data row holding "Dr" and
+    "Journal" can't take the place of a header with unusual names."""
+    rows = [list(cells) for cells in top.itertuples(index=False)]
+    filled = [sum(_filled(c) for c in cells) for cells in rows]
+    scores = [_header_score(cells) for cells in rows]
     best, best_score = 0, 1
-    for i, cells in enumerate(top.itertuples(index=False)):
-        score = _header_score(cells)
-        if score > best_score:
-            best, best_score = i, score
+    for i, cells in enumerate(rows):
+        text = sum(isinstance(c, str) and c.strip() != "" for c in cells)
+        if scores[i] <= best_score or text * 2 <= filled[i]:
+            continue
+        if any(scores[j] and filled[j] > filled[i] / 2 for j in range(i)):
+            continue
+        best, best_score = i, scores[i]
     return best
 
 
@@ -167,17 +187,21 @@ def sheet_names(filename: str, content: bytes) -> list[str]:
         raise LoadError(f"Could not read {filename}: {exc}") from exc
 
 
-def read_file(filename: str, content: bytes, sheet: str | None = None) -> pd.DataFrame:
-    """Read CSV or Excel bytes into a raw DataFrame with string column names."""
+def read_file(filename: str, content: bytes, sheet: str | None = None,
+              header: int | None = None) -> pd.DataFrame:
+    """Read CSV or Excel bytes into a raw DataFrame with string column names. The header row
+    is found automatically unless given (0-based)."""
     lower = filename.lower()
     try:
         if lower.endswith((".xlsx", ".xlsm", ".xls")):
-            top = pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=None,
-                                nrows=HEADER_SEARCH_ROWS)
-            header = _header_row(top)
+            if header is None:
+                top = pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=None,
+                                    nrows=HEADER_SEARCH_ROWS)
+                header = _header_row(top)
             raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=header)
         elif lower.endswith((".csv", ".txt")):
-            header = _header_row(_csv_top(content))
+            if header is None:
+                header = _header_row(_csv_top(content))
             raw = pd.read_csv(io.BytesIO(content), sep=None, engine="python", skiprows=header)
         else:
             raise LoadError("Unsupported file type. Upload a .csv or .xlsx file.")
@@ -227,6 +251,7 @@ def validate_mapping(mapping: dict[str, str], columns: list[str]) -> dict[str, s
     return clean
 
 
+TOTAL_WORDS = re.compile(r"\b(?:sub|grand\s*)?totals?\b", re.IGNORECASE)  # not TotalEnergies
 DATE_PARTS = re.compile(r"^\s*(\d{1,2})[/.\-](\d{1,2})[/.\-]\d{2,4}\b")
 
 
@@ -241,6 +266,21 @@ def _day_first(columns: list[pd.Series]) -> bool:
         return False  # no such dates: ISO dates and real spreadsheet dates are unambiguous
     first, second = parts[0].astype(int), parts[1].astype(int)
     return bool((first > 12).any() or not (second > 12).any())
+
+
+def _to_dates(series: pd.Series, dayfirst: bool) -> pd.Series:
+    """Parse dates. Only dates like 03/04/2026 follow the file's day/month order; ISO dates
+    (2026-03-04) and real spreadsheet dates always mean what they say."""
+    ordered = series.astype("string").str.match(DATE_PARTS).fillna(False).astype(bool)
+    parsed = pd.to_datetime(series.where(~ordered), errors="coerce", format="mixed")
+    if ordered.any():
+        parsed[ordered] = pd.to_datetime(series[ordered], errors="coerce", format="mixed",
+                                         dayfirst=dayfirst)
+    return parsed
+
+
+def _blank(series: pd.Series) -> pd.Series:
+    return (series.isna() | (series.astype("string").str.strip() == "")).fillna(True).astype(bool)
 
 
 def _whole_numbers(series: pd.Series) -> pd.Series:
@@ -286,10 +326,15 @@ def normalize(raw: pd.DataFrame, mapping: dict[str, str] | None = None) -> Loade
         amount = debit.fillna(0) - credit.fillna(0)
         df["amount"] = amount.where(debit.notna() | credit.notna())
 
+    # A total or subtotal line has an amount but no account, entry or date (blank in the
+    # file, not merely unreadable), and says "Total" (or nothing) where the description goes.
+    keys = [c for c in ("account", "entry_id", "date") if c in df]
+    unnamed = pd.concat([_blank(df[c]) for c in keys], axis=1).all(axis=1) if keys else None
+
     dayfirst = _day_first([df[c] for c in ("date", "posted") if c in df])
     for col, label in (("date", "transaction date"), ("posted", "posting date")):
         if col in df:
-            parsed = pd.to_datetime(df[col], errors="coerce", format="mixed", dayfirst=dayfirst)
+            parsed = _to_dates(df[col], dayfirst)
             bad = parsed.isna() & df[col].notna()
             if bad.any():
                 report.bad_dates[label] = df.loc[bad, "row"].tolist()
@@ -303,15 +348,10 @@ def normalize(raw: pd.DataFrame, mapping: dict[str, str] | None = None) -> Loade
         if col in df:
             df[col] = df[col].astype("string").str.strip()
 
-    # A total or subtotal line has an amount but no account, entry or date, and says "Total"
-    # (or nothing) where the description goes.
-    keys = [c for c in ("account", "entry_id", "date") if c in df]
-    if keys:
-        unnamed = pd.concat([df[c].isna() | (df[c].astype("string").str.strip() == "")
-                             for c in keys], axis=1).all(axis=1)
+    if unnamed is not None:
         if "description" in df:
             text = df["description"].astype("string").str.strip().fillna("")
-            unnamed &= (text == "") | text.str.contains("total", case=False, regex=False)
+            unnamed &= (text == "") | text.str.contains(TOTAL_WORDS, regex=True)
         report.total_rows = df.loc[unnamed & df["amount"].notna(), "row"].tolist()
         report.both_sides_rows = [r for r in report.both_sides_rows if r not in report.total_rows]
         df = df[~unnamed | df["amount"].isna()]
@@ -343,4 +383,12 @@ def preview(filename: str, content: bytes, sheet: str | None = None, rows: int =
 
 def load(filename: str, content: bytes, mapping: dict[str, str] | None = None,
          sheet: str | None = None) -> Loaded:
-    return normalize(read_file(filename, content, sheet), mapping)
+    raw = read_file(filename, content, sheet)
+    wanted = {c for c in (mapping or {}).values() if c}
+    if raw.attrs["header_row"] and not wanted <= set(raw.columns):
+        # Saved before title rows were skipped, the mapping may name the first row's columns
+        # ("Unnamed: 1"): read the file that way again.
+        first = read_file(filename, content, sheet, header=0)
+        if wanted <= set(first.columns):
+            raw = first
+    return normalize(raw, mapping)
