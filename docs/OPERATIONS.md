@@ -96,9 +96,11 @@ sudo -u postgres dropdb auditapp_check
 ## Turn on the AI assistant
 
 The assistant explains findings and drafts write-ups. It's off until the server has an
-Anthropic API key. When someone uses it, the finding and up to 50 ledger lines of the same
-entry are sent to the Claude API (never the client's name), so turn it on only if the firm
-allows that.
+Anthropic API key. When someone uses it, the finding (with its detail), the engagement's
+framework, period end and materiality, and up to 50 ledger lines of the same entry are sent
+to the Claude API. The client record's name isn't sent, but ledger descriptions, account
+names, user names and finding notes go as they are and can name the client, customers or
+staff. Turn it on only if the firm allows sending that data to Anthropic.
 
 1. Create a key in the Anthropic Console (console.anthropic.com, under API keys) and set a
    monthly spend limit there.
