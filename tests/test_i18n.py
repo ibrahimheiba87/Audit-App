@@ -56,3 +56,11 @@ def test_figures_always_use_western_digits():
     script = (STATIC / "app.js").read_text(encoding="utf-8")
     assert 'numberingSystem: "latn"' in script
     assert not re.search(r"toLocale\w*String\((?!LOCALE)", script)
+
+
+def test_dates_and_times_follow_the_app_language():
+    # Dates go through I18N.when, so in Arabic they read the Arabic way rather than "3:03 AM".
+    script = (STATIC / "app.js").read_text(encoding="utf-8")
+    i18n = (STATIC / "i18n.js").read_text(encoding="utf-8")
+    assert "I18N.when(date, date.toLocaleString(LOCALE))" in script
+    assert 'new Intl.Locale("ar", { numberingSystem: "latn", calendar: "gregory" })' in i18n
