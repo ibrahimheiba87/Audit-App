@@ -85,7 +85,8 @@ class RunIn(BaseModel):
     cutoff_days: int = Field(default=5, ge=0)
     round_threshold: float = Field(default=1000.0, gt=0, allow_inf_nan=False)
     weekend: Literal["sat-sun", "fri-sat", "fri"] = "sat-sun"
-    keywords: list[str] | None = Field(default=None, max_length=checks.MAX_KEYWORDS * 2)
+    # parse_keywords keeps the first MAX_KEYWORDS; this only bounds the request.
+    keywords: list[str] | None = Field(default=None, max_length=1000)
 
 
 # --- Serialization ----------------------------------------------------------

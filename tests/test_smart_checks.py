@@ -165,3 +165,19 @@ def test_engagement_run_saves_weekend_and_keywords():
     assert findings["findings"] and all(f["check"] == "keywords" for f in findings["findings"])
     assert client.post(f"/api/engagements/{e['id']}/runs",
                        json={"upload_id": up["id"], "weekend": "mon"}).status_code == 422
+
+
+def test_keywords_starting_with_punctuation_match():
+    df = ledger([{"description": "(manual) fix", "amount": 1.0},
+                 {"description": "#plug x", "amount": 1.0}])
+    res = checks.check_keywords(df, checks.Settings(keywords=checks.parse_keywords("(manual), #plug")))
+    assert [f["row"] for f in res.findings] == [2, 3]
+
+
+def test_dates_with_time_zones_run():
+    csv = (b"Date,Account,Amount\n2026-01-03T22:00:00+02:00,Cash,100\n"
+           b"2026-01-04T09:00:00+02:00,Sales,-100\n")
+    r = client.post("/api/audit", files={"file": ("tz.csv", csv, "text/csv")})
+    assert r.status_code == 200, r.text
+    after = next(c for c in r.json()["checks"] if c["id"] == "after_hours")
+    assert after["flagged"] == 1  # 22:00 local time, not converted to UTC

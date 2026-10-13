@@ -285,6 +285,9 @@ def _to_dates(series: pd.Series, dayfirst: bool) -> pd.Series:
     if ordered.any():
         parsed[ordered] = pd.to_datetime(series[ordered], errors="coerce", format="mixed",
                                          dayfirst=dayfirst)
+    if isinstance(parsed.dtype, pd.DatetimeTZDtype):
+        # Keep the clock time the entry was recorded at, so dates compare with period ends.
+        parsed = parsed.dt.tz_localize(None)
     return parsed
 
 

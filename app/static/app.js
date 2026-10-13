@@ -448,7 +448,7 @@ $("uploads").addEventListener("click", (e) => {
           cutoff_days: Number($("run-cutoff").value || 0),
           round_threshold: Number($("run-round").value || 1000),
           weekend: $("run-weekend").value,
-          keywords: $("run-keywords").value.split(/[,،\n]/),
+          keywords: $("run-keywords").value.split(/[,،\n]/).filter((w) => w.trim()),
         });
         await openEngagement(currentEngagement.id);
         showRun(r);

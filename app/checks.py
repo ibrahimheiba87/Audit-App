@@ -255,7 +255,8 @@ def check_after_hours(df: pd.DataFrame, s: Settings) -> CheckResult:
 def _keyword_pattern(word: str) -> str:
     # English words match at the start of a word, so "adjust" finds "adjustment" but not
     # "readjust"; Arabic words take attached prefixes (و، ال), so they match anywhere.
-    return rf"\b{re.escape(word)}" if word.isascii() else re.escape(word)
+    # (?<!\w) rather than \b, so a keyword starting with "#" or "(" still matches.
+    return rf"(?<!\w){re.escape(word)}" if word.isascii() else re.escape(word)
 
 
 def check_keywords(df: pd.DataFrame, s: Settings) -> CheckResult:
