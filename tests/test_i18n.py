@@ -42,3 +42,10 @@ def test_page_loads_the_language_switch():
     page = TestClient(app).get("/").text
     assert page.index("/static/i18n.js") < page.index("/static/ar.js") < page.index("/static/app.js")
     assert 'id="lang-toggle"' in page
+
+
+def test_page_asks_for_the_current_scripts():
+    res = TestClient(app).get("/")
+    assert res.headers["cache-control"] == "no-cache"
+    for name in ("i18n.js", "ar.js", "app.js", "app.css"):
+        assert re.search(rf'"/static/{re.escape(name)}\?v=[0-9a-f]{{12}}"', res.text), name

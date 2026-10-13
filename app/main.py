@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
@@ -99,9 +100,21 @@ async def run_audit(form: AuditForm, user: db.User, session: Session, fmt: str) 
     return result
 
 
+def page() -> str:
+    """The page, with each script and stylesheet tagged by its content, so a browser that
+    cached an older copy (Cloudflare tells browsers to keep them a week) fetches the new one."""
+    def versioned(m: re.Match) -> str:
+        digest = hashlib.sha256((STATIC / m[1]).read_bytes()).hexdigest()[:12]
+        return f'"/static/{m[1]}?v={digest}"'
+    return re.sub(r'"/static/([\w.-]+\.(?:js|css))"', versioned, (STATIC / "index.html").read_text("utf-8"))
+
+
+PAGE = page()
+
+
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC / "index.html")
+def index() -> HTMLResponse:
+    return HTMLResponse(PAGE, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/health")
