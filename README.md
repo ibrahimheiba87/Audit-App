@@ -219,6 +219,9 @@ whole engagement (`python scripts/make_sample_exports.py` regenerates them).
 
 ## Running locally
 
+The live server's setup, updates, backups and restore are in
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
+
 Requires Python 3.11+.
 
 ```bash
