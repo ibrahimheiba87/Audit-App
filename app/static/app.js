@@ -1,4 +1,7 @@
 const $ = (id) => document.getElementById(id);
+// Uploaded or typed data (names, accounts, files): never translated, and kept in its own
+// direction so a Latin name reads correctly inside Arabic text.
+const data = (v) => `<bdi translate="no">${esc(v)}</bdi>`;
 const esc = (v) => v == null ? "" : String(v).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = (n) => n == null ? "" : Number(n).toLocaleString(undefined,
@@ -86,7 +89,7 @@ function Mapper(root, onChange = () => {}) {
       <p class="muted">Check which column in your file holds each field. Map either a signed Amount column, or Debit and Credit columns.</p>
       <div class="mapping" data-mapping></div>
       <p class="muted" data-note></p>
-      <div class="table-wrap"><table class="preview-table" data-preview></table></div>
+      <div class="table-wrap"><table class="preview-table" data-preview translate="no"></table></div>
     </div>`;
   const q = (sel) => root.querySelector(sel);
 
@@ -100,9 +103,9 @@ function Mapper(root, onChange = () => {}) {
     const p = await (await postForm("/api/preview", fd)).json();
     q("[data-sheet-wrap]").hidden = p.sheets.length < 2;
     q("[data-sheet]").innerHTML = p.sheets.map((s) =>
-      `<option ${s === p.sheet ? "selected" : ""}>${esc(s)}</option>`).join("");
+      `<option ${s === p.sheet ? "selected" : ""} translate="no">${esc(s)}</option>`).join("");
     const options = (selected) => '<option value="">(not in file)</option>' + p.columns.map((c) =>
-      `<option value="${esc(c)}" ${c === selected ? "selected" : ""}>${esc(c)}</option>`).join("");
+      `<option value="${esc(c)}" ${c === selected ? "selected" : ""} translate="no">${esc(c)}</option>`).join("");
     q("[data-mapping]").innerHTML = p.fields.map((f) => `
       <div>
         <label>${esc(f.label)}</label>
@@ -180,11 +183,11 @@ async function renderClients(activeId) {
   const clients = await getJSON("/api/clients");
   $("client-list").innerHTML = clients.length ? clients.map((c) => `
     <div class="client">
-      <div class="client-name"><span>${esc(c.name)}</span>
+      <div class="client-name"><span>${data(c.name)}</span>
         <button type="button" data-new-eng="${c.id}" class="link min-2" data-client-name="${esc(c.name)}">+ engagement</button></div>
-      ${c.industry ? `<div class="muted" style="font-size:13px">${esc(c.industry)}</div>` : ""}
+      ${c.industry ? `<div class="muted" style="font-size:13px">${data(c.industry)}</div>` : ""}
       <ul>${c.engagements.map((e) => `<li><a href="#/engagements/${e.id}" class="${e.id === activeId ? "active" : ""}">
-        ${esc(e.name)} <span class="muted">· ${esc(e.period_end)}</span></a></li>`).join("")}</ul>
+        ${data(e.name)} <span class="muted">· ${esc(e.period_end)}</span></a></li>`).join("")}</ul>
     </div>`).join("") : `<p class="muted">No clients yet.</p>`;
   if (me.role !== "admin" && !clients.some((c) => c.engagements.length)) {
     $("client-list").insertAdjacentHTML("beforeend", `<p class="muted">You only see engagements
@@ -281,8 +284,8 @@ $("eng-team-edit").addEventListener("click", () => guard(async () => {
   const on = new Set(e.team.map((m) => m.id));
   $("team-who").textContent = `${e.client.name} · ${e.name}`;
   $("team-list").innerHTML = staff.map((u) => u.role === "admin"
-    ? `<label><input type="checkbox" disabled checked> ${esc(u.name)} <span class="tag">Admin, sees every engagement</span></label>`
-    : `<label><input type="checkbox" value="${u.id}"${on.has(u.id) ? " checked" : ""}> ${esc(u.name)} <span class="tag">${esc(u.role_label)}${u.active ? "" : " · deactivated"}</span></label>`).join("")
+    ? `<label><input type="checkbox" disabled checked> ${data(u.name)} <span class="tag">Admin, sees every engagement</span></label>`
+    : `<label><input type="checkbox" value="${u.id}"${on.has(u.id) ? " checked" : ""}> ${data(u.name)} <span class="tag">${esc(u.role_label)}${u.active ? "" : " · deactivated"}</span></label>`).join("")
     || '<p class="muted">Add people on the Users page first.</p>';
   $("team-error").hidden = true;
   $("team-form").dataset.engagement = e.id;
@@ -398,7 +401,7 @@ $("upload-form").addEventListener("submit", (e) => {
 function renderUploads(uploads) {
   $("uploads").innerHTML = uploads.length ? "<tr><th>File</th><th>Type</th><th>Rows</th><th>Uploaded</th><th>Import</th><th></th></tr>" +
     uploads.map((u) => `<tr>
-      <td>${esc(u.filename)}<div class="muted" style="font-size:12px" title="SHA-256">${esc(u.sha256.slice(0, 12))}…</div></td>
+      <td>${data(u.filename)}<div class="muted" style="font-size:12px" title="SHA-256">${esc(u.sha256.slice(0, 12))}…</div></td>
       <td>${esc(u.kind_label)}</td>
       <td class="num">${u.import.rows_used.toLocaleString()}</td>
       <td class="nowrap">${esc(when(u.uploaded_at))}</td>
@@ -438,7 +441,7 @@ $("uploads").addEventListener("click", (e) => {
 function renderRuns(runs) {
   $("runs").innerHTML = runs.length ? "<tr><th>Run</th><th>When</th><th>File</th><th>Rows</th><th>High</th><th>Medium</th><th>Low</th><th></th></tr>" +
     runs.map((r) => `<tr>
-      <td>#${r.id}</td><td class="nowrap">${esc(when(r.created_at))}</td><td>${esc(r.filename)}</td>
+      <td>#${r.id}</td><td class="nowrap">${esc(when(r.created_at))}</td><td>${data(r.filename)}</td>
       <td class="num">${r.rows.toLocaleString()}</td>
       <td class="num">${r.findings_by_severity.high}</td><td class="num">${r.findings_by_severity.medium}</td>
       <td class="num">${r.findings_by_severity.low}</td>
@@ -495,7 +498,7 @@ $("cmp-form").addEventListener("submit", (ev) => {
 function renderComparisons(list) {
   $("comparisons").innerHTML = list.length ? "<tr><th>#</th><th>When</th><th>This year</th><th>Prior year</th><th>Threshold</th><th>Flagged</th><th></th></tr>" +
     list.map((c) => `<tr><td>${c.id}</td><td class="nowrap">${esc(when(c.created_at))}</td>
-      <td>${esc(c.current_filename)}</td><td>${esc(c.prior_filename)}</td>
+      <td>${data(c.current_filename)}</td><td>${data(c.prior_filename)}</td>
       <td class="num">${money(c.settings.threshold_amount)} / ${c.settings.threshold_pct}%</td>
       <td class="num">${c.summary.flagged} of ${c.summary.accounts}</td>
       <td><div class="cell-actions">
@@ -530,7 +533,7 @@ function renderComparisonTable() {
   const only = $("cmp-flagged-only").checked;
   const rows = comparison.result.rows.filter((r) => !only || r.flagged);
   $("cmp-table").innerHTML = "<tr><th>Account</th><th>Name</th><th>This year</th><th>Prior year</th><th>Change</th><th>%</th><th>Why flagged</th></tr>" +
-    rows.map((r) => `<tr><td>${esc(r.account)}</td><td>${esc(r.name)}</td>
+    rows.map((r) => `<tr><td>${data(r.account)}</td><td>${data(r.name)}</td>
       <td class="num">${money(r.current)}</td><td class="num">${money(r.prior)}</td>
       <td class="num">${money(r.change)}</td>
       <td class="num">${r.change_pct == null ? "–" : (r.change_pct > 0 ? "+" : "") + r.change_pct + "%"}</td>
@@ -631,7 +634,7 @@ function renderMapping() {
       const hint = !a.line && a.suggested && !(a.account in fsMapEdits)
         ? `<div class="tag">Suggested: ${esc(lineLabel[a.suggested])}</div>` : "";
       return `<tr data-account="${esc(a.account)}"${a.account in fsMapEdits ? ' class="changed"' : ""}>
-        <td>${esc(a.account)}${a.in_tb ? "" : ` <span class="tag">(${a.prior != null ? "prior year only" : "from entries"})</span>`}</td><td>${esc(a.name)}</td>
+        <td>${data(a.account)}${a.in_tb ? "" : ` <span class="tag">(${a.prior != null ? "prior year only" : "from entries"})</span>`}</td><td>${data(a.name)}</td>
         <td class="num">${drcr(a.adjusted)}</td>
         <td><select class="map" aria-label="Line for account ${esc(a.account)}">${lineOptions(value)}</select>${hint}</td></tr>`;
     }).join("");
@@ -708,8 +711,8 @@ function renderEntries() {
   $("aje-list").innerHTML = fs.entries.length
     ? "<tr><th>Entry</th><th>Description</th><th>Lines</th><th class=\"num\">Amount</th><th>By</th><th></th></tr>" + fs.entries.map((e) => `<tr>
         <td class="nowrap"><strong>${esc(e.ref)}</strong><div class="tag">${esc(e.kind_label)}${e.date ? " · " + esc(e.date) : ""}</div></td>
-        <td>${esc(e.description)}</td>
-        <td class="nowrap">${e.lines.map((l) => `${l.debit ? "Dr" : "&nbsp;&nbsp;&nbsp;&nbsp;Cr"} ${esc(l.account)} ${money(l.debit || l.credit)}${l.memo ? ` <span class="tag">${esc(l.memo)}</span>` : ""}`).join("<br>")}</td>
+        <td>${data(e.description)}</td>
+        <td class="nowrap">${e.lines.map((l) => `${l.debit ? "Dr" : "&nbsp;&nbsp;&nbsp;&nbsp;Cr"} ${data(l.account)} ${money(l.debit || l.credit)}${l.memo ? ` <span class="tag">${data(l.memo)}</span>` : ""}`).join("<br>")}</td>
         <td class="num">${money(e.total)}</td>
         <td class="nowrap">${esc(e.author)}<div class="tag">${esc(when(e.created_at))}</div></td>
         <td><div class="cell-actions">
@@ -770,7 +773,7 @@ function renderLeadSheets() {
     (prior ? `<td class="num">${signed(r.prior)}</td><td class="num">${signed(r.adjusted - (r.prior || 0))}</td>` : "");
   $("fs-lead").innerHTML = fs.lead_sheets.length ? head + fs.lead_sheets.map((s) =>
     `<tr class="line-head"><td colspan="${prior ? 8 : 6}">${esc(s.label)} <span class="tag">${esc(s.section_label)}</span></td></tr>` +
-    s.accounts.map((a) => `<tr><td>${esc(a.account)}</td><td>${esc(a.name)}</td>${nums(a)}</tr>`).join("") +
+    s.accounts.map((a) => `<tr><td>${data(a.account)}</td><td>${data(a.name)}</td>${nums(a)}</tr>`).join("") +
     `<tr class="line-total"><td colspan="2">Total ${esc(s.label.toLowerCase())}</td>${nums(s.totals)}</tr>`).join("")
     : '<tr><td class="muted">Map accounts to see lead sheets.</td></tr>';
 }
@@ -804,7 +807,7 @@ function renderUncorrected() {
   $("unc-conclusion").textContent = (u.conclusion || (u.overall_materiality == null ? "Set materiality above to compare against it." : "")) + unmapped;
   $("unc-table").innerHTML = u.entries.length
     ? '<tr><th>Entry</th><th>Description</th><th class="num">Effect on profit</th><th class="num">Effect on net assets</th></tr>' +
-      u.entries.map((e) => `<tr><td>${esc(e.ref)}</td><td>${esc(e.description)}</td><td class="num">${signed(e.profit)}</td><td class="num">${signed(e.net_assets)}</td></tr>`).join("")
+      u.entries.map((e) => `<tr><td>${esc(e.ref)}</td><td>${data(e.description)}</td><td class="num">${signed(e.profit)}</td><td class="num">${signed(e.net_assets)}</td></tr>`).join("")
     : '<tr><td class="muted">No proposed entries. Post one with type "Proposed" on the Adjusting entries tab.</td></tr>';
 }
 
@@ -858,7 +861,7 @@ $("smp-form").addEventListener("submit", (ev) => {
 function renderSamples(list) {
   $("samples").innerHTML = list.length ? "<tr><th>#</th><th>When</th><th>File</th><th>Method</th><th>Items</th><th>Value</th><th>Seed</th><th></th></tr>" +
     list.map((s) => `<tr><td>${s.id}</td><td class="nowrap">${esc(when(s.created_at))}</td>
-      <td>${esc(s.filename)}</td><td>${esc(s.method_label)}</td>
+      <td>${data(s.filename)}</td><td>${esc(s.method_label)}</td>
       <td class="num">${s.sample_size} of ${s.population.lines}</td>
       <td class="num">${money(s.sample_value)}</td><td class="num">${s.seed}</td>
       <td><div class="cell-actions">
@@ -900,7 +903,7 @@ function showSample(s) {
   const hits = r.method === "mus";
   $("smp-table").innerHTML = `<tr><th>Row</th><th>Entry</th><th>Date</th><th>Account</th><th>Description</th><th>Amount</th>${hits ? "<th>Hits</th>" : ""}<th>Why selected</th></tr>` +
     r.items.map((i) => `<tr><td class="num">${i.row}</td><td>${esc(i.entry_id)}</td>
-      <td class="nowrap">${esc(i.date)}</td><td>${esc(i.account)}</td><td>${esc(i.description)}</td>
+      <td class="nowrap">${esc(i.date)}</td><td>${data(i.account)}</td><td>${data(i.description)}</td>
       <td class="num">${money(i.amount)}</td>${hits ? `<td class="num">${i.hits}</td>` : ""}
       <td>${esc(i.reason)}</td></tr>`).join("");
   $("smp-result").scrollIntoView({ behavior: "smooth" });
@@ -964,7 +967,7 @@ function signoffCell(s, kind) {
   const canSign = kind === "prepared" || me.rank >= (s.id === "completion" ? 3 : 2);
   const prepOk = s.prepared && !s.prepared.stale;
   const mine = so && so.user_id === me.id;
-  let html = so ? `${esc(so.user_name)}<div class="tag">${esc(when(so.at))}</div>${so.stale ? '<div class="stale">Changed since</div>' : ""}` : '<span class="muted">–</span>';
+  let html = so ? `${data(so.user_name)}<div class="tag">${esc(when(so.at))}</div>${so.stale ? '<div class="stale">Changed since</div>' : ""}` : '<span class="muted">–</span>';
   const buttons = [];
   if (canSign && (!so || so.stale) && (kind === "prepared" || prepOk)) {
     const blocked = kind === "reviewed" && (s.open_notes ? `Clear its ${s.open_notes} review note(s) first`
@@ -1011,8 +1014,8 @@ function renderNotes() {
   $("rv-notes").innerHTML = notes.length ? notes.map((n) => `<div class="rv-note ${n.status}" data-note="${n.id}">
       <div class="head"><strong class="status-${n.status}">${NOTE_STATUS[n.status]}</strong><span>${esc(n.section_label)}</span>
         <span>${esc(n.author)} · ${esc(when(n.created_at))}</span>${n.cleared_by ? `<span>Cleared by ${esc(n.cleared_by)} · ${esc(when(n.cleared_at))}</span>` : ""}</div>
-      <div class="text">${esc(n.text)}</div>
-      ${n.replies.map((r) => `<div class="reply">${esc(r.text)}<div class="tag">${esc(r.author)} · ${esc(when(r.at))}</div></div>`).join("")}
+      <div class="text">${data(n.text)}</div>
+      ${n.replies.map((r) => `<div class="reply">${data(r.text)}<div class="tag">${esc(r.author)} · ${esc(when(r.at))}</div></div>`).join("")}
       <div class="cell-actions">
         ${n.status === "cleared" ? '<button type="button" class="small secondary min-2" data-note-status="open">Reopen</button>'
           : `<button type="button" class="small min-2" data-note-status="cleared"${preparer[n.section] === me.id ? ' disabled title="You prepared this section, so another reviewer clears its notes"' : ""}>Clear</button>`}
@@ -1104,13 +1107,13 @@ function requestCard(r, team) {
   const open = r.status !== "accepted";
   const files = r.files.map((f) => {
     const canRemove = open && (f.uploaded_by_id === me.id || (team && me.rank >= 2));
-    return `<li><button type="button" class="small secondary file" data-rq-file="${f.id}">${esc(f.filename)}</button>
+    return `<li><button type="button" class="small secondary file" data-rq-file="${f.id}">${data(f.filename)}</button>
       <span class="tag">${fileSize(f.size)} · ${esc(f.uploaded_by)}${team && f.from_client ? " (client)" : ""} · ${esc(when(f.uploaded_at))}</span>
       ${canRemove ? `<button type="button" class="link danger-link" data-rq-remove="${f.id}">Remove</button>` : ""}</li>`;
   }).join("");
   // One line each: replies keep the message's own line breaks (white-space: pre-wrap).
   const messages = r.messages.map((m) => `<div class="reply${m.from_client ? " client" : ""}">${
-    m.status_label ? `<strong class="rq-status-${m.status_to}">${esc(m.status_label)}</strong>${m.text ? ": " : ""}` : ""}${esc(m.text)}<div class="tag">${
+    m.status_label ? `<strong class="rq-status-${m.status_to}">${esc(m.status_label)}</strong>${m.text ? ": " : ""}` : ""}${data(m.text)}<div class="tag">${
     esc(m.author)}${team && m.from_client ? " (client)" : ""} · ${esc(when(m.at))}</div></div>`).join("");
   const actions = [];
   if (open) actions.push(`<label class="button small upload">${r.files.length ? "Add a file" : "Upload a file"}<input type="file" multiple data-rq-upload class="visually-hidden"></label>`);
@@ -1119,7 +1122,7 @@ function requestCard(r, team) {
   // Reopening accepted files is for reviewers; the server refuses preparers.
   const returnable = team && (r.status === "submitted" || (r.status === "accepted" && me.rank >= 2));
   return `<div class="rq ${r.status}" data-rq="${r.id}">
-    <div class="head"><strong>${r.number}. ${esc(r.title)}</strong>
+    <div class="head"><strong>${r.number}. ${data(r.title)}</strong>
       <span class="st rq-${r.status}">${esc(r.status_label)}</span>
       ${r.due_date ? `<span class="${r.overdue ? "overdue" : "tag"}">Due ${esc(r.due_date)}${r.overdue ? " · overdue" : ""}</span>` : ""}
       ${team ? `<span class="tag">Asked by ${esc(r.created_by)} · ${esc(when(r.created_at))}</span>` : ""}</div>
@@ -1273,7 +1276,7 @@ function renderPortal() {
     const list = e.requests.filter((r) => !todo || r.status !== "accepted");
     const owed = e.summary.open + e.summary.returned;
     return `<section class="panel">
-      <h2>${esc(e.name)} <span class="muted">· period ending ${esc(e.period_end)}</span></h2>
+      <h2>${data(e.name)} <span class="muted">· period ending ${esc(e.period_end)}</span></h2>
       <p class="tag" style="margin-top:-6px">${owed ? `${owed} still to send` : "Nothing left to send"}${e.summary.overdue ? ` · <span class="overdue">${e.summary.overdue} overdue</span>` : ""} · ${e.summary.accepted} of ${e.summary.total} accepted</p>
       ${list.length ? list.map((r) => requestCard(r, false)).join("") : '<p class="muted">Nothing here right now.</p>'}
     </section>`;
@@ -1302,7 +1305,7 @@ function renderRegister() {
         <td>${statusPill(f)}</td><td><span class="sev ${f.severity}">${f.severity}</span></td>
         <td class="finding-cell"><button type="button" class="link finding-open" aria-label="Open finding ${f.id}: ${esc(f.check_name)}">${esc(f.check_name)}</button>${f.detail && f.detail !== f.check_name ? `<div class="muted">${esc(f.detail)}</div>` : ""}</td>
         <td>${esc(f.entry_id)}</td><td class="nowrap">${esc(f.date)}</td>
-        <td>${esc(f.account)}</td><td class="num">${money(f.amount)}</td>
+        <td>${data(f.account)}</td><td class="num">${money(f.amount)}</td>
         <td class="nowrap muted">${f.notes ? `${f.notes} note${f.notes > 1 ? "s" : ""}` : ""}${f.notes && f.evidence ? " · " : ""}${f.evidence ? `${f.evidence} file${f.evidence > 1 ? "s" : ""}` : ""}</td>
       </tr>`).join("")
     : '<tr><td class="muted">No findings yet. Run the audit on a file, or add a finding by hand.</td></tr>';
@@ -1378,7 +1381,7 @@ function openFinding(f, scroll = true) {
   $("fd-delete").hidden = f.source !== "manual";
   $("fd-evidence").innerHTML = f.attachments.length
     ? "<tr><th>File</th><th>Size</th><th>Added</th><th>SHA-256</th><th></th></tr>" + f.attachments.map((a) => `<tr>
-        <td>${esc(a.filename)}</td><td class="num">${fileSize(a.size)}</td>
+        <td>${data(a.filename)}</td><td class="num">${fileSize(a.size)}</td>
         <td class="nowrap">${esc(when(a.uploaded_at))}${a.author ? " · " + esc(a.author) : ""}</td>
         <td class="muted" title="${esc(a.sha256)}">${esc(a.sha256.slice(0, 12))}…</td>
         <td><div class="cell-actions"><a class="button" href="/api/evidence/${a.id}">Download</a>
@@ -1387,7 +1390,7 @@ function openFinding(f, scroll = true) {
   $("fd-trail").innerHTML = f.trail.length ? [...f.trail].reverse().map((n) => `<li>
       <div class="who">${esc(when(n.created_at))}${n.author ? " · " + esc(n.author) : ""}</div>
       ${n.status_to ? `<div>Status: ${esc(n.status_from)} → <strong>${esc(n.status_to)}</strong></div>` : ""}
-      ${n.text ? `<div>${esc(n.text)}</div>` : ""}</li>`).join("")
+      ${n.text ? `<div>${data(n.text)}</div>` : ""}</li>`).join("")
     : '<li class="muted">Nothing yet.</li>';
   renderRegister();
   renderAssistant();
@@ -1416,7 +1419,7 @@ $("ai").addEventListener("click", (ev) => {
   buttons.forEach((b) => { b.disabled = true; });  // one question at a time
   busy(btn, async () => {
     try {
-      const r = await sendJSON("POST", `/api/findings/${id}/assistant`, { task: btn.dataset.ai });
+      const r = await sendJSON("POST", `/api/findings/${id}/assistant`, { task: btn.dataset.ai, language: I18N.lang });
       if (currentFinding?.id !== id) return;  // the user has opened another finding
       aiAnswer = { findingId: id, ...r };
       renderAssistant();
@@ -1435,7 +1438,8 @@ $("ai-note").addEventListener("click", () => busy($("ai-note"), async () => {
 }));
 
 function aiNoteText(a) {
-  return `${a.label} drafted with the AI assistant (${a.model}):\n\n${a.text}`;
+  // The heading is saved with the note, so it's written in the language on screen.
+  return `${I18N.tr(`${a.label} drafted with the AI assistant (${a.model}):`)}\n\n${a.text}`;
 }
 
 $("ai-edit").addEventListener("click", () => {
@@ -1503,8 +1507,22 @@ let me = null;       // signed-in user
 let roles = [];
 let appStarted = false;
 
+// The language picked on the sign-in page is saved once someone signs in; otherwise a
+// signed-in user's saved choice wins, so the app opens in it on every device.
+let languagePicked = false;
+const saveLanguage = (language) => sendJSON("PUT", "/api/auth/language", { language }).catch(() => {});
+
+$("lang-toggle").addEventListener("click", () => {
+  const next = I18N.lang === "ar" ? "en" : "ar";
+  I18N.set(next);
+  if (me) saveLanguage(next); else languagePicked = true;
+});
+
 function setUser(user) {
   me = user;
+  if (languagePicked) saveLanguage(I18N.lang);
+  else if (user.language) I18N.set(user.language);
+  languagePicked = false;
   lastUser = userKey(user);
   document.body.dataset.rank = user.rank;
   $("user-name").textContent = user.name;
@@ -1591,17 +1609,17 @@ async function showUsers() {
   [users, clients] = await Promise.all([getJSON("/api/users"), getJSON("/api/clients")]);
   const staff = roles.filter((r) => r.id !== "client");
   const roleOptions = (sel, list) => list.map((r) => `<option value="${r.id}"${r.id === sel ? " selected" : ""}>${esc(r.label)}</option>`).join("");
-  const clientOptions = (sel) => clients.map((c) => `<option value="${c.id}"${c.id === sel ? " selected" : ""}>${esc(c.name)}</option>`).join("");
+  const clientOptions = (sel) => clients.map((c) => `<option value="${c.id}"${c.id === sel ? " selected" : ""} translate="no">${esc(c.name)}</option>`).join("");
   const keep = $("nu-role").value;
   $("nu-role").innerHTML = roleOptions(keep || "preparer", [...staff, ...roles.filter((r) => r.id === "client")]);
   $("nu-client").innerHTML = '<option value="">Pick a client</option>' + clientOptions(Number($("nu-client").value));
   updateNewUserRole();
   $("users").innerHTML = "<tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Status</th><th></th></tr>" +
     users.map((u) => `<tr data-user="${u.id}">
-      <td>${esc(u.name)}${u.id === me.id ? ' <span class="muted">(you)</span>' : ""}</td><td>${esc(u.email)}</td>
+      <td>${data(u.name)}${u.id === me.id ? ' <span class="muted">(you)</span>' : ""}</td><td>${data(u.email)}</td>
       <td><select class="map" data-role aria-label="Role">${roleOptions(u.role, staff)}${
         u.role === "client" && !u.client_id ? '<option value="" selected>Client (no client)</option>' : ""}
-        <optgroup label="Client user of">${clients.map((c) => `<option value="client:${c.id}"${
+        <optgroup label="Client user of">${clients.map((c) => `<option translate="no" value="client:${c.id}"${
           u.role === "client" && c.id === u.client_id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</optgroup></select></td>
       <td class="nowrap">${esc(when(u.last_login_at)) || '<span class="muted">Never</span>'}</td>
       <td>${u.active ? "Active" : '<span class="muted">Deactivated</span>'}</td>
@@ -1703,7 +1721,7 @@ async function showActivity() {
   if (!users.length) users = await getJSON("/api/users");
   const sel = $("act-user").value;
   $("act-user").innerHTML = '<option value="">Everyone</option>' +
-    users.map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join("");
+    users.map((u) => `<option value="${u.id}" translate="no">${esc(u.name)}</option>`).join("");
   $("act-user").value = sel;
   const q = new URLSearchParams({ limit: 500 });
   if ($("act-user").value) q.set("user_id", $("act-user").value);
@@ -1797,7 +1815,7 @@ function renderFindings() {
     "<th>Account</th><th>Description</th><th>Amount</th><th>Detail</th></tr>" +
     shown.map((f) => `<tr><td><span class="sev ${esc(f.severity)}">${esc(f.severity)}</span></td>
       <td>${esc(checkNames[f.check] || f.check)}</td><td class="num">${esc(f.row)}</td><td>${esc(f.entry_id)}</td>
-      <td class="nowrap">${esc(f.date)}</td><td>${esc(f.account)}</td><td>${esc(f.description)}</td>
+      <td class="nowrap">${esc(f.date)}</td><td>${data(f.account)}</td><td>${data(f.description)}</td>
       <td class="num">${money(f.amount)}</td><td>${esc(f.detail)}</td></tr>`).join("");
 }
 $("f-sev").addEventListener("change", renderFindings);

@@ -153,6 +153,21 @@ setup, the sign-in lockout, the last admin, entry numbering) rely on an atomic
 On a server that is online before anyone has signed up, set `AUDIT_SETUP_CODE` to a random
 value. The first-run form then asks for it, so nobody else can create the first admin.
 
+## Arabic
+
+The **العربية / English** button at the top of every page, the sign-in page and the client
+portal included, switches the app between English and Arabic. In Arabic the layout runs right to
+left and every label, button, message and error is in Arabic; figures and dates keep Western
+digits so they match the source files. Each user's choice is saved with their account, so the
+app opens in it on any device. With the language set to Arabic, the AI assistant answers in
+Arabic. Uploaded data (account names, descriptions, file names) and the Excel and CSV exports
+stay as they are.
+
+Translations live in `app/static/ar.js`, keyed by the English text; `app/static/i18n.js` swaps
+them in as text reaches the page. To translate a new piece of text, add its English and Arabic
+there; mark anything that shows uploaded or typed data with `translate="no"` so it is never
+translated.
+
 ## Checks
 
 | Check | What it flags | Severity |
@@ -213,7 +228,8 @@ All endpoints need a signed-in session cookie except `/api/health`, `GET /api/au
 `POST /api/auth/setup`, `POST /api/auth/login` and `POST /api/auth/logout`.
 
 - `GET /api/auth/status`, `POST /api/auth/setup` (first admin, only while there are no users),
-  `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`
+  `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`,
+  `PUT /api/auth/language` (`language=en|ar`)
 - `GET|POST /api/users`, `PATCH /api/users/{id}` (`name`, `role`, `active`, `password`, `client_id` for client users); admin only
 - `GET /api/activity?engagement_id=&user_id=&action=&limit=`; without `engagement_id`, admin
   only; with it, admins and the engagement's team
@@ -278,7 +294,7 @@ Engagement endpoints (JSON unless noted):
 - `POST /api/requests/{id}/files` (multipart `file`), `GET|DELETE /api/request-files/{id}`,
   `POST /api/requests/{id}/messages` (`text`): for the team and the request's client users
 - `GET /api/portal/requests`: a client user's engagements and requests
-- `GET /api/assistant/status`, `POST /api/findings/{id}/assistant` (`task=explain|draft`):
+- `GET /api/assistant/status`, `POST /api/findings/{id}/assistant` (`task=explain|draft`, optional `language=en|ar`):
   the AI assistant; 503 while it is off, 502 when the Claude API fails, 429 when busy
 - `POST /api/sample`: draw a sample from a file without saving (multipart: `file`, the same
   fields as above, optional `mapping`, `sheet`, `format=json|xlsx`)

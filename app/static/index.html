@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Audit App</title>
 <link rel="stylesheet" href="/static/app.css">
+<script src="/static/i18n.js"></script>
+<script src="/static/ar.js"></script>
 </head>
 <body>
 <main>
@@ -17,10 +19,11 @@
       <a href="#/activity" data-view="activity" class="min-4">Activity</a>
     </nav>
     <div class="user-chip" id="user-chip" hidden>
-      <span><strong id="user-name"></strong> <span class="muted" id="user-role"></span></span>
+      <span><strong id="user-name" translate="no"></strong> <span class="muted" id="user-role"></span></span>
       <button type="button" class="link" id="pw-open">Change password</button>
       <button type="button" class="link" id="logout">Sign out</button>
     </div>
+    <button type="button" class="link lang-toggle" id="lang-toggle" lang="ar" translate="no">العربية</button>
   </header>
   <div class="error" id="error" hidden></div>
 
@@ -273,7 +276,7 @@
                 <div class="actions" style="margin:0 0 10px">
                   <button type="button" class="small secondary" id="fs-accept">Use suggestions for unmapped accounts</button>
                   <button type="button" class="small" id="fs-save-map" disabled>Save mapping</button>
-                  <label class="inline" style="margin-left:auto"><input type="checkbox" id="fs-unmapped-only" style="width:auto"> Unmapped only</label>
+                  <label class="inline" style="margin-inline-start:auto"><input type="checkbox" id="fs-unmapped-only" style="width:auto"> Unmapped only</label>
                 </div>
                 <div class="table-wrap"><table id="fs-map"></table></div>
               </div>

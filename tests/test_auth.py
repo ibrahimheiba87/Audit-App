@@ -332,3 +332,17 @@ def test_adjusting_entry_permissions():
     assert prep.patch(f"/api/adjusting-entries/{eid_}", json={"kind": "adjusting"}).status_code == 403
     assert prep.delete(f"/api/adjusting-entries/{eid_}").status_code == 403
     assert a.patch(f"/api/adjusting-entries/{eid_}", json={"kind": "adjusting"}).status_code == 200
+
+
+def test_each_user_keeps_their_language():
+    c = admin()
+    assert c.get("/api/auth/me").json()["language"] is None
+    assert c.put("/api/auth/language", json={"language": "ar"}).status_code == 204
+    assert c.get("/api/auth/me").json()["language"] == "ar"
+    assert admin().get("/api/auth/me").json()["language"] == "ar"  # on another device too
+    preparer = add_user(c, "preparer")
+    assert preparer.get("/api/auth/me").json()["language"] is None
+    assert c.put("/api/auth/language", json={"language": "en"}).status_code == 204
+    assert c.get("/api/auth/me").json()["language"] == "en"
+    assert c.put("/api/auth/language", json={"language": "fr"}).status_code == 422
+    assert TestClient(app).put("/api/auth/language", json={"language": "ar"}).status_code == 401

@@ -15,7 +15,16 @@ from sqlalchemy.orm import Session
 
 from . import auth
 from .auth import COOKIE, ROLES, current_user, log, require, signed_in_user, user_out
-from .db import Activity, Client, ClientUser, Engagement, EngagementMember, User, get_session
+from .db import (
+    Activity,
+    Client,
+    ClientUser,
+    Engagement,
+    EngagementMember,
+    User,
+    UserSetting,
+    get_session,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -43,6 +52,10 @@ class LoginIn(BaseModel):
 class PasswordIn(BaseModel):
     current_password: str = Field(max_length=200)
     new_password: str = Field(max_length=200)
+
+
+class LanguageIn(BaseModel):
+    language: Literal["en", "ar"]
 
 
 class UserIn(BaseModel):
@@ -169,6 +182,18 @@ def logout(request: Request, session: Session = Depends(get_session)) -> Respons
 @router.get("/auth/me")
 def me(user: User = Depends(signed_in_user)) -> dict:
     return user_out(user)
+
+
+@router.put("/auth/language", status_code=204)
+def set_language(body: LanguageIn, user: User = Depends(signed_in_user),
+                 session: Session = Depends(get_session)) -> Response:
+    """Remember the language this user picked, so the app opens in it on any device."""
+    if user.settings is None:
+        user.settings = UserSetting(language=body.language)
+    else:
+        user.settings.language = body.language
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.post("/auth/password", status_code=204)
