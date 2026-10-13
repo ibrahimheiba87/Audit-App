@@ -137,9 +137,13 @@ def _key(name: object) -> str:
 HEADER_SEARCH_ROWS = 30  # how far down a report's title rows can push the header
 
 
+KNOWN_HEADERS = {key for synonyms in COLUMN_SYNONYMS.values() for key in synonyms}
+
+
 def _header_score(cells) -> int:
-    keys = {_key(c) for c in cells if isinstance(c, str)}
-    return sum(1 for synonyms in COLUMN_SYNONYMS.values() if keys & set(synonyms))
+    """How many cells are known header names (each cell counted once, so a title such as
+    "Account Name", which could be the account or the description, scores 1)."""
+    return sum(1 for c in cells if isinstance(c, str) and _key(c) in KNOWN_HEADERS)
 
 
 def _filled(cell: object) -> bool:
@@ -150,13 +154,13 @@ def _header_row(top: pd.DataFrame) -> int:
     """The row holding the column headers, 0-based. Exports from accounting systems often
     start with a few title rows (company, report name, period); the header is the first row
     that names the most known columns, if it names at least two and is mostly text.
-    Otherwise the first row. A row is passed over if one above it already looks like a
+    Otherwise the first row that isn't blank. A row is passed over if one above it already looks like a
     header (names a known column across several cells), so a data row holding "Dr" and
     "Journal" can't take the place of a header with unusual names."""
     rows = [list(cells) for cells in top.itertuples(index=False)]
     filled = [sum(_filled(c) for c in cells) for cells in rows]
     scores = [_header_score(cells) for cells in rows]
-    best, best_score = 0, 1
+    best, best_score = next((i for i, n in enumerate(filled) if n), 0), 1
     for i, cells in enumerate(rows):
         text = sum(isinstance(c, str) and c.strip() != "" for c in cells)
         if scores[i] <= best_score or text * 2 <= filled[i]:
@@ -202,7 +206,8 @@ def read_file(filename: str, content: bytes, sheet: str | None = None,
         elif lower.endswith((".csv", ".txt")):
             if header is None:
                 header = _header_row(_csv_top(content))
-            raw = pd.read_csv(io.BytesIO(content), sep=None, engine="python", skiprows=header)
+            raw = pd.read_csv(io.BytesIO(content), sep=None, engine="python", skiprows=header,
+                              skip_blank_lines=False)  # keep row numbers
         else:
             raise LoadError("Unsupported file type. Upload a .csv or .xlsx file.")
     except LoadError:

@@ -244,3 +244,15 @@ def test_sample_exports_import_cleanly():
     for year in (2025, 2026):
         tb = loader.load("tb.xlsx", (data / f"nile_trading_tb_{year}.xlsx").read_bytes())
         assert round(tb.df["amount"].sum(), 2) == 0 and len(tb.df) == 18
+
+
+def test_a_one_cell_title_does_not_count_as_two_columns():
+    content = export_xlsx([["Account Name", None], ["Account", "Amount"], [1000, 5]])
+    df = loader.load("tb.xlsx", content).df
+    assert list(df["account"]) == ["1000"] and list(df["row"]) == [3]
+
+
+def test_csv_row_numbers_count_blank_lines():
+    csv = b"\nDate,Account,Amount\n01/03/2026,1000,5\n\n02/03/2026,,x\n"
+    loaded = loader.load("gl.csv", csv)
+    assert list(loaded.df["row"]) == [3] and loaded.report.skipped_rows == [5]
