@@ -193,6 +193,9 @@ is required. `sample_data/sample_gl.csv` is a sample ledger with planted issues
 
 ## Running locally
 
+The live server's setup, updates, backups and restore are in
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
+
 Requires Python 3.11+.
 
 ```bash
