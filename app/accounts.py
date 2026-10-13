@@ -192,7 +192,13 @@ def set_language(body: LanguageIn, user: User = Depends(signed_in_user),
         user.settings = UserSetting(language=body.language)
     else:
         user.settings.language = body.language
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:  # another request saved this user's first choice at the same moment
+        session.rollback()
+        setting = session.get(UserSetting, user.id)
+        setting.language = body.language
+        session.commit()
     return Response(status_code=204)
 
 

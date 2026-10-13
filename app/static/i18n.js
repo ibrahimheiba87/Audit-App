@@ -41,14 +41,16 @@ const I18N = (() => {
   }
 
   // A run of text kept in its own direction inside Arabic: next to Arabic letters, a date
-  // like 2026-12-31 would otherwise show as 31-12-2026.
+  // like 2026-12-31 would otherwise show as 31-12-2026. The marks are invisible but are
+  // copied with the text, so bare figures only get them when a minus or hyphen needs it.
   const isolate = (v) => `\u2068${v}\u2069`;
+  const capitalised = (v) => v.charAt(0).toUpperCase() + v.slice(1);
 
   // Translate one piece of text; null when there's nothing for it.
   function lookup(text) {
     const s = norm(text);
     const plain = /\d/.test(s) && !/[\u0600-\u06ff\u2068]/.test(s);  // figures, no Arabic yet
-    if (!/[A-Za-z]/.test(s)) return plain ? s.replace(/\d(.*\d)?/s, isolate) : null;
+    if (!/[A-Za-z]/.test(s)) return plain && /-\s*\d/.test(s) ? s.replace(/-?\d(.*\d)?/s, isolate) : null;
     const hit = exact.get(s);
     if (hit !== undefined) return hit;
     for (const p of patterns) {
@@ -57,10 +59,14 @@ const I18N = (() => {
       if (!m) continue;
       const vals = {};
       // Values (names, files, dates, amounts) are isolated, so their own direction holds.
-      p.names.forEach((n, i) => { vals[n] = p.translate[i] ? (lookup(m[i + 1]) ?? isolate(m[i + 1])) : isolate(m[i + 1]); });
+      // A label can arrive lower-cased ("Total cash and cash equivalents").
+      p.names.forEach((n, i) => {
+        const v = m[i + 1];
+        vals[n] = (p.translate[i] && (lookup(v) ?? exact.get(capitalised(v)))) || isolate(v);
+      });
       return p.ar.replace(/\{(\w+)\}/g, (_, n) => vals[n] ?? "");
     }
-    return plain ? isolate(s) : null;  // such as a date and time: 10/13/2026, 9:05 AM
+    return plain && /^\d/.test(s) ? isolate(s) : null;  // such as a date and time: 10/13/2026, 9:05 AM
   }
 
   // Text for the current language, keeping the spaces around it.
@@ -73,7 +79,7 @@ const I18N = (() => {
     return lead + out + tail;
   }
 
-  // English behind each translated text node and attribute: node -> {src, out}.
+  // English behind each translated text node and attribute: node -> {src, out, lang}.
   const texts = new WeakMap();
   const attrs = new WeakMap();
 
@@ -83,13 +89,14 @@ const I18N = (() => {
 
   function doText(node) {
     const state = texts.get(node);
+    if (state?.lang === lang && node.nodeValue === state.out) return;  // our own change
     const src = source(state, node.nodeValue);
     const out = tr(src);
     if (out === src && !state) return;
     const parent = node.parentElement;
     // An <option> without a value submits its text, so pin the English before translating.
     if (parent?.tagName === "OPTION" && !parent.hasAttribute("value")) parent.setAttribute("value", norm(src));
-    texts.set(node, { src, out });
+    texts.set(node, { src, out, lang });
     if (node.nodeValue !== out) node.nodeValue = out;
   }
 
@@ -97,11 +104,12 @@ const I18N = (() => {
     if (!el.hasAttribute(name)) return;
     let map = attrs.get(el);
     const state = map?.[name];
+    if (state?.lang === lang && el.getAttribute(name) === state.out) return;
     const src = source(state, el.getAttribute(name));
     const out = tr(src);
     if (out === src && !state) return;
     if (!map) attrs.set(el, map = {});
-    map[name] = { src, out };
+    map[name] = { src, out, lang };
     if (el.getAttribute(name) !== out) el.setAttribute(name, out);
   }
 
