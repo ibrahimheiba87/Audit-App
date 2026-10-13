@@ -145,10 +145,13 @@ their password signs them out. Behind an HTTPS proxy, set `AUDIT_SECURE_COOKIES=
 cookie is only sent over HTTPS.
 
 Data is stored in SQLite (`audit.db` in the working directory). Set `AUDIT_DB_URL` to use
-PostgreSQL instead (for example `postgresql+psycopg://user:pass@host/audit`, with the driver
-installed). Other databases are refused at startup: the checks that must not race (first-run
+PostgreSQL 13 or later instead (for example `postgresql+psycopg://user:pass@host/audit`; the
+driver is in `requirements.txt`). Other databases are refused at startup: the checks that must not race (first-run
 setup, the sign-in lockout, the last admin, entry numbering) rely on an atomic
 `INSERT ... ON CONFLICT` that the app only uses on these two.
+
+On a server that is online before anyone has signed up, set `AUDIT_SETUP_CODE` to a random
+value. The first-run form then asks for it, so nobody else can create the first admin.
 
 ## Checks
 
