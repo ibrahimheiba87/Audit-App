@@ -261,6 +261,8 @@ def validate_mapping(mapping: dict[str, str], columns: list[str]) -> dict[str, s
 
 
 TOTAL_WORDS = re.compile(r"\b(?:sub|grand\s*)?totals?\b", re.IGNORECASE)  # not TotalEnergies
+TIME_OFFSET = re.compile(r"^\s*\d{4}-\d{2}-\d{2}[T ]\d{1,2}:\d{2}.*?(?:Z|[+-]\d{2}:?\d{2})\s*$")
+TIME_OFFSET_END = r"\s*(?:Z|[+-]\d{2}:?\d{2})\s*$"
 DATE_PARTS = re.compile(r"^\s*(\d{1,2})[/.\-](\d{1,2})[/.\-]\d{2,4}\b")
 
 
@@ -280,14 +282,19 @@ def _day_first(columns: list[pd.Series]) -> bool:
 def _to_dates(series: pd.Series, dayfirst: bool) -> pd.Series:
     """Parse dates. Only dates like 03/04/2026 follow the file's day/month order; ISO dates
     (2026-03-04) and real spreadsheet dates always mean what they say."""
+    # Keep the clock time an entry was recorded at and drop any UTC offset: offsets can differ
+    # within a file (summer time), and pandas can't hold several in one column.
+    text = series.astype("string")
+    offset = text.str.match(TIME_OFFSET).fillna(False).astype(bool)
+    if offset.any():
+        series = series.where(~offset, text.str.replace(TIME_OFFSET_END, "", regex=True))
     ordered = series.astype("string").str.match(DATE_PARTS).fillna(False).astype(bool)
     parsed = pd.to_datetime(series.where(~ordered), errors="coerce", format="mixed")
     if ordered.any():
         parsed[ordered] = pd.to_datetime(series[ordered], errors="coerce", format="mixed",
                                          dayfirst=dayfirst)
     if isinstance(parsed.dtype, pd.DatetimeTZDtype):
-        # Keep the clock time the entry was recorded at, so dates compare with period ends.
-        parsed = parsed.dt.tz_localize(None)
+        parsed = parsed.dt.tz_localize(None)  # spreadsheet values that carried a time zone
     return parsed
 
 

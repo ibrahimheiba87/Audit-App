@@ -56,6 +56,7 @@ class Settings:
     work_start: int = 7  # entries recorded before this hour or from work_end on are flagged
     work_end: int = 19
     rare_account_lines: int = 2  # accounts with this many lines or fewer are "rarely used"
+    kind: str | None = None  # the upload's kind ("gl", "tb", "prior_tb") when known
 
 
 @dataclass
@@ -226,13 +227,17 @@ def check_weekend(df: pd.DataFrame, s: Settings) -> CheckResult:
     return res
 
 
+def _timed(dates: pd.Series) -> pd.Series:
+    """True where a date carries a time of day. A date given without one reads as midnight,
+    so midnight exactly counts as no time."""
+    return dates.notna() & (dates != dates.dt.normalize())
+
+
 def _time_column(df: pd.DataFrame) -> str | None:
-    """The posting or transaction date column, if it carries times of day (not just dates)."""
+    """The posting or transaction date column, if any of its dates carry times of day."""
     for col in ("posted", "date"):
-        if col in df:
-            values = df[col].dropna()
-            if len(values) and (values != values.dt.normalize()).mean() >= 0.5:
-                return col
+        if col in df and _timed(df[col]).any():
+            return col
     return None
 
 
@@ -246,7 +251,7 @@ def check_after_hours(df: pd.DataFrame, s: Settings) -> CheckResult:
                 f"{'posting' if col == 'posted' else 'transaction'} time.")
     times = df[col]
     hours = times.dt.hour
-    flagged = df[times.notna() & ((hours < s.work_start) | (hours >= s.work_end))]
+    flagged = df[_timed(times) & ((hours < s.work_start) | (hours >= s.work_end))]
     for _, r in flagged.iterrows():
         res.findings.append(_finding(res.id, MEDIUM, r, f"Recorded at {r[col]:%H:%M}"))
     return res
@@ -284,8 +289,13 @@ def check_rare_accounts(df: pd.DataFrame, s: Settings) -> CheckResult:
         res.status, res.note = "skipped", "Needs an account column."
         return res
     counts = df["account"].value_counts(dropna=True)
-    # A trial balance has one line per account, so every account would look rare.
-    if len(df) < 50 or not len(counts) or counts.mean() < 5:
+    # A trial balance has one line per account, so every account would look rare. Without
+    # the upload's kind (a quick audit), guess from the file's shape.
+    if s.kind is not None:
+        is_tb = s.kind != "gl"
+    else:
+        is_tb = len(df) < 50 or counts.mean() < 5
+    if is_tb or not len(counts):
         res.status, res.note = "skipped", "Needs a general ledger with several lines per account."
         return res
     n = s.rare_account_lines
@@ -315,17 +325,18 @@ def check_gaps(df: pd.DataFrame, s: Settings) -> CheckResult:
         return res
     ids = pd.Series(df["entry_id"].dropna().astype(str).str.strip().unique(), dtype="string")
     parts = ids.str.extract(r"^(.*?)(\d{1,15})$").dropna()
-    notes = []
+    notes, numbered = [], False
     for prefix, g in parts.groupby(0, sort=True):
         if len(g) < 10:
             continue
+        numbered = True
         width = int(g[1].str.len().min()) if g[1].str.startswith("0").any() else 0
         nums = np.unique(g[1].astype("int64").to_numpy())
 
         def name(n: int, prefix: str = prefix, width: int = width) -> str:
             return f"{prefix}{n:0{width}d}"
 
-        breaks = np.flatnonzero(np.diff(nums) > max(100, len(nums))) + 1
+        breaks = np.flatnonzero(np.diff(nums) > len(nums)) + 1
         for block in np.split(nums, breaks):
             if len(block) < 2:
                 continue
@@ -345,8 +356,11 @@ def check_gaps(df: pd.DataFrame, s: Settings) -> CheckResult:
                     "date": None, "account": None, "description": None, "amount": 0.0,
                     "detail": f"{count} missing entry number{'s' if count != 1 else ''}",
                 })
-    if not notes:
+    if not numbered:
         res.status, res.note = "skipped", "Needs at least 10 numbered entries."
+        return res
+    if not notes:
+        res.note = "Entry numbers are not a running sequence."
         return res
     if len(res.findings) > MAX_GAP_FINDINGS:
         notes.append(f"showing the first {MAX_GAP_FINDINGS} of {len(res.findings)} gaps")
@@ -473,7 +487,7 @@ SEVERITY_POINTS = {HIGH: 20, MEDIUM: 10, LOW: 5}
 CHECK_POINTS = {"keywords": 15, "outliers": 15, "benford": 3}
 SIZE_POINTS = 20  # the most an entry's size adds
 RISK_LEVELS = ((50, HIGH), (25, MEDIUM), (0, LOW))
-MAX_RANKED = 500
+MAX_RANKED = 5000  # kept with the run; a run can flag far more lines than anyone reviews
 
 
 def risk_ranking(df: pd.DataFrame, findings: list[dict], s: Settings) -> dict:

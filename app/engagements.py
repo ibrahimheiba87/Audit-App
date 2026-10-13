@@ -586,7 +586,7 @@ def create_run(engagement_id: int, body: RunIn, user: User = Depends(require("pr
     settings = engagement_settings(e, body)
     result = checks.run_all(
         loaded.df,
-        checks.Settings(**{**settings, "period_end": e.period_end}),
+        checks.Settings(**{**settings, "period_end": e.period_end, "kind": upload.kind}),
         loaded.report.to_dict(),
     )
     # The report shows the engagement as it was when the checks ran, even if it's renamed.

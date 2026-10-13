@@ -1890,7 +1890,11 @@ function renderRisk() {
        `plus up to 20 for its size against ${risk.size_basis}. ` +
        `High ${risk.by_level.high}, medium ${risk.by_level.medium}, low ${risk.by_level.low}.`]
     : ["Nothing was flagged, so there is nothing to rank."];
-  if (risk.scored > RISK_ROWS) parts.push(`Showing the top ${RISK_ROWS}; download the Excel report for the rest.`);
+  if (risk.scored > RISK_ROWS) {
+    parts.push(risk.entries.length < risk.scored
+      ? `Showing the top ${RISK_ROWS}; the Excel report has the top ${risk.entries.length}.`
+      : `Showing the top ${RISK_ROWS}; download the Excel report for the rest.`);
+  }
   $("risk-note").innerHTML = parts.map((t) => `<span>${esc(t)}</span>`).join(" ");
   $("risk").innerHTML = risk.scored ? "<tr><th>Rank</th><th>Score</th><th>Entry</th><th>Date</th><th>Account</th>" +
     "<th>Description</th><th>Amount</th><th>Why</th></tr>" +

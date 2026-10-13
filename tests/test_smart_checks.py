@@ -18,7 +18,7 @@ def ledger(rows):
     df.insert(0, "row", range(2, len(df) + 2))
     for col in ("date", "posted"):
         if col in df:
-            df[col] = pd.to_datetime(df[col])
+            df[col] = pd.to_datetime(df[col], format="mixed")
     return df
 
 
@@ -181,3 +181,36 @@ def test_dates_with_time_zones_run():
     assert r.status_code == 200, r.text
     after = next(c for c in r.json()["checks"] if c["id"] == "after_hours")
     assert after["flagged"] == 1  # 22:00 local time, not converted to UTC
+
+
+def test_dates_with_different_offsets_keep_their_clock_time():
+    csv = (b"Date,Account,Amount\n2026-03-28T22:00:00+02:00,Cash,100\n"
+           b"2026-03-30T09:00:00+03:00,Sales,-100\n")
+    r = client.post("/api/audit", files={"file": ("dst.csv", csv, "text/csv")})
+    assert r.status_code == 200, r.text
+    assert next(c for c in r.json()["checks"] if c["id"] == "after_hours")["flagged"] == 1
+
+
+def test_after_hours_ignores_rows_without_a_time():
+    df = ledger([
+        {"date": "2026-03-02 23:30", "amount": 1.0},
+        {"date": "2026-03-03", "amount": 1.0},  # date only: not midnight work
+        {"date": "2026-03-04", "amount": 1.0},
+    ])
+    res = checks.check_after_hours(df, checks.Settings())
+    assert [f["row"] for f in res.findings] == [2]
+
+
+def test_rare_accounts_follow_the_upload_kind():
+    small_gl = ledger([{"account": "Cash", "amount": 1.0}] * 5 + [{"account": "Suspense", "amount": 1.0}])
+    assert checks.check_rare_accounts(small_gl, checks.Settings()).status == "skipped"  # guessed TB
+    res = checks.check_rare_accounts(small_gl, checks.Settings(kind="gl"))
+    assert [f["account"] for f in res.findings] == ["Suspense"]
+    big_tb = ledger([{"account": "Cash", "amount": 1.0}] * 60)
+    assert checks.check_rare_accounts(big_tb, checks.Settings(kind="tb")).status == "skipped"
+
+
+def test_gaps_split_short_sequences_at_big_jumps():
+    ids = [f"JE{n:04d}" for n in range(1, 21) if n != 7] + ["JE0099"]
+    res = checks.check_gaps(ledger([{"entry_id": i, "amount": 1.0} for i in ids]), checks.Settings())
+    assert [f["entry_id"] for f in res.findings] == ["JE0007"]
