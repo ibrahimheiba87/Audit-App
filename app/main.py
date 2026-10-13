@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -71,6 +72,15 @@ def audit_form(
     sheet: str = Form(""),
     performance_materiality: float | None = Form(None),
 ) -> AuditForm:
+    # Same limits as a saved engagement run (RunIn): a negative cutoff, a zero threshold or a
+    # negative performance materiality would flag nonsense.
+    if cutoff_days < 0:
+        raise HTTPException(400, "Cutoff days must be zero or more.")
+    if not math.isfinite(round_threshold) or round_threshold <= 0:
+        raise HTTPException(400, "The round-amount threshold must be a number above zero.")
+    if performance_materiality is not None and (not math.isfinite(performance_materiality)
+                                                or performance_materiality < 0):
+        raise HTTPException(400, "Performance materiality must be a number of zero or more.")
     return AuditForm(file, period_end, cutoff_days, round_threshold, mapping, sheet,
                      performance_materiality)
 

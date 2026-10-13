@@ -186,10 +186,12 @@ are skipped and say why.
 
 ## File format
 
-The first row must be a header. After you pick a file, the app shows its first rows and a
+Exports straight from an accounting system work as they are: title rows above the table (company
+name, report name, period) are skipped, because the header is taken to be the first row that
+names at least two known columns. After you pick a file, the app shows its first rows and a
 column mapping screen, so you can say which column holds each field. For Excel files with
 several sheets you can pick the sheet. The mapping is pre-filled by matching common header
-names, case-insensitively:
+names, case-insensitively and ignoring anything in brackets (`Debit (EGP)` is a debit column):
 
 | Field | Recognised headers (examples) |
 | --- | --- |
@@ -197,17 +199,23 @@ names, case-insensitively:
 | Date | `Date`, `Transaction Date`, `Entry Date`, `Effective Date` |
 | Posting date | `Posted Date`, `Posting Date`, `Created Date` |
 | Account | `Account`, `Account No`, `GL Account`, `Account Name` |
-| Entry ID | `JE Number`, `Journal ID`, `Document No`, `Voucher`, `Reference` |
+| Entry ID | `JE Number`, `Journal No.`, `JV No`, `Document No`, `Voucher`, `Reference` |
 | Description | `Description`, `Memo`, `Narration` |
 | User | `Created By`, `Posted By`, `User` |
 
 After import the summary shows rows read vs analysed, control totals, and warnings for rows
-skipped (blank or non-numeric amount), dates that couldn't be read, and rows with both a debit
-and a credit.
+skipped (blank or non-numeric amount), total rows left out (an amount with no account, entry or
+date, and "Total" or nothing as the description), dates that couldn't be read, and rows with
+both a debit and a credit. Row numbers are the spreadsheet's own.
+
+Dates like `03/04/2026` are read day first (3 April) unless the file has a date that only works
+month first, such as `04/13/2026`. ISO dates and real spreadsheet dates are always unambiguous.
 
 Amounts like `1,234.50`, `(500.00)`, `$75` and `20-` are understood. Only an amount column
 is required. `sample_data/sample_gl.csv` is a sample ledger with planted issues
-(regenerate it with `python scripts/make_sample.py`).
+(regenerate it with `python scripts/make_sample.py`). The `sample_data/nile_trading_*.xlsx`
+files are a ledger and two trial balances laid out like a real system's export, for trying a
+whole engagement (`python scripts/make_sample_exports.py` regenerates them).
 
 ## Running locally
 

@@ -6,6 +6,7 @@ standard; the auditor picks the benchmark and percentage and records why.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 
 BENCHMARKS: dict[str, dict] = {
@@ -40,6 +41,8 @@ def calculate(benchmark: str, benchmark_amount: float, benchmark_pct: float | No
     if benchmark not in BENCHMARKS:
         raise ValueError(f"Unknown benchmark {benchmark!r}.")
     amount = abs(float(benchmark_amount))
+    if not math.isfinite(amount):
+        raise ValueError("Benchmark amount must be a number.")
     if amount == 0:
         raise ValueError("Benchmark amount must not be zero.")
     pct = BENCHMARKS[benchmark]["default_pct"] if benchmark_pct is None else benchmark_pct

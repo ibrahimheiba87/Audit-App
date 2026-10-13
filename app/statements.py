@@ -217,13 +217,16 @@ def build(tb: pd.DataFrame, prior: pd.DataFrame | None, mapping: dict[str, str],
     cur, pri = _balances(tb), _balances(prior)
     adjusting: dict[str, float] = {}
     reclass: dict[str, float] = {}
+    proposed: dict[str, None] = {}  # listed so they can be mapped; no effect on balances
     for e in entries:
         target = {"adjusting": adjusting, "reclassification": reclass}.get(e["kind"])
         if target is not None:
             for account, amount in entry_effects(e).items():
                 target[account] = target.get(account, 0.0) + amount
+        elif e["kind"] == "proposed":
+            proposed.update(dict.fromkeys(entry_effects(e)))
 
-    accounts = list(dict.fromkeys([*cur, *adjusting, *reclass, *pri]))
+    accounts = list(dict.fromkeys([*cur, *adjusting, *reclass, *pri, *proposed]))
     names = {a: (cur.get(a) or pri.get(a) or {}).get("name") for a in accounts}
     rows = []
     for a in accounts:
@@ -233,7 +236,10 @@ def build(tb: pd.DataFrame, prior: pd.DataFrame | None, mapping: dict[str, str],
         rows.append({
             "account": a, "name": names[a], "line": line if line in LINE else None,
             "suggested": None if line in LINE else suggest_line(a, names[a]),
-            "in_tb": a in cur, "unadjusted": _r(unadj), "adjusting": _r(adj),
+            "in_tb": a in cur,
+            "proposed_only": a in proposed and not (a in cur or a in adjusting or
+                                                   a in reclass or a in pri),
+            "unadjusted": _r(unadj), "adjusting": _r(adj),
             "reclassification": _r(rje), "adjusted": _r(unadj + adj + rje),
             "prior": _r(pri[a]["balance"]) if a in pri else None,
         })
@@ -432,6 +438,8 @@ def to_excel(data: dict, entries: list[dict], context: dict | None = None) -> by
         ("Adjusted TB total (should be 0)", data["totals"]["adjusted"]),
         ("Unmapped accounts", len(data["unmapped"])),
         ("Balance sheet difference", st["difference"]["current"]),
+        *([("Balance sheet difference (prior year)", st["difference"]["prior"])]
+          if data["has_prior"] else []),
         ("Profit for the year", st["profit"]["current"]),
     ]
     def statement_row(statement: str, r: dict) -> dict:

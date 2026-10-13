@@ -82,7 +82,7 @@ class TeamIn(BaseModel):
 class RunIn(BaseModel):
     upload_id: int
     cutoff_days: int = Field(default=5, ge=0)
-    round_threshold: float = Field(default=1000.0, gt=0)
+    round_threshold: float = Field(default=1000.0, gt=0, allow_inf_nan=False)
 
 
 # --- Serialization ----------------------------------------------------------
@@ -583,7 +583,10 @@ def create_run(engagement_id: int, body: RunIn, user: User = Depends(require("pr
         checks.Settings(**{**settings, "period_end": e.period_end}),
         loaded.report.to_dict(),
     )
-    run = Run(engagement=e, upload=upload, settings=settings, result=result)
+    # The report shows the engagement as it was when the checks ran, even if it's renamed.
+    snapshot = {"client": e.client.name, "engagement": e.name, "framework": e.framework}
+    run = Run(engagement=e, upload=upload, settings={**settings, "context": snapshot},
+              result=result)
     session.add(run)
     session.flush()
     added = register.sync_run_findings(session, run)
@@ -612,7 +615,8 @@ def run_report(run_id: int, format: str = "xlsx", user: User = Depends(current_u
     if format in ("csv", "xlsx"):
         log(session, user, "run.download", f"Downloaded run #{run.id} report ({format})", e,
             details={"run_id": run.id, "upload_id": run.upload_id,
-                     "sha256": run.upload.sha256, "settings": run.settings})
+                     "sha256": run.upload.sha256,
+                     "settings": {k: v for k, v in (run.settings or {}).items() if k != "context"}})
         session.commit()
     stem = safe_stem(f"{e.client.name}-{e.name}-run{run.id}")
     if format == "csv":
@@ -622,8 +626,11 @@ def run_report(run_id: int, format: str = "xlsx", user: User = Depends(current_u
         )
     if format != "xlsx":
         raise HTTPException(400, "Format must be csv or xlsx.")
-    context = {"Client": e.client.name, "Engagement": e.name,
-               "Period end": e.period_end.isoformat(), "Framework": e.framework,
+    then = (run.settings or {}).get("context", {})  # older runs fall back to the live names
+    context = {"Client": then.get("client", e.client.name),
+               "Engagement": then.get("engagement", e.name),
+               "Period end": (run.settings or {}).get("period_end") or e.period_end.isoformat(),
+               "Framework": then.get("framework", e.framework),
                "Run": f"#{run.id} at {run.created_at:%Y-%m-%d %H:%M} UTC",
                "File SHA-256": run.upload.sha256}
     return Response(
