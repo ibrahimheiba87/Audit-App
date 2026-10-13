@@ -404,6 +404,7 @@ I18N.add({
     "At or above performance materiality": "عند الأهمية النسبية للتنفيذ أو أعلى منها",
     "Added by hand": "مُضافة يدويًا",
     "Needs a date column and an account or description column.": "يتطلب عمود تاريخ وعمود حساب أو وصف.",
+    "Needs a date, account or description column.": "يتطلب عمود تاريخ أو حساب أو وصف.",
     "Needs a date column.": "يتطلب عمود تاريخ.",
     "No valid dates found.": "لم يُعثر على تواريخ صالحة.",
     "Based on the posting date.": "بناءً على تاريخ الترحيل.",
