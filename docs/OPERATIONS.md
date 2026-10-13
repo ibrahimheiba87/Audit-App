@@ -8,8 +8,9 @@ turn on the AI assistant. It's written for whoever runs commands on the server, 
 | Part | Where |
 | --- | --- |
 | Server | Hostinger VPS, AlmaLinux 9, IP 76.13.60.113 |
-| DNS | Cloudflare: `auditapp.heiba.cloud` A record to the VPS, proxied |
-| Web server | OpenLiteSpeed (CyberPanel), vhost `/usr/local/lsws/conf/vhosts/auditapp.heiba.cloud/vhost.conf`: HTTPS with a Let's Encrypt certificate, HTTP redirects to HTTPS, proxies to `127.0.0.1:8400` |
+| DNS | Cloudflare: `auditapp.heiba.cloud` A record to the VPS, proxied. SSL/TLS mode must stay **Full** or **Full (strict)**: with Flexible, Cloudflare talks HTTP to the server, which redirects to HTTPS, forever |
+| Web server | OpenLiteSpeed (CyberPanel), vhost `/usr/local/lsws/conf/vhosts/auditapp.heiba.cloud/vhost.conf` (earlier versions are kept beside it as `vhost.conf.bak-*`): HTTPS with a Let's Encrypt certificate, HTTP redirects to HTTPS, proxies to `127.0.0.1:8400` |
+| Visitors' IP addresses | Set server-wide in `/usr/local/lsws/conf/httpd_config.conf`: `useIpInProxyHeader 2`, with Cloudflare's IP ranges trusted (a `T` suffix) in the server-level `accessControl` allow list. LiteSpeed then passes the visitor's real address, and the app logs it. The setting affects every site on the server (the earlier file is saved as `httpd_config.conf.bak-<timestamp>`), and the list needs updating if Cloudflare adds ranges (cloudflare.com/ips-v4 and /ips-v6) |
 | App code | `/srv/apps/audit-app`, a git clone of `main` |
 | Python | 3.12 in `/srv/apps/audit-app/.venv` (the system's 3.9 is left alone) |
 | Process | PM2 process `audit-app`, started by `/srv/apps/audit-app-start.sh`, which loads the settings and runs `uvicorn app.main:app --host 127.0.0.1 --port 8400 --proxy-headers --forwarded-allow-ips 127.0.0.1` with a single worker. It's in PM2's saved list, so it starts again after a reboot |
@@ -72,12 +73,13 @@ Copy them somewhere else regularly, such as another machine or cloud storage, wi
 
 ## Restore a backup
 
-This replaces everything in the app with the backup's contents.
+This replaces everything in the app with the backup's contents. The dumps are readable by
+root only, so root feeds them to `pg_restore` on standard input.
 
 ```bash
 pm2 stop audit-app
 sudo -u postgres pg_restore --clean --if-exists --no-owner --role=auditapp \
-  -d auditapp /srv/backups/audit-app/FILE.dump
+  -d auditapp < /srv/backups/audit-app/FILE.dump
 pm2 start audit-app
 curl -s http://127.0.0.1:8400/api/health
 ```
@@ -86,7 +88,7 @@ To check a backup without touching the live data, restore it into a scratch data
 
 ```bash
 sudo -u postgres createdb -O auditapp auditapp_check
-sudo -u postgres pg_restore --no-owner --role=auditapp -d auditapp_check /srv/backups/audit-app/FILE.dump
+sudo -u postgres pg_restore --no-owner --role=auditapp -d auditapp_check < /srv/backups/audit-app/FILE.dump
 sudo -u postgres psql -d auditapp_check -c "select count(*) from users; select count(*) from engagements;"
 sudo -u postgres dropdb auditapp_check
 ```
@@ -116,5 +118,6 @@ To turn it off again, delete the `ANTHROPIC_API_KEY` line and restart.
 
 On a fresh database, the first person to open the site creates the admin account. Until that
 account exists, either keep the site unreachable (for example limited to your own IP in the
-vhost) or set `AUDIT_SETUP_CODE`, so nobody else can get there first. After that, the admin adds
+vhost, as was done for the first setup) or set `AUDIT_SETUP_CODE`, so nobody else can get there
+first. After that, the admin adds
 everyone else under **Users**.
