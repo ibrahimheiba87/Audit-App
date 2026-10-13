@@ -273,8 +273,8 @@ async function openEngagement(id) {
 // Engagement team: who (besides admins) can see the engagement. Admins change it.
 
 function renderTeam(team) {
-  $("eng-team").textContent = team.length
-    ? `Team: ${team.map((m) => m.name + (m.active ? "" : " (deactivated)")).join(", ")}`
+  $("eng-team").innerHTML = team.length
+    ? `<span>Team:</span> ${team.map((m) => data(m.name) + (m.active ? "" : " <span>(deactivated)</span>")).join(", ")}`
     : "No one is on the team yet, so only admins can see this engagement.";
 }
 
@@ -712,7 +712,7 @@ function renderEntries() {
     ? "<tr><th>Entry</th><th>Description</th><th>Lines</th><th class=\"num\">Amount</th><th>By</th><th></th></tr>" + fs.entries.map((e) => `<tr>
         <td class="nowrap"><strong>${esc(e.ref)}</strong><div class="tag">${esc(e.kind_label)}${e.date ? " · " + esc(e.date) : ""}</div></td>
         <td>${data(e.description)}</td>
-        <td class="nowrap">${e.lines.map((l) => `${l.debit ? "Dr" : "&nbsp;&nbsp;&nbsp;&nbsp;Cr"} ${data(l.account)} ${money(l.debit || l.credit)}${l.memo ? ` <span class="tag">${data(l.memo)}</span>` : ""}`).join("<br>")}</td>
+        <td class="nowrap">${e.lines.map((l) => `${l.debit ? "<span>Dr</span>" : "&nbsp;&nbsp;&nbsp;&nbsp;<span>Cr</span>"} ${data(l.account)} ${money(l.debit || l.credit)}${l.memo ? ` <span class="tag">${data(l.memo)}</span>` : ""}`).join("<br>")}</td>
         <td class="num">${money(e.total)}</td>
         <td class="nowrap">${esc(e.author)}<div class="tag">${esc(when(e.created_at))}</div></td>
         <td><div class="cell-actions">
@@ -1126,7 +1126,7 @@ function requestCard(r, team) {
       <span class="st rq-${r.status}">${esc(r.status_label)}</span>
       ${r.due_date ? `<span class="${r.overdue ? "overdue" : "tag"}">Due ${esc(r.due_date)}${r.overdue ? " · overdue" : ""}</span>` : ""}
       ${team ? `<span class="tag">Asked by ${esc(r.created_by)} · ${esc(when(r.created_at))}</span>` : ""}</div>
-    ${r.details ? `<div class="text">${esc(r.details)}</div>` : ""}
+    ${r.details ? `<div class="text">${data(r.details)}</div>` : ""}
     ${files ? `<ul class="rq-files">${files}</ul>` : `<p class="tag">${team ? "No files yet." : "Nothing sent yet."}</p>`}
     ${messages}
     ${actions.length ? `<div class="cell-actions">${actions.join("")}</div>` : ""}
@@ -1303,7 +1303,7 @@ function renderRegister() {
       shown.map((f) => `<tr class="clickable${currentFinding?.id === f.id ? " current" : ""}" data-finding="${f.id}">
         <td><input type="checkbox" data-select="${f.id}" ${regSelected.has(f.id) ? "checked" : ""}></td>
         <td>${statusPill(f)}</td><td><span class="sev ${f.severity}">${f.severity}</span></td>
-        <td class="finding-cell"><button type="button" class="link finding-open" aria-label="Open finding ${f.id}: ${esc(f.check_name)}">${esc(f.check_name)}</button>${f.detail && f.detail !== f.check_name ? `<div class="muted">${esc(f.detail)}</div>` : ""}</td>
+        <td class="finding-cell"><button type="button" class="link finding-open" aria-label="Open finding ${f.id}: ${esc(f.check_name)}">${esc(f.check_name)}</button>${f.detail && f.detail !== f.check_name ? `<div class="muted">${findingDetail(f)}</div>` : ""}</td>
         <td>${esc(f.entry_id)}</td><td class="nowrap">${esc(f.date)}</td>
         <td>${data(f.account)}</td><td class="num">${money(f.amount)}</td>
         <td class="nowrap muted">${f.notes ? `${f.notes} note${f.notes > 1 ? "s" : ""}` : ""}${f.notes && f.evidence ? " · " : ""}${f.evidence ? `${f.evidence} file${f.evidence > 1 ? "s" : ""}` : ""}</td>
@@ -1362,14 +1362,21 @@ $("reg-form").addEventListener("submit", (ev) => {
   });
 });
 
+// A check's detail is the app's own text and is translated; a finding added by hand is the
+// auditor's own words and never is.
+const findingDetail = (f) => f.source === "manual" ? data(f.detail) : esc(f.detail);
+
 function openFinding(f, scroll = true) {
   currentFinding = f;
   $("fd").hidden = false;
   $("fd-title").innerHTML = `Finding #${f.id} ${statusPill(f)}`;
-  const where = [f.entry_id && `Entry ${f.entry_id}`, f.date, f.account, f.amount != null && money(f.amount),
-    f.row && `row ${f.row} of ${f.filename}`].filter(Boolean);
-  $("fd-meta").textContent = `${f.check_name}${where.length ? " · " + where.join(" · ") : ""}`;
-  $("fd-detail").textContent = [f.description, f.detail].filter(Boolean).join(": ");
+  // Built from pieces, so the labels are translated but the ledger's own data never is.
+  const where = [f.entry_id && `<span>Entry</span> ${data(f.entry_id)}`, f.date && esc(f.date),
+    f.account && data(f.account), f.amount != null && money(f.amount),
+    f.row && `<span>row ${f.row} of</span> ${data(f.filename)}`].filter(Boolean);
+  $("fd-meta").innerHTML = [`<span>${esc(f.check_name)}</span>`, ...where].join(" · ");
+  $("fd-detail").innerHTML = [f.description && data(f.description), f.detail && `<span>${findingDetail(f)}</span>`]
+    .filter(Boolean).join(": ");
   // Preparers can move findings between open and reviewed; clearing and reopening is for reviewers up.
   const statuses = me.rank >= 2 ? ["open", "reviewed", "cleared"] : f.status === "cleared" ? ["cleared"] : ["open", "reviewed"];
   $("fd-status").innerHTML = statuses.map((x) =>
@@ -1439,7 +1446,8 @@ $("ai-note").addEventListener("click", () => busy($("ai-note"), async () => {
 
 function aiNoteText(a) {
   // The heading is saved with the note, so it's written in the language on screen.
-  return `${I18N.tr(`${a.label} drafted with the AI assistant (${a.model}):`)}\n\n${a.text}`;
+  const heading = I18N.tr(`${a.label} drafted with the AI assistant (${a.model}):`).replace(/[\u2068\u2069]/g, "");
+  return `${heading}\n\n${a.text}`;
 }
 
 $("ai-edit").addEventListener("click", () => {
@@ -1509,20 +1517,37 @@ let appStarted = false;
 
 // The language picked on the sign-in page is saved once someone signs in; otherwise a
 // signed-in user's saved choice wins, so the app opens in it on every device.
+// The pick survives the reload a different user's sign-in causes.
 let languagePicked = false;
-const saveLanguage = (language) => sendJSON("PUT", "/api/auth/language", { language }).catch(() => {});
+try { languagePicked = sessionStorage.getItem("audit-lang-picked") === "1"; } catch {}
+function pickLanguage(picked) {
+  languagePicked = picked;
+  try { if (picked) sessionStorage.setItem("audit-lang-picked", "1"); else sessionStorage.removeItem("audit-lang-picked"); } catch {}
+}
+// One save at a time, in order, so quick switches can't leave the older choice saved. A
+// failed save (signed out meanwhile) is kept as a pick for the next sign-in, until a later
+// save of the latest choice gets through.
+let languageSaves = Promise.resolve();
+let latestLanguage = null;
+function saveLanguage(language) {
+  latestLanguage = language;
+  languageSaves = languageSaves.then(() => sendJSON("PUT", "/api/auth/language", { language }).then(
+    () => { if (language === latestLanguage) pickLanguage(false); },
+    () => pickLanguage(true)));
+}
 
 $("lang-toggle").addEventListener("click", () => {
   const next = I18N.lang === "ar" ? "en" : "ar";
   I18N.set(next);
-  if (me) saveLanguage(next); else languagePicked = true;
+  if (me) saveLanguage(next); else pickLanguage(true);
 });
 
 function setUser(user) {
   me = user;
-  if (languagePicked) saveLanguage(I18N.lang);
+  const picked = languagePicked;
+  pickLanguage(false);
+  if (picked) saveLanguage(I18N.lang);
   else if (user.language) I18N.set(user.language);
-  languagePicked = false;
   lastUser = userKey(user);
   document.body.dataset.rank = user.rank;
   $("user-name").textContent = user.name;
@@ -1711,8 +1736,8 @@ function renderActivity(table, rows, withEngagement) {
   table.innerHTML = rows.length
     ? `<tr><th>When</th><th>Who</th>${withEngagement ? "<th>Engagement</th>" : ""}<th>What</th><th>Details</th></tr>` +
       rows.map((a) => `<tr><td class="nowrap">${esc(when(a.at))}</td>
-        <td class="nowrap">${esc(a.user_name) || '<span class="muted">Not signed in</span>'}${a.user_role ? ` <span class="muted">${esc(a.user_role)}</span>` : ""}</td>
-        ${withEngagement ? `<td>${a.engagement_id ? `<a href="#/engagements/${a.engagement_id}">${esc(a.engagement_label)}</a>` : ""}</td>` : ""}
+        <td class="nowrap">${a.user_name ? data(a.user_name) : '<span class="muted">Not signed in</span>'}${a.user_role ? ` <span class="muted">${esc(a.user_role)}</span>` : ""}</td>
+        ${withEngagement ? `<td>${a.engagement_id ? `<a href="#/engagements/${a.engagement_id}">${data(a.engagement_label)}</a>` : ""}</td>` : ""}
         <td>${esc(a.summary)}</td><td class="details-cell">${esc(activityDetails(a.details))}${a.ip ? ` <span title="IP address">${esc(a.ip)}</span>` : ""}</td></tr>`).join("")
     : '<tr><td class="muted">Nothing yet.</td></tr>';
 }

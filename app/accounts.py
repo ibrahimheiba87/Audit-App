@@ -9,7 +9,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -188,11 +188,19 @@ def me(user: User = Depends(signed_in_user)) -> dict:
 def set_language(body: LanguageIn, user: User = Depends(signed_in_user),
                  session: Session = Depends(get_session)) -> Response:
     """Remember the language this user picked, so the app opens in it on any device."""
+    user_id = user.id
     if user.settings is None:
         user.settings = UserSetting(language=body.language)
     else:
         user.settings.language = body.language
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:  # another request saved this user's first choice at the same moment
+        session.rollback()
+        session.expunge_all()  # drop our unsaved row so it isn't sent again
+        session.execute(update(UserSetting).where(UserSetting.user_id == user_id)
+                        .values(language=body.language))
+        session.commit()
     return Response(status_code=204)
 
 
