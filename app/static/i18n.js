@@ -46,9 +46,27 @@ const I18N = (() => {
   const isolate = (v) => `\u2068${v}\u2069`;
   const capitalised = (v) => v.charAt(0).toUpperCase() + v.slice(1);
 
+  // Dates and times app.js has shown, by their English text (see when() there), so they
+  // can be shown the Arabic way: Arabic order and ص/م for AM/PM, still with Western digits.
+  const dates = new Map();
+  const AR_DATES = (() => {
+    try { return new Intl.Locale("ar", { numberingSystem: "latn", calendar: "gregory" }).toString(); }
+    catch { return "ar"; }
+  })();
+  function when(date, english) {
+    dates.set(norm(english), date);
+    return english;
+  }
+  const arDate = (s) => {
+    const d = dates.get(s);
+    return d ? isolate(d.toLocaleString(AR_DATES)) : null;
+  };
+
   // Translate one piece of text; null when there's nothing for it.
   function lookup(text) {
     const s = norm(text);
+    const date = arDate(s);
+    if (date) return date;
     const plain = /\d/.test(s) && !/[\u0600-\u06ff\u2068]/.test(s);  // figures, no Arabic yet
     if (!/[A-Za-z]/.test(s)) return plain && /-\s*\d/.test(s) ? s.replace(/-?\d(.*\d)?/s, isolate) : null;
     const hit = exact.get(s);
@@ -62,7 +80,7 @@ const I18N = (() => {
       // A label can arrive lower-cased ("Total cash and cash equivalents").
       p.names.forEach((n, i) => {
         const v = m[i + 1];
-        vals[n] = (p.translate[i] && (lookup(v) ?? exact.get(capitalised(v)))) || isolate(v);
+        vals[n] = arDate(v) || (p.translate[i] && (lookup(v) ?? exact.get(capitalised(v)))) || isolate(v);
       });
       return p.ar.replace(/\{(\w+)\}/g, (_, n) => vals[n] ?? "");
     }
@@ -188,5 +206,5 @@ const I18N = (() => {
       attributes: true, attributeFilter: ATTRS });
   });
 
-  return { add, tr, set, get lang() { return lang; } };
+  return { add, tr, set, when, get lang() { return lang; } };
 })();

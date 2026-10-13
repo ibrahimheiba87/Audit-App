@@ -14,7 +14,12 @@ const LOCALE = (() => {
 })();
 const money = (n) => n == null ? "" : Number(n).toLocaleString(LOCALE,
   { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const when = (iso) => iso ? new Date(iso + "Z").toLocaleString(LOCALE) : "";
+// A date and time in the browser's style; in Arabic, i18n.js shows it the Arabic way.
+const when = (iso) => {
+  if (!iso) return "";
+  const date = new Date(iso + "Z");
+  return I18N.when(date, date.toLocaleString(LOCALE));
+};
 const MAX_ROWS = 1000;
 
 let meta = null;       // benchmarks, frameworks and upload kinds from the server
