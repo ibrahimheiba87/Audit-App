@@ -218,7 +218,10 @@
             <div class="grid" style="margin-top:12px">
               <div><label for="run-cutoff">Cutoff window (days)</label><input id="run-cutoff" type="number" min="0" value="5"></div>
               <div><label for="run-round">Round amount threshold</label><input id="run-round" type="number" min="1" step="any" value="1000"></div>
+              <div><label for="run-weekend">Weekend</label><select id="run-weekend" class="map weekend-choice"></select></div>
             </div>
+            <label for="run-keywords">Keywords to look for in descriptions (separate with commas)</label>
+            <input id="run-keywords" type="text" class="keyword-list" maxlength="2000">
           </section>
 
           <section class="panel">
@@ -528,7 +531,13 @@
             <label for="performance_materiality">Performance materiality (optional)</label>
             <input id="performance_materiality" name="performance_materiality" type="number" min="0" step="any">
           </div>
+          <div>
+            <label for="weekend">Weekend</label>
+            <select id="weekend" name="weekend" class="weekend-choice"></select>
+          </div>
         </div>
+        <label for="keywords">Keywords to look for in descriptions (separate with commas)</label>
+        <input id="keywords" name="keywords" type="text" class="keyword-list" maxlength="2000">
         <div id="quick-mapper"></div>
         <div class="actions">
           <button type="submit" id="run">Run audit</button>
@@ -552,6 +561,11 @@
     <section class="panel">
       <h2>Checks</h2>
       <div class="table-wrap"><table id="checks"></table></div>
+    </section>
+    <section class="panel" id="risk-panel">
+      <h2>Riskiest entries</h2>
+      <p class="muted" id="risk-note"></p>
+      <div class="table-wrap"><table id="risk"></table></div>
     </section>
     <section class="panel">
       <h2>Findings</h2>

@@ -61,6 +61,8 @@ class AuditForm:
     mapping: str
     sheet: str
     performance_materiality: float | None
+    weekend: str
+    keywords: str | None
 
 
 def audit_form(
@@ -71,6 +73,8 @@ def audit_form(
     mapping: str = Form(""),
     sheet: str = Form(""),
     performance_materiality: float | None = Form(None),
+    weekend: str = Form("sat-sun"),
+    keywords: str | None = Form(None),
 ) -> AuditForm:
     # Same limits as a saved engagement run (RunIn): a negative cutoff, a zero threshold or a
     # negative performance materiality would flag nonsense.
@@ -81,8 +85,10 @@ def audit_form(
     if performance_materiality is not None and (not math.isfinite(performance_materiality)
                                                 or performance_materiality < 0):
         raise HTTPException(400, "Performance materiality must be a number of zero or more.")
+    if weekend not in checks.WEEKENDS:
+        raise HTTPException(400, "Unknown weekend choice.")
     return AuditForm(file, period_end, cutoff_days, round_threshold, mapping, sheet,
-                     performance_materiality)
+                     performance_materiality, weekend, keywords)
 
 
 async def run_audit(form: AuditForm, user: db.User, session: Session, fmt: str) -> dict:
@@ -96,16 +102,19 @@ async def run_audit(form: AuditForm, user: db.User, session: Session, fmt: str) 
         end = date.fromisoformat(form.period_end) if form.period_end else None
     except ValueError as exc:
         raise HTTPException(400, "Period end must be a date like 2026-12-31.") from exc
+    keywords = checks.parse_keywords(form.keywords)
     settings = checks.Settings(
         period_end=end, cutoff_days=form.cutoff_days, round_threshold=form.round_threshold,
         performance_materiality=form.performance_materiality or None,
+        weekend=form.weekend, keywords=keywords,
     )
     result = checks.run_all(loaded.df, settings, loaded.report.to_dict())
     log(session, user, "quick.audit", f"Ran the audit checks on {form.file.filename} without saving",
         details={"sha256": hashlib.sha256(content).hexdigest(), "format": fmt,
                  "settings": {"period_end": form.period_end, "cutoff_days": form.cutoff_days,
                               "round_threshold": form.round_threshold,
-                              "performance_materiality": form.performance_materiality}})
+                              "performance_materiality": form.performance_materiality,
+                              "weekend": form.weekend, "keywords": list(keywords)}})
     session.commit()
     return result
 
@@ -130,6 +139,15 @@ def index() -> HTMLResponse:
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/checks/options")
+def check_options(_: db.User = Depends(current_user)) -> dict:
+    """Choices for the audit check settings."""
+    return {
+        "weekends": [{"id": k, "label": v["label"]} for k, v in checks.WEEKENDS.items()],
+        "keywords": list(checks.DEFAULT_KEYWORDS),
+    }
 
 
 @app.post("/api/preview")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -10,6 +11,35 @@ import numpy as np
 import pandas as pd
 
 HIGH, MEDIUM, LOW = "high", "medium", "low"
+
+# Weekend choices, as pandas day numbers (Monday is 0). Egypt and much of the Gulf rest on
+# Friday and Saturday.
+WEEKENDS: dict[str, dict] = {
+    "sat-sun": {"label": "Saturday and Sunday", "days": (5, 6)},
+    "fri-sat": {"label": "Friday and Saturday", "days": (4, 5)},
+    "fri": {"label": "Friday only", "days": (4,)},
+}
+
+# Words in a description that often mark a manual or unusual entry, in English and Arabic.
+DEFAULT_KEYWORDS = (
+    "adjust", "reverse", "reversal", "correct", "error", "write off", "write-off", "plug",
+    "suspense", "manual", "override", "reclass",
+    "تسوية", "عكس", "تصحيح", "خطأ", "شطب", "إلغاء",
+)
+MAX_KEYWORDS = 50
+
+
+def parse_keywords(text: str | list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    """Keywords from a comma, Arabic comma or newline separated list; None gives the defaults."""
+    if text is None:
+        return DEFAULT_KEYWORDS
+    parts = re.split(r"[,،\n]", text) if isinstance(text, str) else text
+    out: list[str] = []
+    for part in parts:
+        word = " ".join(str(part).split())[:50]
+        if word and word.casefold() not in {w.casefold() for w in out}:
+            out.append(word)
+    return tuple(out[:MAX_KEYWORDS])
 
 
 @dataclass
@@ -21,6 +51,12 @@ class Settings:
     balance_tolerance: float = 0.01
     performance_materiality: float | None = None
     trivial_threshold: float | None = None
+    weekend: str = "sat-sun"  # a key of WEEKENDS
+    keywords: tuple[str, ...] | list[str] = DEFAULT_KEYWORDS
+    work_start: int = 7  # entries recorded before this hour or from work_end on are flagged
+    work_end: int = 19
+    rare_account_lines: int = 2  # accounts with this many lines or fewer are "rarely used"
+    kind: str | None = None  # the upload's kind ("gl", "tb", "prior_tb") when known
 
 
 @dataclass
@@ -181,13 +217,156 @@ def check_weekend(df: pd.DataFrame, s: Settings) -> CheckResult:
     if col is None:
         res.status, res.note = "skipped", "Needs a date column."
         return res
-    res.note = f"Based on the {'posting' if col == 'posted' else 'transaction'} date."
+    weekend = WEEKENDS.get(s.weekend, WEEKENDS["sat-sun"])
+    res.note = (f"Weekend is {weekend['label']}; based on the "
+                f"{'posting' if col == 'posted' else 'transaction'} date.")
     dates = df[col]
-    flagged = df[dates.notna() & (dates.dt.dayofweek >= 5)]
+    flagged = df[dates.notna() & dates.dt.dayofweek.isin(weekend["days"])]
     for _, r in flagged.iterrows():
         res.findings.append(_finding(res.id, MEDIUM, r, f"Recorded on a {r[col]:%A}"))
     return res
 
+
+def _timed(dates: pd.Series) -> pd.Series:
+    """True where a date carries a time of day. A date given without one reads as midnight,
+    so midnight exactly counts as no time."""
+    return dates.notna() & (dates != dates.dt.normalize())
+
+
+def _time_column(df: pd.DataFrame) -> str | None:
+    """The posting or transaction date column, if any of its dates carry times of day."""
+    for col in ("posted", "date"):
+        if col in df and _timed(df[col]).any():
+            return col
+    return None
+
+
+def check_after_hours(df: pd.DataFrame, s: Settings) -> CheckResult:
+    res = CheckResult("after_hours", "Outside working hours")
+    col = _time_column(df)
+    if col is None:
+        res.status, res.note = "skipped", "Needs dates with times of day."
+        return res
+    res.note = (f"Recorded before {s.work_start:02d}:00 or from {s.work_end:02d}:00, by the "
+                f"{'posting' if col == 'posted' else 'transaction'} time.")
+    times = df[col]
+    hours = times.dt.hour
+    flagged = df[_timed(times) & ((hours < s.work_start) | (hours >= s.work_end))]
+    for _, r in flagged.iterrows():
+        res.findings.append(_finding(res.id, MEDIUM, r, f"Recorded at {r[col]:%H:%M}"))
+    return res
+
+
+def _keyword_pattern(word: str) -> str:
+    # English words match at the start of a word, so "adjust" finds "adjustment" but not
+    # "readjust"; Arabic words take attached prefixes (و، ال), so they match anywhere.
+    # (?<!\w) rather than \b, so a keyword starting with "#" or "(" still matches.
+    return rf"(?<!\w){re.escape(word)}" if word.isascii() else re.escape(word)
+
+
+def check_keywords(df: pd.DataFrame, s: Settings) -> CheckResult:
+    res = CheckResult("keywords", "Keywords in descriptions")
+    if "description" not in df:
+        res.status, res.note = "skipped", "Needs a description column."
+        return res
+    words = list(s.keywords)
+    if not words:
+        res.status, res.note = "skipped", "No keywords set."
+        return res
+    res.note = "Looking for: " + ", ".join(words) + "."
+    text = df["description"].astype("string").fillna("")
+    hits = {w: text.str.contains(_keyword_pattern(w), case=False, regex=True) for w in words}
+    any_hit = pd.concat(hits.values(), axis=1).any(axis=1)
+    for i, r in df[any_hit].iterrows():
+        found = ", ".join(w for w in words if hits[w].loc[i])
+        res.findings.append(_finding(res.id, MEDIUM, r, f'Description contains "{found}"'))
+    return res
+
+
+def check_rare_accounts(df: pd.DataFrame, s: Settings) -> CheckResult:
+    res = CheckResult("rare_accounts", "Rarely used accounts")
+    if "account" not in df:
+        res.status, res.note = "skipped", "Needs an account column."
+        return res
+    counts = df["account"].value_counts(dropna=True)
+    # A trial balance has one line per account, so every account would look rare. Without
+    # the upload's kind (a quick audit), guess from the file's shape.
+    if s.kind is not None:
+        is_tb = s.kind != "gl"
+    else:
+        is_tb = len(df) < 50 or counts.mean() < 5
+    if is_tb or not len(counts):
+        res.status, res.note = "skipped", "Needs a general ledger with several lines per account."
+        return res
+    n = s.rare_account_lines
+    rare = counts[counts <= n]
+    res.note = f"Accounts with {n} lines or fewer in this file ({len(rare)} accounts)."
+    for _, r in df[df["account"].isin(rare.index)].iterrows():
+        used = int(counts[r["account"]])
+        res.findings.append(_finding(
+            res.id, LOW, r, f"Account used on only {used} line{'s' if used != 1 else ''}"))
+    return res
+
+
+MAX_GAP_FINDINGS = 200
+
+
+def check_gaps(df: pd.DataFrame, s: Settings) -> CheckResult:
+    """Missing numbers in the journal entry sequence (JE-1001, JE-1002, JE-1004 → JE-1003).
+
+    Numbers are compared within each prefix. A jump bigger than the number of entries
+    (JE1430 to JE9999) starts a new block rather than counting as missing entries, and a
+    block with more missing numbers than used ones is not a running sequence, so it is
+    left out.
+    """
+    res = CheckResult("gaps", "Gaps in entry numbers")
+    if "entry_id" not in df:
+        res.status, res.note = "skipped", "Needs an entry number column."
+        return res
+    ids = pd.Series(df["entry_id"].dropna().astype(str).str.strip().unique(), dtype="string")
+    parts = ids.str.extract(r"^(.*?)(\d{1,15})$").dropna()
+    notes, numbered = [], False
+    for prefix, g in parts.groupby(0, sort=True):
+        if len(g) < 10:
+            continue
+        numbered = True
+        width = int(g[1].str.len().min()) if g[1].str.startswith("0").any() else 0
+        nums = np.unique(g[1].astype("int64").to_numpy())
+
+        def name(n: int, prefix: str = prefix, width: int = width) -> str:
+            return f"{prefix}{n:0{width}d}"
+
+        breaks = np.flatnonzero(np.diff(nums) > len(nums)) + 1
+        for block in np.split(nums, breaks):
+            if len(block) < 2:
+                continue
+            steps = np.diff(block)
+            missing = int((steps - 1).sum())
+            label = f"{name(block[0])}–{name(block[-1])}"
+            if missing > len(block):
+                notes.append(f"{label} is not a running sequence")
+                continue
+            notes.append(f"{label}: {missing} missing")
+            for at in np.flatnonzero(steps > 1):
+                first, last = int(block[at]) + 1, int(block[at + 1]) - 1
+                count = last - first + 1
+                res.findings.append({
+                    "check": res.id, "severity": MEDIUM, "row": None,
+                    "entry_id": name(first) + (f"–{name(last)}" if last > first else ""),
+                    "date": None, "account": None, "description": None, "amount": 0.0,
+                    "detail": f"{count} missing entry number{'s' if count != 1 else ''}",
+                })
+    if not numbered:
+        res.status, res.note = "skipped", "Needs at least 10 numbered entries."
+        return res
+    if not notes:
+        res.note = "Entry numbers are not a running sequence."
+        return res
+    if len(res.findings) > MAX_GAP_FINDINGS:
+        notes.append(f"showing the first {MAX_GAP_FINDINGS} of {len(res.findings)} gaps")
+        res.findings = res.findings[:MAX_GAP_FINDINGS]
+    res.note = "; ".join(notes) + "."
+    return res
 
 def infer_period_end(df: pd.DataFrame) -> date | None:
     if "date" not in df or df["date"].isna().all():
@@ -303,6 +482,82 @@ def check_materiality(df: pd.DataFrame, s: Settings) -> CheckResult:
 
 SEVERITY_ORDER = {HIGH: 0, MEDIUM: 1, LOW: 2}
 
+# Risk score points for failing a check, by severity, with a few checks weighted on their own.
+SEVERITY_POINTS = {HIGH: 20, MEDIUM: 10, LOW: 5}
+CHECK_POINTS = {"keywords": 15, "outliers": 15, "benford": 3}
+SIZE_POINTS = 20  # the most an entry's size adds
+RISK_LEVELS = ((50, HIGH), (25, MEDIUM), (0, LOW))
+MAX_RANKED = 5000  # kept with the run; a run can flag far more lines than anyone reviews
+
+
+def risk_ranking(df: pd.DataFrame, findings: list[dict], s: Settings) -> dict:
+    """Score each journal entry (or line, without entry numbers) from 0 to 100.
+
+    An entry earns points once for each check it fails, so an entry that is posted at the
+    weekend, in a round amount, to a rarely used account scores above one that only fails
+    one test. Its size adds up to SIZE_POINTS more: against performance materiality when it
+    is set, otherwise by how it ranks among the file's amounts.
+    """
+    by_entry = "entry_id" in df and df["entry_id"].notna().any()
+    keys = (df["entry_id"].astype("string").fillna("row " + df["row"].astype(str))
+            if by_entry else "row " + df["row"].astype(str))
+    key_of_row = dict(zip(df["row"], keys, strict=True))
+
+    points: dict[str, dict[str, int]] = {}
+    for f in findings:
+        if f["row"] is None or f["row"] not in key_of_row:
+            continue
+        p = CHECK_POINTS.get(f["check"], SEVERITY_POINTS[f["severity"]])
+        checks_hit = points.setdefault(key_of_row[f["row"]], {})
+        checks_hit[f["check"]] = max(checks_hit.get(f["check"], 0), p)
+
+    flagged = df[keys.isin(points)]
+    groups = flagged.groupby(keys[flagged.index], sort=False)
+    pm = s.performance_materiality
+    sizes = df["amount"].abs()
+    ranked = []
+    for key, g in groups:
+        debits = g.loc[g["amount"] > 0, "amount"].sum()
+        size = float(debits if debits else g["amount"].abs().sum())
+        if pm:
+            share = min(size / pm, 1.0)
+        else:
+            share = float((sizes <= size).mean())
+        hit = points[key]
+        score = min(100, round(sum(hit.values()) + SIZE_POINTS * share))
+        first = g.iloc[0]
+        accounts = g["account"].dropna().unique() if "account" in g else []
+        descriptions = g["description"].dropna() if "description" in g else []
+        when = first.get("date")
+        entry_id = first.get("entry_id")
+        if entry_id is not None and pd.isna(entry_id):
+            entry_id = None
+        elif hasattr(entry_id, "item"):  # a numpy number from a column of numeric codes
+            entry_id = entry_id.item()
+        ranked.append({
+            "score": score,
+            "level": next(level for floor, level in RISK_LEVELS if score >= floor),
+            "entry_id": entry_id,
+            "row": int(first["row"]),
+            "lines": int(len(g)),
+            "date": when.date().isoformat() if isinstance(when, pd.Timestamp) else None,
+            "account": str(accounts[0]) if len(accounts) == 1 else None,
+            "accounts": int(len(accounts)),
+            "description": str(descriptions.iloc[0]) if len(descriptions) else None,
+            "amount": round(size, 2),
+            "reasons": sorted(hit, key=lambda c: -hit[c]),
+        })
+    ranked.sort(key=lambda e: (-e["score"], -e["amount"], e["row"]))
+    for i, e in enumerate(ranked, 1):
+        e["rank"] = i
+    return {
+        "basis": "entry" if by_entry else "line",
+        "scored": len(ranked),
+        "by_level": {lvl: sum(1 for e in ranked if e["level"] == lvl) for _, lvl in RISK_LEVELS},
+        "size_basis": "performance materiality" if pm else "file amounts",
+        "entries": ranked[:MAX_RANKED],
+    }
+
 
 def run_all(df: pd.DataFrame, settings: Settings | None = None,
             import_report: dict | None = None) -> dict:
@@ -314,8 +569,12 @@ def run_all(df: pd.DataFrame, settings: Settings | None = None,
         check_materiality(df, s),
         check_cutoff(df, s),
         check_weekend(df, s),
+        check_after_hours(df, s),
+        check_keywords(df, s),
         check_round_amounts(df, s),
         check_outliers(df, s),
+        check_rare_accounts(df, s),
+        check_gaps(df, s),
         check_benford(df, s, analysis),
     ]
     findings = [f for r in results for f in r.findings]
@@ -344,5 +603,6 @@ def run_all(df: pd.DataFrame, settings: Settings | None = None,
         "import": import_report,
         "checks": [r.summary() for r in results],
         "findings": findings,
+        "risk": risk_ranking(df, findings, s),
         "benford": analysis,
     }

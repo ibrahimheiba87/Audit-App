@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -83,6 +84,9 @@ class RunIn(BaseModel):
     upload_id: int
     cutoff_days: int = Field(default=5, ge=0)
     round_threshold: float = Field(default=1000.0, gt=0, allow_inf_nan=False)
+    weekend: Literal["sat-sun", "fri-sat", "fri"] = "sat-sun"
+    # parse_keywords keeps the first MAX_KEYWORDS; this only bounds the request.
+    keywords: list[str] | None = Field(default=None, max_length=1000)
 
 
 # --- Serialization ----------------------------------------------------------
@@ -559,13 +563,15 @@ def load_upload(upload: Upload) -> loader.Loaded:
         raise HTTPException(400, str(exc)) from exc
 
 
-def engagement_settings(e: Engagement, cutoff_days: int, round_threshold: float) -> dict:
+def engagement_settings(e: Engagement, body: RunIn) -> dict:
     return {
         "period_end": e.period_end.isoformat(),
-        "cutoff_days": cutoff_days,
-        "round_threshold": round_threshold,
+        "cutoff_days": body.cutoff_days,
+        "round_threshold": body.round_threshold,
         "performance_materiality": e.performance_materiality,
         "trivial_threshold": e.trivial_threshold,
+        "weekend": body.weekend,
+        "keywords": list(checks.parse_keywords(body.keywords)),
     }
 
 
@@ -577,10 +583,10 @@ def create_run(engagement_id: int, body: RunIn, user: User = Depends(require("pr
     if upload.engagement_id != e.id:
         raise HTTPException(400, "That upload belongs to another engagement.")
     loaded = load_upload(upload)
-    settings = engagement_settings(e, body.cutoff_days, body.round_threshold)
+    settings = engagement_settings(e, body)
     result = checks.run_all(
         loaded.df,
-        checks.Settings(**{**settings, "period_end": e.period_end}),
+        checks.Settings(**{**settings, "period_end": e.period_end, "kind": upload.kind}),
         loaded.report.to_dict(),
     )
     # The report shows the engagement as it was when the checks ran, even if it's renamed.
