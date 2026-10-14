@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth, statements
+from . import auth, ratios, statements
 from .auth import current_user, log, require
 from .db import AccountMapping, AdjustingEntry, AdjustingLine, Engagement, Guard, Upload, User, get_session
 from .engagements import get_or_404, held_engagement, load_upload, materiality_out, safe_stem, upload_out
@@ -88,6 +88,7 @@ def compute(session: Session, e: Engagement, upload_id: int | None,
                                 mapping, entries, materiality_out(e))
     except statements.StatementsError as exc:
         raise HTTPException(400, str(exc)) from exc
+    data["ratios"] = ratios.compute(data)
     return data, tb, prior
 
 

@@ -20,6 +20,7 @@ from .accounts import router as accounts_router
 from .assistant import router as assistant_router
 from .auth import current_user, log
 from .comparisons import router as comparisons_router
+from .dashboard import router as dashboard_router
 from .engagements import router as engagements_router
 from .exports import attachment
 from .findings import router as findings_router
@@ -46,7 +47,7 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 app.include_router(accounts_router)
 # Everything else needs a signed-in user; endpoints check the role they need.
 for router in (engagements_router, comparisons_router, samples_router, findings_router,
-               leadsheets_router, review_router, assistant_router):
+               leadsheets_router, review_router, assistant_router, dashboard_router):
     app.include_router(router, dependencies=[Depends(current_user)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router)

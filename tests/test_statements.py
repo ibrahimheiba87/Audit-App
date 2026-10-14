@@ -193,7 +193,7 @@ def test_export_is_safe_and_logged():
     r = client.get(f"/api/engagements/{eid}/statements/export")
     assert r.status_code == 200 and "filename*=UTF-8''" in r.headers["content-disposition"]
     book = openpyxl.load_workbook(io.BytesIO(r.content))
-    assert book.sheetnames == ["Summary", "Statements", "Lead sheets", "Adjusted TB",
+    assert book.sheetnames == ["Summary", "Statements", "Ratios", "Lead sheets", "Adjusted TB",
                                "Adjusting entries", "Uncorrected"]
     cells = [c for ws in book.worksheets for row in ws.iter_rows() for c in row]
     assert not [c.value for c in cells if c.data_type == "f"]

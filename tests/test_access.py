@@ -98,6 +98,7 @@ def bodies(ids):
         ("PATCH", "/api/review-notes/{note_id}"): {"json": {"status": "cleared"}},
         ("DELETE", "/api/review-notes/{note_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/requests"): {},
+        ("GET", "/api/engagements/{engagement_id}/dashboard"): {},
         ("POST", "/api/engagements/{engagement_id}/requests"): {"json": {"title": "x"}},
         ("GET", "/api/engagements/{engagement_id}/requests/export"): {},
         ("PATCH", "/api/requests/{request_id}"): {"json": {"title": "y"}},
