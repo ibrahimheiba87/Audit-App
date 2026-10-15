@@ -122,6 +122,9 @@ class Engagement(Base):
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="BankReconciliation.id"
     )
+    ai_drafts: Mapped[list[AiDraft]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="AiDraft.id"
+    )
 
 
 class Upload(Base):
@@ -207,6 +210,24 @@ class BankReconciliation(Base):
     engagement: Mapped[Engagement] = relationship(back_populates="bank_reconciliations")
     bank_upload: Mapped[Upload] = relationship(foreign_keys=[bank_upload_id])
     gl_upload: Mapped[Upload] = relationship(foreign_keys=[gl_upload_id])
+
+
+class AiDraft(Base):
+    """A risk assessment or management letter the AI drafted for the auditor (ai_writer.py)."""
+
+    __tablename__ = "ai_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # risk | letter
+    language: Mapped[str] = mapped_column(String(5), default="en")
+    content: Mapped[dict] = mapped_column(JSON)
+    sent: Mapped[dict] = mapped_column(JSON, default=dict)  # what the AI was given, in counts
+    model: Mapped[str] = mapped_column(String(100), default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="ai_drafts")
 
 
 class Sample(Base):

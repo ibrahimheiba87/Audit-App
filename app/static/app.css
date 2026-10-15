@@ -214,3 +214,16 @@ tr.group-row th { background: var(--low-bg); }
 .card.bad .v { color: var(--high); }
 #doc-checks { padding-inline-start: 20px; }
 #doc-checks li.warn-high { color: var(--high); font-weight: 600; }
+.checks-inline { border: 0; padding: 0; margin: 8px 0 0; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.checks-inline legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 4px; }
+.checks-inline label { display: flex; gap: 6px; align-items: center; margin: 0; color: inherit; font-size: 14px; }
+.checks-inline input { width: auto; margin: 0; }
+#ra-risks td { vertical-align: top; }
+#ra-risks ul { margin: 0; padding-inline-start: 18px; }
+.level-significant { color: var(--high); font-weight: 600; }
+.letter { max-width: 820px; line-height: 1.55; }
+.letter .point { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 12px; }
+.letter .point h3 { margin: 0 0 4px; }
+.letter dt { font-weight: 600; margin-top: 6px; }
+.letter dd { margin: 0; white-space: pre-wrap; }
+.letter p { white-space: pre-wrap; }

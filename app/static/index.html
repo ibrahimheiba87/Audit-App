@@ -230,6 +230,21 @@
             </form>
           </section>
 
+          <section class="panel" id="ra-panel">
+            <div class="row-between">
+              <h2>AI risk assessment</h2>
+              <a class="button secondary" id="ra-export" href="#" hidden>Download Excel</a>
+            </div>
+            <p class="muted">The AI assesses the risks of material misstatement from this year's lead sheets, ratios, materiality, findings and bank reconciliation, and suggests audit procedures for each. It's a starting point for your planning: check it against what you know about the client.</p>
+            <p class="warn-box ai-off" hidden>The AI assistant is off. An administrator turns it on by setting ANTHROPIC_API_KEY on the server.</p>
+            <div class="actions"><button type="button" id="ra-run">Assess risks with AI</button><span class="muted" id="ra-wait" hidden>Assessing… this can take a minute or two.</span></div>
+            <div id="ra-out" hidden>
+              <p class="muted" id="ra-label"></p>
+              <p id="ra-summary"></p>
+              <div class="table-wrap"><table id="ra-risks"></table></div>
+            </div>
+          </section>
+
           <section class="panel" id="files-panel">
             <h2>Files</h2>
             <form id="upload-form">
@@ -540,6 +555,29 @@
             </form>
             <h3>Review trail</h3>
             <ul class="trail" id="fd-trail"></ul>
+          </section>
+
+          <section class="panel" id="ml-panel">
+            <div class="row-between">
+              <h2>AI management letter</h2>
+              <div class="cell-actions">
+                <button type="button" class="secondary" id="ml-copy" hidden>Copy letter</button>
+                <a class="button secondary" id="ml-export" href="#" hidden>Download Excel</a>
+              </div>
+            </div>
+            <p class="muted">The AI drafts the points of the management letter from the findings register: what was found, why it matters, and what management should do. Edit the draft before you send it.</p>
+            <p class="warn-box ai-off" hidden>The AI assistant is off. An administrator turns it on by setting ANTHROPIC_API_KEY on the server.</p>
+            <fieldset class="checks-inline" id="ml-statuses">
+              <legend>Findings to include</legend>
+              <label><input type="checkbox" value="open" checked> Open</label>
+              <label><input type="checkbox" value="reviewed" checked> Reviewed</label>
+              <label><input type="checkbox" value="cleared"> Cleared</label>
+            </fieldset>
+            <div class="actions"><button type="button" id="ml-run">Draft with AI</button><span class="muted" id="ml-wait" hidden>Writing… this can take a minute or two.</span></div>
+            <div id="ml-out" hidden>
+              <p class="muted" id="ml-label"></p>
+              <div class="letter" id="ml-letter"></div>
+            </div>
           </section>
 
           <section class="panel" id="rq-panel">

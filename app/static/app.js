@@ -282,6 +282,8 @@ async function openEngagement(id) {
     $("doc-out").hidden = true;
     $("doc-form").reset();
     $("doc-wait").hidden = true;
+    showRisk(null);
+    showLetter(null);
     aiMapHints = {};
     $("fs-ai-note").hidden = true;
   }
@@ -300,9 +302,11 @@ async function openEngagement(id) {
   renderSamples(e.samples);
   guard(loadBank);
   renderDocPanel();
+  renderAiPanels();
   if (currentFinding && currentFinding.engagement_id !== e.id) closeFinding();
   guard(loadReview);  // on its own, so a slow or failing panel above doesn't hold it up
   guard(loadRequests);
+  guard(loadAiDrafts);
   await loadStatements();
   await loadRegister();
 }
@@ -878,6 +882,121 @@ function showDocument(r) {
           <td class="num">${m.days_from_invoice ?? ""}</td><td>${m.reasons.map((x) => `<div>${esc(x)}</div>`).join("")}</td></tr>`).join("")
       : '<tr><td class="muted">No entry in the general ledger has this amount or invoice number.</td></tr>';
 }
+
+// AI risk assessment and management letter
+
+const LEVELS = { significant: "Significant risk", higher: "Higher risk", lower: "Lower risk" };
+const ASSERTIONS = {
+  existence: "Existence", occurrence: "Occurrence", completeness: "Completeness", accuracy: "Accuracy",
+  valuation: "Valuation", cut_off: "Cut-off", rights: "Rights and obligations",
+  classification: "Classification", presentation: "Presentation and disclosure",
+};
+const PRIORITIES = { high: "High priority", medium: "Medium priority", low: "Low priority" };
+const aiDrafting = {};  // requests still waiting on the AI, by "kind:engagement id"
+let letterText = "";
+
+function renderAiPanels() {
+  const off = !assistant.enabled;
+  document.querySelectorAll(".ai-off").forEach((el) => { el.hidden = !off; });
+  const id = currentEngagement?.id;
+  for (const [kind, run] of [["risk", "ra"], ["letter", "ml"]]) {
+    const waiting = (aiDrafting[`${kind}:${id}`] || 0) > 0;
+    $(`${run}-run`).disabled = off || waiting;
+    $(`${run}-wait`).hidden = !waiting;
+  }
+  $("ml-statuses").querySelectorAll("input").forEach((el) => { el.disabled = off; });
+}
+
+function draftLabel(d) {
+  return `<span>Drafted by the AI assistant</span> (${data(d.model)}). <span>Asked by</span> ${data(d.created_by)}, ${data(when(d.created_at))}`;
+}
+
+function showRisk(d) {
+  $("ra-out").hidden = !d;
+  $("ra-export").hidden = !d;
+  if (!d) return;
+  $("ra-export").href = `/api/ai-drafts/${d.id}/export`;
+  $("ra-label").innerHTML = draftLabel(d);
+  $("ra-summary").innerHTML = data(d.content.summary);
+  $("ra-risks").innerHTML = "<tr><th>Level</th><th>Area</th><th>Risk</th><th>Assertions</th><th>Why</th><th>Planned procedures</th></tr>" +
+    d.content.risks.map((r) => `<tr>
+      <td class="nowrap level-${esc(r.level)}">${esc(LEVELS[r.level])}</td>
+      <td>${esc(r.area_label)}</td><td>${data(r.title)}</td>
+      <td>${r.assertions.map((a) => `<div>${esc(ASSERTIONS[a])}</div>`).join("")}</td>
+      <td>${data(r.why)}</td>
+      <td><ul>${r.procedures.map((p) => `<li>${data(p)}</li>`).join("")}</ul></td></tr>`).join("");
+}
+
+function showLetter(d) {
+  $("ml-out").hidden = !d;
+  $("ml-export").hidden = $("ml-copy").hidden = !d;
+  if (!d) return;
+  const c = d.content;
+  $("ml-export").href = `/api/ai-drafts/${d.id}/export`;
+  $("ml-label").innerHTML = draftLabel(d);
+  const findings = (ids) => ids.map((i) => `<a href="#" data-open-finding="${i}" translate="no">#${i}</a>`).join(", ");
+  $("ml-letter").innerHTML = `<p>${data(c.intro)}</p>` + c.points.map((p, i) => `<div class="point">
+      <h3>${i + 1}. ${data(p.title)}</h3>
+      <div class="tag"><span class="sev ${esc(p.priority)}">${esc(PRIORITIES[p.priority])}</span>${p.finding_ids.length ? ` <span>Findings</span> ${findings(p.finding_ids)}` : ""}</div>
+      <dl><dt>Observation</dt><dd>${data(p.observation)}</dd>
+      <dt>Implication</dt><dd>${data(p.implication)}</dd>
+      <dt>Recommendation</dt><dd>${data(p.recommendation)}</dd></dl></div>`).join("") +
+    `<p>${data(c.closing)}</p>`;
+  // Plain text to paste into the letter; the AI's own words, in the language it wrote in.
+  letterText = [c.intro, ...c.points.map((p, i) => [`${i + 1}. ${p.title}`, p.observation,
+    p.implication, p.recommendation].filter(Boolean).join("\n\n")), c.closing].filter(Boolean).join("\n\n");
+}
+
+async function loadAiDrafts() {
+  const id = currentEngagement.id;
+  const r = await getJSON(`/api/engagements/${id}/ai-drafts`);
+  if (currentEngagement?.id !== id) return;
+  showRisk(r.risk.latest);
+  showLetter(r.letter.latest);
+}
+
+async function draftWithAi(kind, url, body) {
+  const id = currentEngagement.id;
+  const key = `${kind}:${id}`;
+  aiDrafting[key] = (aiDrafting[key] || 0) + 1;
+  renderAiPanels();
+  try {
+    const d = await sendJSON("POST", `/api/engagements/${id}/${url}`, body);
+    if (currentEngagement?.id === id) (kind === "risk" ? showRisk : showLetter)(d);
+  } finally {
+    aiDrafting[key] -= 1;
+    renderAiPanels();
+    if (currentEngagement?.id === id) loadEngagementActivity();
+  }
+}
+
+$("ra-run").addEventListener("click", () => guard(() => {
+  const q = Object.fromEntries(new URLSearchParams(fsQuery()));
+  return draftWithAi("risk", "ai/risk-assessment", {
+    upload_id: q.upload_id ? Number(q.upload_id) : null,
+    prior_upload_id: q.prior_upload_id ? Number(q.prior_upload_id) : null,
+    language: I18N.lang,
+  });
+}));
+
+$("ml-run").addEventListener("click", () => guard(() => {
+  const statuses = [...$("ml-statuses").querySelectorAll("input:checked")].map((el) => el.value);
+  if (!statuses.length) throw new Error("Tick at least one status.");
+  return draftWithAi("letter", "ai/management-letter", { statuses, language: I18N.lang });
+}));
+
+$("ml-copy").addEventListener("click", () => guard(async () => {
+  await navigator.clipboard.writeText(letterText);
+  $("ml-copy").textContent = "Copied";
+  setTimeout(() => { $("ml-copy").textContent = "Copy letter"; }, 2000);
+}));
+
+$("ml-letter").addEventListener("click", (ev) => {
+  const a = ev.target.closest("[data-open-finding]");
+  if (!a) return;
+  ev.preventDefault();
+  guard(async () => openFinding(await getJSON(`/api/findings/${a.dataset.openFinding}`)));
+});
 
 // Lead sheets and draft statements
 

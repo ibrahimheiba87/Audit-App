@@ -44,10 +44,17 @@ def full_engagement(a):
                  json={**REC, "bank_upload_id": bank, "gl_upload_id": gl}).json()["id"]
     req = a.post(f"/api/engagements/{eid}/requests", json={"title": "Bank"}).json()["id"]
     file = a.post(f"/api/requests/{req}/files", files={"file": PDF}).json()["files"][0]["id"]
+    with db.SessionLocal() as s:
+        draft = db.AiDraft(engagement_id=eid, kind="letter", content={
+            "intro": "", "closing": "", "points": []}, created_by="A")
+        s.add(draft)
+        s.commit()
+        draft_id = draft.id
     return {"engagement_id": eid, "upload_id": gl, "run_id": run, "finding_id": finding,
             "evidence_id": evidence, "comparison_id": comparison, "sample_id": sample,
             "entry_id": entry["id"], "note_id": note, "request_id": req, "file_id": file,
-            "section": "data", "kind": "prepared", "bank_upload_id": bank, "rec_id": rec}
+            "section": "data", "kind": "prepared", "bank_upload_id": bank, "rec_id": rec,
+            "draft_id": draft_id}
 
 
 def bodies(ids):
@@ -120,6 +127,11 @@ def bodies(ids):
         ("POST", "/api/engagements/{engagement_id}/mapping/suggest"): {"json": {}},
         ("POST", "/api/engagements/{engagement_id}/documents/read"):
             {"data": {"kind": "invoice"}, "files": {"file": PDF}},
+        ("POST", "/api/engagements/{engagement_id}/ai/risk-assessment"): {"json": {}},
+        ("POST", "/api/engagements/{engagement_id}/ai/management-letter"): {"json": {}},
+        ("GET", "/api/engagements/{engagement_id}/ai-drafts"): {},
+        ("GET", "/api/ai-drafts/{draft_id}"): {},
+        ("GET", "/api/ai-drafts/{draft_id}/export"): {},
         ("POST", "/api/requests/{request_id}/files"): {"files": {"file": PDF}},
         ("POST", "/api/requests/{request_id}/messages"): {"json": {"text": "x"}},
         ("GET", "/api/request-files/{file_id}"): {},

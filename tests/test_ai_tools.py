@@ -352,16 +352,17 @@ def test_parse_json_allows_a_code_fence():
             ai_tools.parse_json(bad)
 
 
-def test_new_text_has_arabic():
+def translated(text):
+    """Whether the Arabic dictionary covers `text`, exactly or through a pattern."""
     from tests.test_i18n import dictionary  # noqa: PLC0415
 
     d = dictionary()
     patterns = [re.compile("^" + re.sub(r"\\\{(?:t:)?\w+\\\}", ".+", re.escape(p)) + "$")
                 for p in d["patterns"]]
+    return text in d["exact"] or any(p.match(text) for p in patterns)
 
-    def translated(text):
-        return text in d["exact"] or any(p.match(text) for p in patterns)
 
+def test_new_text_has_arabic():
     texts = ["Upload a PDF, PNG or JPEG file.", "Upload this year's trial balance first.",
              "Every account is already mapped.",
              "The AI's answer wasn't in the expected form. Try again.",
