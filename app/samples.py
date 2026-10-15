@@ -12,13 +12,24 @@ from sqlalchemy.orm import Session
 
 from . import loader, sampling
 from .auth import current_user, log, require
-from .db import Engagement, Sample, Upload, User, get_session
+from .db import Engagement, Sample, SampleEvaluation, Upload, User, get_session, utcnow
 from .engagements import get_or_404, load_upload, safe_stem, sample_brief
 from .exports import attachment
 from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+class TestedItem(BaseModel):
+    row: int
+    audited_amount: float | None = Field(default=None, ge=0)
+    notes: str = Field(default="", max_length=1000)
+
+
+class EvaluationIn(BaseModel):
+    items: list[TestedItem] = Field(max_length=100_000)
+    tolerable_misstatement: float | None = Field(default=None, gt=0)
 
 
 class SampleIn(BaseModel):
@@ -73,11 +84,60 @@ def create_sample(engagement_id: int, body: SampleIn, user: User = Depends(requi
     return {**sample_brief(sample), "result": result}
 
 
+def evaluation_out(x: Sample) -> dict | None:
+    ev = x.evaluation
+    if ev is None:
+        return None
+    return {**ev.result, "tolerable_entered": ev.tolerable_misstatement,
+            "updated_by": ev.updated_by, "updated_at": ev.updated_at.isoformat()}
+
+
+def default_tolerable(x: Sample) -> float | None:
+    return x.params.get("tolerable_misstatement") or x.engagement.performance_materiality
+
+
 @router.get("/samples/{sample_id}")
 def get_sample(sample_id: int, user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> dict:
     x = get_or_404(session, Sample, sample_id, user)
-    return {**sample_brief(x), "engagement_id": x.engagement_id, "result": x.result}
+    return {**sample_brief(x), "engagement_id": x.engagement_id, "result": x.result,
+            "evaluation": evaluation_out(x), "default_tolerable": default_tolerable(x)}
+
+
+@router.put("/samples/{sample_id}/evaluation")
+def save_evaluation(sample_id: int, body: EvaluationIn, user: User = Depends(require("prepare")),
+                    session: Session = Depends(get_session)) -> dict:
+    """Record the audited amount of each tested item and project the misstatement."""
+    x = get_or_404(session, Sample, sample_id, user)
+    rows = [i.row for i in body.items]
+    if len(rows) != len(set(rows)):
+        raise HTTPException(400, "Each sample item can only be listed once.")
+    tested = [i.model_dump() for i in body.items
+              if i.audited_amount is not None or i.notes.strip()]
+    tolerable = body.tolerable_misstatement or default_tolerable(x)
+    try:
+        result = sampling.evaluate(x.result, tested, tolerable)
+    except sampling.SamplingError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if x.evaluation is None:
+        x.evaluation = SampleEvaluation(tested=tested, result=result)
+    ev = x.evaluation
+    ev.tested, ev.result = tested, result
+    ev.tolerable_misstatement = body.tolerable_misstatement
+    ev.updated_by, ev.updated_at = user.name, utcnow()
+    log(session, user, "sample.evaluate",
+        f"Recorded results for sample #{x.id}: {result['tested']} of "
+        f"{result['tested'] + result['untested']} items tested, {result['exceptions']} with "
+        f"a misstatement", x.engagement,
+        details={"sample_id": x.id, "tested": result["tested"],
+                 "exceptions": result["exceptions"],
+                 "known_misstatement": result["known_misstatement"],
+                 "projected_misstatement": result["projected_misstatement"],
+                 "upper_limit": result["upper_limit"], "tolerable_misstatement": tolerable,
+                 "conclusion": result["conclusion"]["status"]})
+    session.commit()
+    return {**sample_brief(x), "engagement_id": x.engagement_id, "result": x.result,
+            "evaluation": evaluation_out(x), "default_tolerable": default_tolerable(x)}
 
 
 @router.get("/samples/{sample_id}/export")
@@ -94,7 +154,11 @@ def export_sample(sample_id: int, user: User = Depends(current_user),
                "File": f"{x.upload.filename} (SHA-256 {x.upload.sha256})",
                "Drawn": f"{x.created_at:%Y-%m-%d %H:%M} UTC"}
     stem = safe_stem(f"{e.client.name}-{e.name}-sample{x.id}")
-    return Response(sampling.to_excel(x.result, context), media_type=XLSX,
+    if x.evaluation:
+        context["Results recorded"] = (f"{x.evaluation.updated_by}, "
+                                       f"{x.evaluation.updated_at:%Y-%m-%d %H:%M} UTC")
+    return Response(sampling.to_excel(x.result, context, x.evaluation and x.evaluation.result),
+                    media_type=XLSX,
                     headers=attachment(f"{stem}.xlsx"))
 
 

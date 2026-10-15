@@ -273,6 +273,7 @@ async function openEngagement(id) {
     $("rq-cards").innerHTML = $("rq-list").innerHTML = $("rq-contacts").textContent = "";
     $("dash-cards").innerHTML = $("dash-steps").innerHTML = "";
     bank = null; bankChecked = null;
+    strat = null; $("str-result").hidden = $("str-export").hidden = true; $("str-bands").value = "";
     $("bank-file").innerHTML = $("bank-gl").innerHTML = $("bank-accounts").innerHTML = "";
     $("bank-recs").innerHTML = "";
     $("bank-balance").value = $("bank-book").value = "";
@@ -298,6 +299,7 @@ async function openEngagement(id) {
   renderRuns(e.runs);
   renderComparisonForm(e);
   renderComparisons(e.comparisons);
+  renderStratifyForm(e);
   renderSampleForm(e);
   renderSamples(e.samples);
   guard(loadBank);
@@ -1383,11 +1385,12 @@ $("smp-form").addEventListener("submit", (ev) => {
 });
 
 function renderSamples(list) {
-  $("samples").innerHTML = list.length ? "<tr><th>#</th><th>When</th><th>File</th><th>Method</th><th>Items</th><th>Value</th><th>Seed</th><th></th></tr>" +
+  $("samples").innerHTML = list.length ? "<tr><th>#</th><th>When</th><th>File</th><th>Method</th><th>Items</th><th>Value</th><th>Seed</th><th>Results</th><th></th></tr>" +
     list.map((s) => `<tr><td>${s.id}</td><td class="nowrap">${esc(when(s.created_at))}</td>
       <td>${data(s.filename)}</td><td>${esc(s.method_label)}</td>
       <td class="num">${s.sample_size} of ${s.population.lines}</td>
       <td class="num">${money(s.sample_value)}</td><td class="num">${s.seed}</td>
+      <td>${s.evaluation ? `<span class="pill ev-${s.evaluation.status}">${esc(s.evaluation.label)}</span>` : '<span class="muted">Not recorded</span>'}</td>
       <td><div class="cell-actions">
         <button type="button" class="small secondary" data-view-smp="${s.id}">View</button>
         <a class="button" href="/api/samples/${s.id}/export">Excel</a>
@@ -1399,7 +1402,10 @@ $("samples").addEventListener("click", (ev) => {
   if (btn) guard(async () => showSample(await getJSON(`/api/samples/${btn.dataset.viewSmp}`)));
 });
 
-function showSample(s) {
+let currentSample = null;
+
+function showSample(s, scroll = true) {
+  currentSample = s;
   const r = s.result;
   const d = r.details;
   $("smp-result").hidden = false;
@@ -1425,12 +1431,156 @@ function showSample(s) {
   if (d.note) notes.push(d.note);
   $("smp-note").textContent = notes.join(" · ");
   const hits = r.method === "mus";
-  $("smp-table").innerHTML = `<tr><th>Row</th><th>Entry</th><th>Date</th><th>Account</th><th>Description</th><th>Amount</th>${hits ? "<th>Hits</th>" : ""}<th>Why selected</th></tr>` +
-    r.items.map((i) => `<tr><td class="num">${i.row}</td><td>${esc(i.entry_id)}</td>
+  const ev = s.evaluation;
+  const tested = Object.fromEntries((ev?.items || []).map((i) => [i.row, i]));
+  $("smp-table").innerHTML = `<tr><th>Row</th><th>Entry</th><th>Date</th><th>Account</th><th>Description</th><th>Amount</th>${hits ? "<th>Hits</th>" : ""}<th>Why selected</th><th>Audited amount</th><th>Misstatement</th><th>Notes</th></tr>` +
+    r.items.map((i) => {
+      const t = tested[i.row] || {};
+      return `<tr data-row="${i.row}" data-book="${Math.abs(i.amount)}"><td class="num">${i.row}</td><td>${esc(i.entry_id)}</td>
       <td class="nowrap">${esc(i.date)}</td><td>${data(i.account)}</td><td>${data(i.description)}</td>
       <td class="num">${money(i.amount)}</td>${hits ? `<td class="num">${i.hits}</td>` : ""}
-      <td>${esc(i.reason)}</td></tr>`).join("");
-  $("smp-result").scrollIntoView({ behavior: "smooth" });
+      <td>${esc(i.reason)}</td>
+      <td><input type="number" min="0" step="any" class="ev-audited" aria-label="Audited amount" value="${t.audited_amount ?? ""}" style="width:9em"></td>
+      <td class="num${t.misstatement ? " bad" : ""}">${t.misstatement == null ? "" : money(t.misstatement)}</td>
+      <td><input class="ev-notes" maxlength="1000" aria-label="Notes" value="${esc(t.notes || "")}" style="min-width:12em"></td></tr>`;
+    }).join("");
+  renderEvaluation(s);
+  if (scroll) $("smp-result").scrollIntoView({ behavior: "smooth" });
+}
+
+function renderEvaluation(s) {
+  const ev = s.evaluation;
+  $("smp-ev-tm").value = ev?.tolerable_entered ?? "";
+  $("smp-ev-tm").placeholder = s.default_tolerable ? `${money(s.default_tolerable)} (from the sample or performance materiality)` : "Amount";
+  if (!ev) {
+    $("smp-ev-cards").innerHTML = "";
+    $("smp-ev-conclusion").textContent = "No results recorded yet.";
+    $("smp-ev-conclusion").className = "muted";
+    return;
+  }
+  const cards = [
+    ["Items tested", `${ev.tested} of ${ev.tested + ev.untested}`],
+    ["Items with a misstatement", ev.exceptions],
+    ["Known misstatement", money(ev.known_misstatement)],
+    ["Projected misstatement", money(ev.projected_misstatement)],
+  ];
+  if (ev.basis === "mus") cards.push(["Upper misstatement limit", money(ev.upper_limit)]);
+  if (ev.tolerable_misstatement) cards.push(["Tolerable misstatement", money(ev.tolerable_misstatement)]);
+  $("smp-ev-cards").innerHTML = cards.map(([k, v]) =>
+    `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  const how = ev.basis === "mus"
+    ? `Upper limit of overstatement at ${ev.confidence}% confidence: basic precision ${money(ev.basic_precision)} plus the projected errors and their allowance. Understatements count in the projected misstatement only.`
+    : "Projected by applying the misstatement found, as a share of the value tested, to the whole population. This is a non-statistical estimate.";
+  $("smp-ev-conclusion").innerHTML = `<strong>${esc(ev.conclusion.label)}</strong><br><span class="muted">${esc(how)}</span><br><span class="muted">${esc(`Recorded by ${ev.updated_by}, ${when(ev.updated_at)}`)}</span>`;
+  $("smp-ev-conclusion").className = ev.conclusion.status === "exceeds" ? "warn-box" : "";
+}
+
+$("smp-ev-all").addEventListener("click", () => {
+  $("smp-table").querySelectorAll("tr[data-row]").forEach((tr) => {
+    const input = tr.querySelector(".ev-audited");
+    if (input.value === "") input.value = tr.dataset.book;
+  });
+});
+
+$("smp-ev-save").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
+  const items = [...$("smp-table").querySelectorAll("tr[data-row]")].map((tr) => {
+    const audited = tr.querySelector(".ev-audited").value;
+    return { row: Number(tr.dataset.row), audited_amount: audited === "" ? null : Number(audited),
+             notes: tr.querySelector(".ev-notes").value.trim() };
+  });
+  const tm = $("smp-ev-tm").value;
+  const s = await sendJSON("PUT", `/api/samples/${currentSample.id}/evaluation`,
+    { items, tolerable_misstatement: tm === "" ? null : Number(tm) });
+  await openEngagement(currentEngagement.id);
+  showSample(s, false);
+}));
+
+// Stratification and summaries
+
+let strat = null;
+let stratTab = "strata";
+
+function renderStratifyForm(e) {
+  const keep = $("str-upload").value;
+  const files = e.uploads.filter((u) => u.kind !== "prior_tb");
+  $("str-upload").innerHTML = files
+    .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
+    .join("") || '<option value="">Upload a file first</option>';
+  if (files.some((u) => String(u.id) === keep)) $("str-upload").value = keep;
+  if (strat && !files.some((u) => u.id === strat.upload_id)) {
+    strat = null; $("str-result").hidden = $("str-export").hidden = true;
+  }
+}
+
+$("str-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const button = ev.submitter || ev.currentTarget.querySelector("button[type=submit]");
+  busy(button, async () => {
+    const text = $("str-bands").value.trim();
+    const bands = text ? text.split(",").map((b) => b.trim()).filter(Boolean).map(Number) : null;
+    if (bands && bands.some((b) => !Number.isFinite(b))) throw new Error("Bands must be amounts separated by commas.");
+    const id = Number($("str-upload").value);
+    strat = await sendJSON("POST", `/api/uploads/${id}/stratify`, { bands });
+    $("str-export").href = `/api/uploads/${id}/stratify/export?bands=${encodeURIComponent(strat.bands.join(","))}`;
+    $("str-export").hidden = false;
+    renderStrat();
+  });
+});
+
+$("str-tabs").addEventListener("click", (ev) => {
+  const tab = ev.target.closest("[data-str]");
+  if (!tab) return;
+  stratTab = tab.dataset.str;
+  renderStrat();
+});
+
+function bandLabel(b) {
+  return b.to == null ? `${money(b.from)} and above` : `${money(b.from)} to under ${money(b.to)}`;
+}
+
+function renderStrat() {
+  $("str-result").hidden = !strat;
+  if (!strat) return;
+  $("str-tabs").querySelectorAll("[data-str]").forEach((b) => b.setAttribute("aria-selected", b.dataset.str === stratTab));
+  const t = strat.totals;
+  const cards = [["Lines", t.lines.toLocaleString(LOCALE)], ["Debits", money(t.debits)], ["Credits", money(t.credits)]];
+  if (strat.summaries.account) cards.push(["Accounts", strat.summaries.account.count]);
+  if (strat.summaries.user) cards.push(["Users", strat.summaries.user.count]);
+  $("str-cards").innerHTML = cards.map(([k, v]) =>
+    `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  let note = "", html = "";
+  if (stratTab === "strata") {
+    note = "Each line falls in one band by the size of its amount, debit or credit.";
+    html = "<tr><th>Band</th><th>Lines</th><th>% of lines</th><th>Debits</th><th>Credits</th><th>Value</th><th>% of value</th></tr>" +
+      strat.strata.map((b) => `<tr><td class="nowrap">${esc(bandLabel(b))}</td><td class="num">${b.lines.toLocaleString(LOCALE)}</td>
+        <td class="num">${b.lines_pct}%</td><td class="num">${money(b.debits)}</td><td class="num">${money(b.credits)}</td>
+        <td class="num">${money(b.value)}</td><td class="num">${b.value_pct}%</td></tr>`).join("");
+  } else if (stratTab === "fields") {
+    note = "Statistics for each column the app read from the file.";
+    html = "<tr><th>Field</th><th>Filled</th><th>Blank</th><th>Distinct</th><th>Details</th></tr>" +
+      strat.fields.map((f) => {
+        let detail = "";
+        if (f.kind === "number") detail = `Total ${money(f.total)} · min ${money(f.min)} · max ${money(f.max)} · average ${money(f.average)}`;
+        else if (f.kind === "date") detail = `${f.earliest} to ${f.latest}`;
+        else if (f.kind === "text") detail = `<span>Most common:</span> ${data(f.most_common)} <span>(${f.most_common_lines} lines)</span>`;
+        return `<tr><td>${esc(f.label)}</td><td class="num">${f.filled}</td><td class="num${f.blank && !["debit", "credit"].includes(f.field) ? " bad" : ""}">${f.blank}</td>
+          <td class="num">${f.distinct}</td><td>${f.kind === "text" ? detail : esc(detail)}</td></tr>`;
+      }).join("");
+  } else {
+    const sum = strat.summaries[stratTab];
+    const first = { account: "Account", user: "User", month: "Month" }[stratTab];
+    if (!sum) {
+      note = { account: "This file has no account column.", user: "This file has no user column.", month: "This file has no date column." }[stratTab];
+    } else {
+      note = sum.truncated ? `Showing the first ${sum.rows.length} of ${sum.count}. The Excel download has them all.` : "";
+      html = `<tr><th>${first}</th><th>Lines</th><th>Debits</th><th>Credits</th><th>Net</th><th>Largest line</th></tr>` +
+        sum.rows.map((r) => `<tr><td>${data(r.key)}</td><td class="num">${r.lines.toLocaleString(LOCALE)}</td>
+          <td class="num">${money(r.debits)}</td><td class="num">${money(r.credits)}</td>
+          <td class="num">${money(r.net)}</td><td class="num">${money(r.largest)}</td></tr>`).join("");
+    }
+  }
+  $("str-note").textContent = note;
+  $("str-table").innerHTML = html;
 }
 
 // Ratios: this year against last, with the big moves flagged

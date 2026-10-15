@@ -188,7 +188,7 @@ def draw(df: pd.DataFrame, p: SampleParams) -> dict:
     }
 
 
-def to_excel(result: dict, context: dict | None = None) -> bytes:
+def to_excel(result: dict, context: dict | None = None, evaluation: dict | None = None) -> bytes:
     params = result["params"]
     rows = list((context or {}).items()) + [
         ("Method", result["method_label"]),
@@ -207,12 +207,157 @@ def to_excel(result: dict, context: dict | None = None) -> bytes:
     rows += [(k.replace("_", " ").capitalize(), v) for k, v in result["details"].items()]
     rows.append(("Reproduce", "Use the same file, filters, method, size and seed."))
     items = pd.DataFrame(result["items"])
-    for col in ("Tested by", "Date tested", "Result", "Exception amount", "Notes"):
-        items[col] = ""
+    if evaluation:
+        tested = {r["row"]: r for r in evaluation["items"]}
+        items["Audited amount"] = [tested[r]["audited_amount"] for r in items["row"]]
+        items["Misstatement"] = [tested[r]["misstatement"] for r in items["row"]]
+        items["Projected"] = [tested[r]["projected"] for r in items["row"]]
+        items["Notes"] = [tested[r]["notes"] for r in items["row"]]
+    else:
+        for col in ("Tested by", "Date tested", "Result", "Exception amount", "Notes"):
+            items[col] = ""
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
         pd.DataFrame(rows, columns=["Item", "Value"]).to_excel(xl, sheet_name="Parameters",
                                                                index=False)
         items.to_excel(xl, sheet_name="Sample", index=False)
+        if evaluation:
+            pd.DataFrame(evaluation_rows(evaluation), columns=["Item", "Value"]).to_excel(
+                xl, sheet_name="Evaluation", index=False)
         finish_workbook(xl.book)
     return buf.getvalue()
+
+
+# Evaluating a sample once it is tested (ISA 530): the misstatements found in the items are
+# projected to the population and compared with tolerable misstatement.
+
+CONCLUSIONS = {
+    "incomplete": "Not all items are tested yet",
+    "no_tolerable": "Enter a tolerable misstatement to conclude",
+    "acceptable": "Below tolerable misstatement: the sample supports the population",
+    "close": "Close to tolerable misstatement: consider testing more items",
+    "exceeds": "Exceeds tolerable misstatement: extend testing or propose an adjustment",
+}
+
+
+def poisson_upper_limit(errors: int, confidence: int) -> float:
+    """The upper limit on the expected number of errors (lambda) at `confidence` %, after
+    finding `errors` errors: the lambda at which P(X <= errors) = 1 - confidence."""
+    target = 1 - confidence / 100
+
+    def cdf(lam: float) -> float:
+        term = total = math.exp(-lam)
+        for i in range(1, errors + 1):
+            term *= lam / i
+            total += term
+        return total
+
+    low, high = 0.0, 10.0 + 5.0 * errors
+    for _ in range(200):
+        mid = (low + high) / 2
+        if cdf(mid) > target:
+            low = mid
+        else:
+            high = mid
+    return round((low + high) / 2, 4)
+
+
+def evaluate(result: dict, tested: list[dict], tolerable: float | None) -> dict:
+    """Project the misstatements in a tested sample. `tested` has {row, audited_amount,
+    notes} for the items tested so far; a misstatement is book value less audited value,
+    so overstatements are positive."""
+    by_row = {t["row"]: t for t in tested}
+    unknown = set(by_row) - {i["row"] for i in result["items"]}
+    if unknown:
+        raise SamplingError(f"Row {min(unknown)} is not in this sample.")
+    if tolerable is not None and not (math.isfinite(tolerable) and tolerable > 0):
+        raise SamplingError("Tolerable misstatement must be more than zero.")
+    mus = result["method"] == "mus"
+    interval = result["details"].get("interval") if mus else None
+    items, done = [], []
+    for i in result["items"]:
+        book = abs(i["amount"])
+        t = by_row.get(i["row"], {})
+        audited = t.get("audited_amount")
+        if audited is not None and not (math.isfinite(audited) and audited >= 0):
+            raise SamplingError("Audited amounts must be numbers of zero or more.")
+        row = {"row": i["row"], "book": round(book, 2), "audited_amount": audited,
+               "notes": t.get("notes", ""), "misstatement": None, "projected": None}
+        if audited is not None:
+            mis = round(book - audited, 2)
+            row["misstatement"] = mis
+            if mus and mis:
+                if book >= interval:  # top stratum: tested in full, nothing to project
+                    row["top_stratum"] = True
+                    row["projected"] = mis
+                else:
+                    row["tainting"] = round(mis / book, 4) if book else 0.0
+                    row["projected"] = round(mis / book * interval, 2) if book else 0.0
+            done.append(row)
+        items.append(row)
+
+    tested_book = sum(r["book"] for r in done)
+    exceptions = [r for r in done if r["misstatement"]]
+    known = round(sum(r["misstatement"] for r in done), 2)
+    out = {
+        "items": items, "tested": len(done), "untested": len(items) - len(done),
+        "exceptions": len(exceptions),
+        "exception_rate": round(100 * len(exceptions) / len(done), 1) if done else None,
+        "known_misstatement": known, "tolerable_misstatement": tolerable,
+        "population_value": result["population"]["value"],
+    }
+    if mus:
+        confidence = result["params"].get("confidence") or 95
+        if confidence not in CONFIDENCE:
+            confidence = 95
+        limits = [poisson_upper_limit(k, confidence)
+                  for k in range(sum(1 for r in exceptions if "tainting" in r) + 1)]
+        over = sorted((r["tainting"] for r in exceptions
+                       if "tainting" in r and r["tainting"] > 0), reverse=True)
+        basic = round(limits[0] * interval, 2)
+        allowance = sum((limits[k + 1] - limits[k]) * t * interval for k, t in enumerate(over))
+        top = sum(r["misstatement"] for r in exceptions
+                  if r.get("top_stratum") and r["misstatement"] > 0)
+        out.update(
+            basis="mus", confidence=confidence, interval=interval, basic_precision=basic,
+            projected_misstatement=round(sum(r["projected"] for r in exceptions), 2),
+            upper_limit=round(basic + allowance + top, 2),
+        )
+        measure = out["upper_limit"]
+    else:
+        ratio = known / tested_book if tested_book else 0.0
+        out.update(basis="ratio",
+                   projected_misstatement=round(ratio * result["population"]["value"], 2),
+                   upper_limit=None)
+        measure = abs(out["projected_misstatement"])
+    if out["untested"]:
+        status = "incomplete"
+    elif not tolerable:
+        status = "no_tolerable"
+    elif measure > tolerable:
+        status = "exceeds"
+    elif not mus and measure > tolerable / 2:
+        status = "close"
+    else:
+        status = "acceptable"
+    out["conclusion"] = {"status": status, "label": CONCLUSIONS[status]}
+    return out
+
+
+def evaluation_rows(ev: dict) -> list[tuple]:
+    rows = [("Items tested", f"{ev['tested']} of {ev['tested'] + ev['untested']}"),
+            ("Items with a misstatement", ev["exceptions"]),
+            ("Known misstatement in the sample", ev["known_misstatement"])]
+    if ev["basis"] == "mus":
+        rows += [("Basis", "Monetary unit sampling (Poisson upper limits)"),
+                 ("Confidence %", ev["confidence"]), ("Sampling interval", ev["interval"]),
+                 ("Basic precision", ev["basic_precision"]),
+                 ("Projected misstatement", ev["projected_misstatement"]),
+                 ("Upper misstatement limit (overstatement)", ev["upper_limit"])]
+    else:
+        rows += [("Basis", "Ratio of misstatement to the value tested, applied to the "
+                           "population (non-statistical)"),
+                 ("Projected misstatement", ev["projected_misstatement"])]
+    rows += [("Tolerable misstatement", ev["tolerable_misstatement"]),
+             ("Conclusion", ev["conclusion"]["label"])]
+    return rows

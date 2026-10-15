@@ -183,6 +183,7 @@ def sample_brief(x: Sample) -> dict:
         "filename": x.upload.filename, "method": x.method, "method_label": r["method_label"],
         "seed": x.seed, "population": r["population"], "sample_size": r["sample_size"],
         "sample_value": r["sample_value"],
+        "evaluation": x.evaluation and x.evaluation.result["conclusion"],
     }
 
 
