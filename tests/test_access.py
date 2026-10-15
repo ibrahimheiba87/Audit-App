@@ -11,6 +11,8 @@ pytestmark = pytest.mark.usefixtures("real_auth")
 
 TB = ("tb.csv", b"Account,Description,Amount\n1000,Cash,9\n")
 PRIOR = ("prior.csv", b"Account,Description,Amount\n1000,Cash,5\n")
+BANK = ("bank.csv", b"Date,Description,Withdrawals,Deposits\n2026-05-21,CHQ,33.32,\n")
+REC = {"accounts": ["1000 Cash"]}
 
 
 def full_engagement(a):
@@ -36,12 +38,16 @@ def full_engagement(a):
     a.post(f"/api/engagements/{eid}/signoffs", json={"section": "data", "kind": "prepared"})
     note = a.post(f"/api/engagements/{eid}/review-notes",
                   json={"section": "data", "text": "Check this"}).json()["id"]
+    bank = a.post(f"/api/engagements/{eid}/uploads", data={"kind": "bank"},
+                  files={"file": BANK}).json()["id"]
+    rec = a.post(f"/api/engagements/{eid}/bank-reconciliations",
+                 json={**REC, "bank_upload_id": bank, "gl_upload_id": gl}).json()["id"]
     req = a.post(f"/api/engagements/{eid}/requests", json={"title": "Bank"}).json()["id"]
     file = a.post(f"/api/requests/{req}/files", files={"file": PDF}).json()["files"][0]["id"]
     return {"engagement_id": eid, "upload_id": gl, "run_id": run, "finding_id": finding,
             "evidence_id": evidence, "comparison_id": comparison, "sample_id": sample,
             "entry_id": entry["id"], "note_id": note, "request_id": req, "file_id": file,
-            "section": "data", "kind": "prepared"}
+            "section": "data", "kind": "prepared", "bank_upload_id": bank, "rec_id": rec}
 
 
 def bodies(ids):
@@ -99,6 +105,13 @@ def bodies(ids):
         ("DELETE", "/api/review-notes/{note_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/requests"): {},
         ("GET", "/api/engagements/{engagement_id}/dashboard"): {},
+        ("GET", "/api/engagements/{engagement_id}/bank-reconciliations/options"): {},
+        ("POST", "/api/engagements/{engagement_id}/bank-reconciliations"):
+            {"json": {**REC, "bank_upload_id": ids["bank_upload_id"],
+                      "gl_upload_id": ids["upload_id"]}},
+        ("GET", "/api/bank-reconciliations/{rec_id}"): {},
+        ("GET", "/api/bank-reconciliations/{rec_id}/report"): {},
+        ("POST", "/api/engagements/{engagement_id}/roll-forward"): {"json": {}},
         ("POST", "/api/engagements/{engagement_id}/requests"): {"json": {"title": "x"}},
         ("GET", "/api/engagements/{engagement_id}/requests/export"): {},
         ("PATCH", "/api/requests/{request_id}"): {"json": {"title": "y"}},

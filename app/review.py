@@ -48,9 +48,12 @@ TRIAL_BALANCES = ("tb", "prior_tb")  # the uploads the statements are built from
 def detail_effects(action: str, details: dict) -> tuple[str, ...]:
     """Side effects that depend on what the action touched, read from its log details."""
     if action == "upload.create":  # a new trial balance feeds the statements
+        if details.get("kind") == "bank":  # a new statement is there to reconcile
+            return ("bank",)
         return ("statements",) if details.get("kind") in TRIAL_BALANCES else ()
-    # Deleting a file deletes its findings, samples and comparisons. Older log entries don't
-    # say which there were, so they count as touching them all.
+    # Deleting a file deletes its findings, samples, comparisons and bank reconciliations.
+    # Older log entries don't say which there were, so they count as touching them all
+    # (they predate bank reconciliations).
     return tuple(details.get("affects", ("comparison", "sampling", "findings", "statements")))
 
 
@@ -65,6 +68,9 @@ SECTIONS = [
     Section("comparison", "Prior-year comparison", "Comparisons with last year's balances.",
             ("comparison.create",)),
     Section("sampling", "Sampling", "Samples drawn for testing.", ("sample.create",)),
+    Section("bank", "Bank reconciliation",
+            "Bank statements matched to the cash account, and the reconciling items.",
+            ("bankrec.create",)),
     Section("findings", "Findings register", "Findings, their notes, evidence and status.",
             ("finding.create", "finding.delete", "finding.note", "finding.severity",
              "finding.status", "evidence.add", "evidence.remove")),
@@ -76,6 +82,9 @@ SECTIONS = [
             ()),
 ]
 SECTION = {s.id: s for s in SECTIONS}
+# Sections only some engagements have work in. Until one has (or is signed or noted), it
+# isn't needed for completion, so engagements without a bank statement aren't held up.
+OPTIONAL = {"bank"}
 WORK = [s for s in SECTIONS if s.id != "completion"]
 SECTIONS_CHANGED: dict[str, set[str]] = {}  # action -> the sections it changes
 for _s in WORK:
@@ -84,8 +93,8 @@ for _s in WORK:
 for _a, _ids in SIDE_EFFECTS.items():
     SECTIONS_CHANGED.setdefault(_a, set()).update(_ids)
 
-SectionId = Literal["planning", "data", "comparison", "sampling", "findings", "statements",
-                    "completion"]
+SectionId = Literal["planning", "data", "comparison", "sampling", "bank", "findings",
+                    "statements", "completion"]
 Kind = Literal["prepared", "reviewed"]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
 
@@ -147,6 +156,8 @@ def section_state(e: Engagement, changes: dict[str, datetime | None]) -> list[di
     for s in SECTIONS:
         changed = changes.get(s.id)
         prep, rev = signoffs.get((s.id, "prepared")), signoffs.get((s.id, "reviewed"))
+        needed = not (s.id in OPTIONAL and changed is None and prep is None and rev is None
+                      and not notes.get(s.id))
         prep_stale = bool(prep and changed and changed > prep.at)
         rev_stale = bool(rev and (prep is None or (changed and changed > rev.at)
                                   or prep.at > rev.at))
@@ -157,10 +168,11 @@ def section_state(e: Engagement, changes: dict[str, datetime | None]) -> list[di
             prepared_since = prep and any(x.kind == "prepared" and x.at > prep.at
                                           for x in others)
             signed_since = rev and any(x.at > rev.at for x in others)
+            work = [x for x in out if x["needed"]]
             prep_stale = bool(prep and (prep_stale or prepared_since or any(
-                not x["prepared"] or x["prepared"]["stale"] for x in out)))
+                not x["prepared"] or x["prepared"]["stale"] for x in work)))
             rev_stale = bool(rev and (rev_stale or signed_since or any(
-                not x["done"] for x in out)))
+                not x["done"] for x in work)))
         if prep is None:
             status = "Not started"
         elif prep_stale:
@@ -174,7 +186,7 @@ def section_state(e: Engagement, changes: dict[str, datetime | None]) -> list[di
         out.append({
             "id": s.id, "label": s.label, "description": s.description,
             "last_change_at": iso(changed), "open_notes": notes.get(s.id, 0), "status": status,
-            "done": status == "Reviewed" and not notes.get(s.id),
+            "done": status == "Reviewed" and not notes.get(s.id), "needed": needed,
             "prepared": signoff_out(prep, prep_stale), "reviewed": signoff_out(rev, rev_stale),
         })
     return out
@@ -203,8 +215,8 @@ def review_out(session: Session, e: Engagement) -> dict:
     return {"sections": sections,
             "notes": [note_out(n) for n in notes],
             "open_notes": sum(s["open_notes"] for s in sections),
-            "reviewed": sum(1 for s in sections if s["done"]),
-            "total": len(sections)}
+            "reviewed": sum(1 for s in sections if s["done"] and s["needed"]),
+            "total": sum(1 for s in sections if s["needed"])}
 
 
 @router.get("/engagements/{engagement_id}/review")
@@ -249,10 +261,11 @@ def sign_off(engagement_id: int, body: SignOffIn, user: User = Depends(require("
     mine = state[section.id]
     if body.section == "completion":
         if body.kind == "prepared":
-            todo = [s["label"] for s in state.values()
-                    if s["id"] != "completion" and (not s["prepared"] or s["prepared"]["stale"])]
+            todo = [s["label"] for s in state.values() if s["id"] != "completion"
+                    and s["needed"] and (not s["prepared"] or s["prepared"]["stale"])]
         else:
-            todo = [s["label"] for s in state.values() if s["id"] != "completion" and not s["done"]]
+            todo = [s["label"] for s in state.values()
+                    if s["id"] != "completion" and s["needed"] and not s["done"]]
         if todo:
             need = "prepared" if body.kind == "prepared" else "reviewed with no open notes"
             raise HTTPException(400, f"Sign off completion once every section is {need}. "

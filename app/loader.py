@@ -44,18 +44,21 @@ COLUMN_SYNONYMS: dict[str, list[str]] = {
                  "journalno", "journalnumber", "je", "jeno", "jenumber", "jv", "jvno", "jvnumber",
                  "journalentry", "journalentryid", "documentno", "documentnumber",
                  "docno", "voucher", "voucherno", "transactionid", "txnid", "reference", "ref"],
-    "date": ["date", "transactiondate", "txndate", "entrydate", "effectivedate",
+    "date": ["date", "transactiondate", "txndate", "entrydate", "effectivedate", "valuedate",
              "documentdate", "gldate", "accountingdate"],
     "posted": ["posteddate", "postingdate", "posted", "postdate", "createddate", "enteredon",
                "entereddate"],
     "account": ["account", "accountno", "accountnumber", "accountcode", "glaccount",
                 "glaccountnumber", "acct", "acctno", "accountname", "ledgeraccount"],
     "description": ["description", "memo", "narration", "narrative", "details", "text",
+                    "particulars", "transactiondetails", "transactiondescription",
                     "linedescription", "comment", "accountname", "accountdescription", "name"],
     "user": ["user", "createdby", "postedby", "enteredby", "preparer", "username", "userid"],
-    "debit": ["debit", "debits", "dr", "debitamount", "amountdr", "balancedr", "debitbalance"],
+    # Bank statements say withdrawals and deposits: a debit and a credit on the bank's side.
+    "debit": ["debit", "debits", "dr", "debitamount", "amountdr", "balancedr", "debitbalance",
+              "withdrawal", "withdrawals", "paidout", "moneyout"],
     "credit": ["credit", "credits", "cr", "creditamount", "amountcr", "balancecr",
-               "creditbalance"],
+               "creditbalance", "deposit", "deposits", "paidin", "moneyin"],
     "amount": ["amount", "value", "netamount", "balance", "amt", "signedamount"],
 }
 
@@ -238,6 +241,12 @@ def suggest_mapping(columns: list[str]) -> dict[str, str]:
     for _, _, target, col in candidates:
         if target not in mapping and col not in mapping.values():
             mapping[target] = col
+    # In a dated list of transactions (a bank statement or ledger) with Debit and Credit
+    # columns, "Balance" is the running balance, not the movement. A trial balance's Balance
+    # is the closing balance, so it stays the amount there.
+    if ("date" in mapping and ("debit" in mapping or "credit" in mapping)
+            and _key(mapping.get("amount", "")) == "balance"):
+        del mapping["amount"]
     return mapping
 
 

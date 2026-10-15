@@ -118,6 +118,10 @@ class Engagement(Base):
     team: Mapped[list[EngagementMember]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan"
     )
+    bank_reconciliations: Mapped[list[BankReconciliation]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="BankReconciliation.id"
+    )
 
 
 class Upload(Base):
@@ -127,7 +131,7 @@ class Upload(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"))
-    kind: Mapped[str] = mapped_column(String(20))  # "gl", "tb" or "prior_tb"
+    kind: Mapped[str] = mapped_column(String(20))  # engagements.UPLOAD_KINDS
     filename: Mapped[str] = mapped_column(String(255))
     sha256: Mapped[str] = mapped_column(String(64))
     size: Mapped[int] = mapped_column(Integer)
@@ -184,6 +188,25 @@ class Comparison(Base):
     engagement: Mapped[Engagement] = relationship(back_populates="comparisons")
     current_upload: Mapped[Upload] = relationship(foreign_keys=[current_upload_id])
     prior_upload: Mapped[Upload] = relationship(foreign_keys=[prior_upload_id])
+
+
+class BankReconciliation(Base):
+    """A bank statement matched to the cash account in a general ledger (bankrec.py)."""
+
+    __tablename__ = "bank_reconciliations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    bank_upload_id: Mapped[int] = mapped_column(ForeignKey("uploads.id"))
+    gl_upload_id: Mapped[int] = mapped_column(ForeignKey("uploads.id"))
+    settings: Mapped[dict] = mapped_column(JSON)
+    result: Mapped[dict] = mapped_column(JSON)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="bank_reconciliations")
+    bank_upload: Mapped[Upload] = relationship(foreign_keys=[bank_upload_id])
+    gl_upload: Mapped[Upload] = relationship(foreign_keys=[gl_upload_id])
 
 
 class Sample(Base):

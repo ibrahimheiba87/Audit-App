@@ -272,6 +272,13 @@ async function openEngagement(id) {
     rq = null; rqDrafts = {};
     $("rq-cards").innerHTML = $("rq-list").innerHTML = $("rq-contacts").textContent = "";
     $("dash-cards").innerHTML = $("dash-steps").innerHTML = "";
+    bank = null; bankChecked = null;
+    $("bank-file").innerHTML = $("bank-gl").innerHTML = $("bank-accounts").innerHTML = "";
+    $("bank-recs").innerHTML = "";
+    $("bank-balance").value = $("bank-book").value = "";
+    $("bank-window").value = "5";
+    $("bank-flip").checked = false;
+    $("bank-result").hidden = true;
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -279,13 +286,14 @@ async function openEngagement(id) {
   $("eng-title").textContent = `${e.client.name} · ${e.name}`;
   $("eng-meta").textContent = `${e.period_start ? e.period_start + " to " : "Period ending "}${e.period_end} · ${e.framework}`;
   renderTeam(e.team);
-  renderMateriality(e.materiality);
+  renderMateriality(e.materiality, e.materiality_carried);
   renderUploads(e.uploads);
   renderRuns(e.runs);
   renderComparisonForm(e);
   renderComparisons(e.comparisons);
   renderSampleForm(e);
   renderSamples(e.samples);
+  guard(loadBank);
   if (currentFinding && currentFinding.engagement_id !== e.id) closeFinding();
   guard(loadReview);  // on its own, so a slow or failing panel above doesn't hold it up
   guard(loadRequests);
@@ -333,6 +341,45 @@ $("team-form").addEventListener("submit", async (ev) => {
   }
 });
 
+// Roll forward: start next year's engagement from this one.
+
+function nextYear(iso) {  // as the server does it: a month end stays a month end
+  const [y, m, d] = iso.split("-").map(Number);
+  const last = (yr) => new Date(Date.UTC(yr, m, 0)).getUTCDate();
+  const day = d === last(y) ? last(y + 1) : Math.min(d, last(y + 1));
+  return `${y + 1}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+$("eng-roll").addEventListener("click", () => {
+  const e = currentEngagement;
+  const bumped = e.name.replace(/(?<!\d)(19|20)\d\d(?!\d)/g, (y) => String(Number(y) + 1));
+  $("roll-form").reset();
+  $("roll-who").textContent = `${e.client.name} · ${e.name}`;
+  $("roll-name").value = bumped !== e.name ? bumped : `${e.name.slice(0, 183)} (rolled forward)`;
+  $("roll-period").innerHTML = `<span>New period end:</span> <bdi dir="ltr" translate="no">${esc(nextYear(e.period_end))}</bdi>`;
+  $("roll-error").hidden = true;
+  $("roll-form").dataset.engagement = e.id;
+  $("roll-dialog").showModal();
+});
+$("roll-cancel").addEventListener("click", () => $("roll-dialog").close());
+$("roll-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = $("roll-form");
+  const body = { name: $("roll-name").value };
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "team"]) body[k] = f[k].checked;
+  $("roll-submit").disabled = true;
+  try {
+    const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
+    $("roll-dialog").close();
+    location.hash = `#/engagements/${r.id}`;
+  } catch (err) {
+    $("roll-error").textContent = err.message;
+    $("roll-error").hidden = false;
+  } finally {
+    $("roll-submit").disabled = false;
+  }
+});
+
 $("eng-delete").addEventListener("click", () => {
   const e = currentEngagement;
   if (!e || !confirm(`Delete ${e.name} for ${e.client.name}, with all its files and runs?`)) return;
@@ -346,15 +393,18 @@ $("eng-delete").addEventListener("click", () => {
 
 function benchmarkInfo(id) { return meta.benchmarks.find((b) => b.id === id); }
 
-function renderMateriality(m) {
+function renderMateriality(saved, carried) {
   const f = $("mat-form");
+  const m = saved || carried;  // carried: last year's method, rolled forward without amounts
   f.benchmark.value = m?.benchmark || "pbt";
   f.benchmark_amount.value = m?.benchmark_amount ?? "";
   f.benchmark_pct.value = m?.benchmark_pct ?? benchmarkInfo(f.benchmark.value).default_pct;
   f.performance_pct.value = m?.performance_pct ?? meta.default_performance_pct;
   f.trivial_pct.value = m?.trivial_pct ?? meta.default_trivial_pct;
   f.rationale.value = m?.rationale || "";
-  $("mat-saved").textContent = m ? "Saved." : "Not set yet; the materiality check is skipped until it is.";
+  $("mat-saved").textContent = saved ? "Saved."
+    : carried ? "Last year's method is filled in. Enter this year's benchmark amount and save."
+      : "Not set yet; the materiality check is skipped until it is.";
   updateMatRange();
   previewMateriality();
 }
@@ -431,7 +481,9 @@ function renderUploads(uploads) {
       <td class="nowrap">${esc(when(u.uploaded_at))}</td>
       <td class="muted">${u.import.warnings.length ? esc(u.import.warnings.join(" ")) : "OK"}</td>
       <td><div class="cell-actions">
-        <button type="button" class="small" data-run="${u.id}">Run audit</button>
+        ${u.kind === "bank"
+          ? `<button type="button" class="small" data-reconcile="${u.id}">Reconcile</button>`
+          : `<button type="button" class="small" data-run="${u.id}">Run audit</button>`}
         <button type="button" class="small secondary danger min-2" data-delete-upload="${u.id}">Delete</button>
       </div></td></tr>`).join("")
     : '<tr><td class="muted">No files uploaded yet.</td></tr>';
@@ -440,7 +492,13 @@ function renderUploads(uploads) {
 $("uploads").addEventListener("click", (e) => {
   const run = e.target.closest("[data-run]");
   const del = e.target.closest("[data-delete-upload]");
-  if (run) {
+  const rec = e.target.closest("[data-reconcile]");
+  if (rec) {
+    if ([...$("bank-file").options].some((o) => o.value === rec.dataset.reconcile)) {
+      $("bank-file").value = rec.dataset.reconcile;
+    }
+    $("bank-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (run) {
     guard(async () => {
       run.disabled = true;
       run.textContent = "Running…";
@@ -459,7 +517,7 @@ $("uploads").addEventListener("click", (e) => {
         run.textContent = "Run audit";
       }
     });
-  } else if (del && confirm("Delete this file and the audit runs made from it?")) {
+  } else if (del && confirm("Delete this file and the work made from it (audit runs, samples, comparisons and bank reconciliations)?")) {
     guard(async () => {
       await sendJSON("DELETE", `/api/uploads/${del.dataset.deleteUpload}`);
       await openEngagement(currentEngagement.id);
@@ -578,6 +636,158 @@ function renderComparisonTable() {
       <td>${r.reasons.map((x) => `<div>${esc(x)}</div>`).join("")}</td></tr>`).join("");
 }
 $("cmp-flagged-only").addEventListener("change", renderComparisonTable);
+
+// Bank reconciliation
+
+let bank = null;          // latest /bank-reconciliations/options answer
+let bankChecked = null;   // accounts ticked by hand for the general ledger in bank.gl_upload_id
+let bankLoads = 0;
+
+async function loadBank(glId) {
+  const id = currentEngagement.id;
+  const load = ++bankLoads;
+  const q = glId ? `?gl_upload_id=${glId}` : "";
+  const o = await getJSON(`/api/engagements/${id}/bank-reconciliations/options${q}`);
+  if (currentEngagement?.id !== id || load !== bankLoads) return;
+  const keepBank = $("bank-file").value;
+  if (!bank || bank.gl_upload_id !== o.gl_upload_id) bankChecked = null;
+  bank = o;
+  const opts = (list) => list.map((u) =>
+    `<option value="${u.id}" translate="no">${esc(u.filename)}</option>`).join("");
+  $("bank-file").innerHTML = opts(o.bank_uploads) || '<option value="">Upload a bank statement first</option>';
+  if (o.bank_uploads.some((u) => String(u.id) === keepBank)) $("bank-file").value = keepBank;
+  else if (o.bank_uploads.length) $("bank-file").value = o.bank_uploads[o.bank_uploads.length - 1].id;
+  $("bank-gl").innerHTML = opts(o.gl_uploads) || '<option value="">Upload the general ledger first</option>';
+  if (o.gl_upload_id) $("bank-gl").value = o.gl_upload_id;
+  renderBankAccounts();
+  renderBankRecs();
+}
+
+function renderBankAccounts() {
+  const ticked = bankChecked || new Set(bank.accounts.filter((a) => a.cash).map((a) => a.account));
+  const box = (a) => `<label><input type="checkbox" value="${esc(a.account)}" ${ticked.has(a.account) ? "checked" : ""}>
+    ${data(a.account)} <span class="muted">(${a.lines.toLocaleString(LOCALE)})</span></label>`;
+  const cash = bank.accounts.filter((a) => a.cash);
+  const other = bank.accounts.filter((a) => !a.cash);
+  $("bank-accounts").innerHTML = !bank.accounts.length ? '<span class="muted">Upload the general ledger first.</span>'
+    : (cash.length ? cash.map(box).join("") : '<span class="muted">No account looks like cash at bank. Tick it below.</span>') +
+      (other.length ? `<details style="flex-basis:100%"${other.some((a) => ticked.has(a.account)) ? " open" : ""}>
+        <summary>Other accounts</summary><div class="check-list">${other.map(box).join("")}</div></details>` : "");
+  bankBookHint();
+}
+
+function bankTicked() {
+  return [...$("bank-accounts").querySelectorAll("input:checked")].map((i) => i.value);
+}
+
+function bankBookHint() {
+  const codes = new Set(bankTicked().map((a) => bank.accounts.find((x) => x.account === a)?.code));
+  const tb = bank.tb_balances;
+  const found = tb ? [...codes].filter((c) => c in tb) : [];
+  $("bank-book").placeholder = found.length
+    ? `${money(found.reduce((t, c) => t + tb[c], 0))} (from the trial balance)` : "Amount";
+}
+
+$("bank-accounts").addEventListener("change", () => {
+  bankChecked = new Set(bankTicked());
+  bankBookHint();
+});
+$("bank-gl").addEventListener("change", () => { if ($("bank-gl").value) guard(() => loadBank($("bank-gl").value)); });
+
+$("bank-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const num = (el) => $(el).value === "" ? null : Number($(el).value);
+  guard(async () => {
+    $("bank-run").disabled = true;
+    try {
+      const r = await sendJSON("POST", `/api/engagements/${currentEngagement.id}/bank-reconciliations`, {
+        bank_upload_id: Number($("bank-file").value),
+        gl_upload_id: Number($("bank-gl").value),
+        accounts: bankTicked(),
+        window_days: Number($("bank-window").value || 0),
+        bank_balance: num("bank-balance"),
+        book_balance: num("bank-book"),
+        flip_bank: $("bank-flip").checked,
+      });
+      await loadBank($("bank-gl").value);
+      showBankRec(r);
+      refreshDashboard();
+    } finally {
+      $("bank-run").disabled = false;
+    }
+  });
+});
+
+function renderBankRecs() {
+  const list = bank.reconciliations;
+  $("bank-recs").innerHTML = list.length ? "<tr><th>#</th><th>When</th><th>Bank statement</th><th>Matched</th><th>Outstanding</th><th>Not in the books</th><th>Difference</th><th></th></tr>" +
+    list.map((r) => `<tr><td>${r.id}</td><td class="nowrap">${esc(when(r.created_at))}</td>
+      <td>${data(r.bank_filename)}</td><td class="num">${r.summary.matched}</td>
+      <td class="num">${r.summary.outstanding}</td><td class="num">${r.summary.bank_only}</td>
+      <td class="num">${r.difference == null ? "–" : money(r.difference)}</td>
+      <td><div class="cell-actions">
+        <button type="button" class="small secondary" data-view-bank="${r.id}">View</button>
+        <a class="button" href="/api/bank-reconciliations/${r.id}/report">Excel</a>
+      </div></td></tr>`).join("") : "";
+}
+
+$("bank-recs").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-view-bank]");
+  if (btn) guard(async () => showBankRec(await getJSON(`/api/bank-reconciliations/${btn.dataset.viewBank}`)));
+});
+
+const BANK_STATEMENT = [
+  ["bank_balance", "Balance per bank statement"],
+  ["deposits_in_transit", "Add: deposits in transit"],
+  ["outstanding_payments", "Less: outstanding payments"],
+  ["adjusted_bank", "Adjusted bank balance", "subtotal"],
+  ["book_balance", "Balance per books"],
+  ["receipts_not_in_books", "Add: receipts on the bank statement not in the books"],
+  ["payments_not_in_books", "Less: payments on the bank statement not in the books"],
+  ["adjusted_book", "Adjusted book balance", "subtotal"],
+  ["difference", "Unexplained difference", "total"],
+];
+
+function showBankRec(r) {
+  const res = r.result, s = res.summary, st = res.statement;
+  $("bank-result").hidden = false;
+  $("bank-title").textContent = `#${r.id}`;
+  $("bank-files").innerHTML = `${data(r.bank_filename)} · ${data(res.settings.accounts.join(", "))} · ${data(res.settings.period_end)}`;
+  $("bank-actions").innerHTML = `<a class="button" href="/api/bank-reconciliations/${r.id}/report">Download Excel</a>`;
+  const diff = st.difference;
+  $("bank-cards").innerHTML = [
+    [s.matched, "Matched"],
+    [s.outstanding, "Outstanding at the period end"],
+    [s.cleared_after, "Cleared after the period end"],
+    [s.stale, "Old and not cleared", s.stale > 0],
+    [s.bank_only, "Not in the books"],
+    [diff == null ? "–" : money(diff), "Unexplained difference", diff != null && Math.abs(diff) >= 0.01],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("bank-statement").className = "fs-table";
+  $("bank-statement").innerHTML = BANK_STATEMENT.map(([key, label, cls]) => `<tr class="${cls || "line"}">
+    <td>${esc(label)}</td><td class="num">${st[key] == null ? "–" : money(st[key])}</td></tr>`).join("") +
+    (st.bank_balance == null || st.book_balance == null
+      ? '<tr><td class="muted" colspan="2">Enter the bank and book balances to see the unexplained difference.</td></tr>' : "");
+  $("bank-outstanding").innerHTML = res.outstanding.length
+    ? "<tr><th>Type</th><th>Date</th><th>Entry</th><th>Description</th><th>Amount</th><th>Days outstanding</th><th>Cleared on</th><th>Cleared by</th></tr>" +
+      res.outstanding.map((o) => `<tr><td>${esc(o.kind)}${o.stale ? ' <span class="sev high">Old and not cleared</span>' : ""}</td>
+        <td class="nowrap">${data(o.date)}</td><td>${data(o.entry_id || "")}</td><td>${data(o.description || "")}</td>
+        <td class="num">${money(o.amount)}</td><td class="num">${o.days_outstanding}</td>
+        <td class="nowrap">${o.cleared ? data(o.cleared.date) : ""}</td><td>${o.cleared ? data(o.cleared.description || "") : ""}</td></tr>`).join("")
+    : '<tr><td class="muted">None.</td></tr>';
+  $("bank-only").innerHTML = res.bank_only.length
+    ? "<tr><th>Type</th><th>Date</th><th>Description</th><th>Amount</th></tr>" +
+      res.bank_only.map((b) => `<tr><td>${esc(b.kind)}${b.early ? ' <span class="sev low" title="An item outstanding at last year\'s end clears early in this period and is already in last year\'s books.">May be last year\'s item</span>' : ""}</td><td class="nowrap">${data(b.date)}</td>
+        <td>${data(b.description || "")}</td><td class="num">${money(b.amount)}</td></tr>`).join("")
+    : '<tr><td class="muted">None.</td></tr>';
+  $("bank-matched").innerHTML = res.matched.length
+    ? "<tr><th>Bank date</th><th>Bank description</th><th>Ledger date</th><th>Entry</th><th>Ledger description</th><th>Amount</th><th>Days apart</th></tr>" +
+      res.matched.map((m) => `<tr><td class="nowrap">${data(m.bank_date)}</td><td>${data(m.bank_description || "")}</td>
+        <td class="nowrap">${data(m.ledger_date)}</td><td>${data(m.entry_id || "")}</td><td>${data(m.ledger_description || "")}</td>
+        <td class="num">${money(m.amount)}</td><td class="num">${m.days}</td></tr>`).join("")
+    : '<tr><td class="muted">None.</td></tr>';
+  $("bank-result").scrollIntoView({ behavior: "smooth" });
+}
 
 // Lead sheets and draft statements
 
@@ -1024,6 +1234,11 @@ async function loadDashboard() {
     [d.requests.overdue, "Overdue requests"],
   ];
   if (d.statements && !d.statements.error) cards.push([d.statements.ratio_flags, "Ratios to explain"]);
+  if (d.bank) {
+    cards.push(!d.bank.reconciled ? ["Not done", "Bank reconciliation"]
+      : d.bank.difference == null ? ["No balances", "Bank reconciliation"]
+        : [money(d.bank.difference), "Bank difference"]);
+  }
   if (d.days_since_period_end) cards.push([d.days_since_period_end, "Days since period end"]);
   $("dash-cards").innerHTML = cards.map(([v, k]) =>
     `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");

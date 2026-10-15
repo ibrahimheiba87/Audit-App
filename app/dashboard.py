@@ -45,8 +45,25 @@ def statements_state(session: Session, e: Engagement, upload_id: int | None = No
     }
 
 
+def bank_state(e: Engagement) -> dict | None:
+    """Where the bank reconciliation stands, or None without a bank statement. It counts as
+    done once the latest bank statement has been reconciled; the latest such run speaks."""
+    banks = [u for u in e.uploads if u.kind == "bank"]
+    if not banks:
+        return None
+    latest_bank = max(banks, key=lambda u: (u.uploaded_at, u.id))
+    recs = [r for r in e.bank_reconciliations if r.bank_upload_id == latest_bank.id]
+    if not recs:
+        return {"reconciled": False, "difference": None, "stale": 0, "outstanding": 0}
+    r = recs[-1]
+    return {"reconciled": True, "id": r.id, "difference": r.result["statement"]["difference"],
+            "stale": r.result["summary"]["stale"],
+            "outstanding": r.result["summary"]["outstanding"]}
+
+
 def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, findings: dict,
-               open_high: int, rv: dict, rq: dict, fs: dict | None) -> list[dict]:
+               open_high: int, rv: dict, rq: dict, fs: dict | None,
+               bank: dict | None = None) -> list[dict]:
     """The to-do list, most pressing first. Each step names the panel (and tab) that deals
     with it."""
     steps: list[dict] = []
@@ -84,6 +101,15 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
                               "on last year.", "fs-panel", "ratios")
             if (fs["uncorrected"] or "").startswith(MATERIAL_UNCORRECTED):
                 add("high", fs["uncorrected"], "fs-panel", "uncorrected")
+    if bank:
+        if not bank["reconciled"]:
+            add("medium", "Reconcile the bank statement with the general ledger.", "bank-panel")
+        elif bank["difference"] is not None and abs(bank["difference"]) >= 0.01:
+            add("high", "The bank reconciliation has an unexplained difference; look into it.",
+                "bank-panel")
+        elif bank["stale"]:
+            add("medium", f"Follow up {_plural(bank['stale'], 'old reconciling item')} on the "
+                          "bank reconciliation.", "bank-panel")
     if open_high:
         add("high", f"Work through {_plural(open_high, 'open high-severity finding')}.", "reg-panel")
     elif findings["open"]:
@@ -121,6 +147,7 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     latest_gl = max(gls, key=lambda u: (u.uploaded_at, u.id)) if gls else None
     gl_runs = sum(1 for r in e.runs if latest_gl is not None and r.upload_id == latest_gl.id)
     last = e.runs[-1] if e.runs else None
+    bank = bank_state(e)
     days_left = (e.period_end - date.today()).days
     return {
         "period_end": e.period_end.isoformat(),
@@ -143,6 +170,7 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
                      "outstanding": sum(rq[s] for s in portal.OUTSTANDING),
                      "to_check": rq.get("submitted", 0)},
         "statements": fs,
+        "bank": bank,
         "next_steps": next_steps(e, mat, kinds, gl_runs, findings,
-                                 open_by_severity.get("high", 0), rv, rq, fs),
+                                 open_by_severity.get("high", 0), rv, rq, fs, bank),
     }

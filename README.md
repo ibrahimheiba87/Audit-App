@@ -59,13 +59,32 @@ misstatements. Preparers post proposed entries; a reviewer posts booked ones, ma
 proposed entry as booked or deletes an entry. Download it all as one Excel workbook.
 
 **Review and sign-off**: the file is split into sections (planning and materiality, files and
-checks, prior-year comparison, sampling, findings, lead sheets and statements, completion).
+checks, prior-year comparison, sampling, bank reconciliation, findings, lead sheets and
+statements, completion).
 Whoever prepared a section signs it off, then someone else signs it off as reviewed. If the
 section changes afterwards (a new upload or run, a changed finding, a new entry), the sign-off
 is marked changed so the reviewer knows to look again. Reviewers raise review notes on a
 section; the preparer replies and a reviewer clears them. A section can't be signed off as
 reviewed while it has notes to clear, raising a note takes back its review sign-off, and a
 partner signs off completion once every other section is reviewed.
+
+**Bank reconciliation**: upload the bank statement as "Bank statement" and match it to the
+cash account in the general ledger. Accounts mapped to cash, or named like cash at bank, are
+ticked for you. Each ledger line matches one bank line of the same amount dated a few days
+either side (5 by default). What is left over makes the reconciliation at the period end:
+deposits in transit and outstanding payments (with the bank line that cleared each one in the
+60 days after the period end, and old items that never cleared marked for follow-up), and
+items on the bank statement that aren't in the books, such as bank charges and interest.
+Enter the bank statement's balance at the period end and the book balance (taken from this
+year's trial balance if left blank) to see any unexplained difference. Reconciliations are
+saved and export to Excel. `sample_data/sample_bank_2026.csv` is the bank statement for the
+sample ledger's cash account (`python scripts/make_sample_bank.py` regenerates it).
+
+**Roll forward**: start next year's engagement from this year's with **Roll forward**. The
+period moves on a year, and you choose what comes across: this year's adjusted trial balance
+(as next year's prior-year trial balance), the account mapping, the materiality benchmark and
+percentages (you enter next year's amount), the client request list (open again, without due
+dates) and the team. This year's engagement doesn't change.
 
 **Client requests**: ask the client for documents (title, details for the client, due date).
 People at the client sign in with a **Client** account and see only their own company's
@@ -195,12 +214,12 @@ names, case-insensitively and ignoring anything in brackets (`Debit (EGP)` is a 
 
 | Field | Recognised headers (examples) |
 | --- | --- |
-| Amount | `Amount`, or `Debit` and `Credit` |
-| Date | `Date`, `Transaction Date`, `Entry Date`, `Effective Date` |
+| Amount | `Amount`, or `Debit` and `Credit` (`Withdrawals` and `Deposits` on a bank statement; a `Balance` column beside them is the running balance and isn't used) |
+| Date | `Date`, `Transaction Date`, `Entry Date`, `Effective Date`, `Value Date` |
 | Posting date | `Posted Date`, `Posting Date`, `Created Date` |
 | Account | `Account`, `Account No`, `GL Account`, `Account Name` |
 | Entry ID | `JE Number`, `Journal No.`, `JV No`, `Document No`, `Voucher`, `Reference` |
-| Description | `Description`, `Memo`, `Narration` |
+| Description | `Description`, `Memo`, `Narration`, `Particulars` |
 | User | `Created By`, `Posted By`, `User` |
 
 After import the summary shows rows read vs analysed, control totals, and warnings for rows
@@ -263,7 +282,7 @@ Engagement endpoints (JSON unless noted):
   client users); admin only
 - `GET /api/materiality/benchmarks`, `POST /api/materiality/calculate`,
   `PUT /api/engagements/{id}/materiality`
-- `POST /api/engagements/{id}/uploads` (multipart: `file`, `kind` = `gl`, `tb` or `prior_tb`,
+- `POST /api/engagements/{id}/uploads` (multipart: `file`, `kind` = `gl`, `tb`, `prior_tb` or `bank`,
   `sheet`, `mapping`), `DELETE /api/uploads/{id}`
 - `POST /api/engagements/{id}/runs` (`upload_id`, `cutoff_days`, `round_threshold`),
   `GET /api/runs/{id}`, `GET /api/runs/{id}/report?format=xlsx|csv`
@@ -271,6 +290,12 @@ Engagement endpoints (JSON unless noted):
 - `POST /api/engagements/{id}/comparisons` (`current_upload_id`, `prior_upload_id`,
   `threshold_amount`, `threshold_pct`), `GET /api/comparisons/{id}`,
   `GET /api/comparisons/{id}/report`
+- `GET /api/engagements/{id}/bank-reconciliations/options`,
+  `POST /api/engagements/{id}/bank-reconciliations` (`bank_upload_id`, `gl_upload_id`,
+  `accounts`, `window_days`, `bank_balance`, `book_balance`, `flip_bank`),
+  `GET /api/bank-reconciliations/{id}`, `GET /api/bank-reconciliations/{id}/report`
+- `POST /api/engagements/{id}/roll-forward` (`name`, and `trial_balance`, `mapping`,
+  `materiality`, `requests`, `team` to choose what comes across)
 - `POST /api/compare`: compare two files without saving (multipart: `current`, `prior`,
   `threshold_amount`, optional `threshold_pct`, `current_mapping`, `prior_mapping`,
   `current_sheet`, `prior_sheet`, `format=json|xlsx`)
