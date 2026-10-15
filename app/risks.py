@@ -8,14 +8,15 @@ change is logged, and the register exports to Excel through exports.finish_workb
 from __future__ import annotations
 
 import io
-from typing import Literal
+from typing import Annotated, Literal
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 from sqlalchemy.orm import Session
 
+from . import auth
 from .ai_writer import AREAS, ASSERTIONS, LEVELS
 from .auth import current_user, log, require
 from .db import AiDraft, Engagement, Risk, RiskProcedure, User, get_session, utcnow
@@ -30,6 +31,8 @@ LEVEL_RANK = {"significant": 0, "higher": 1, "lower": 2}
 MAX_RISKS = 500
 MAX_PROCEDURES = 50  # per risk
 Level = Literal["significant", "higher", "lower"]
+Title = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
+ProcText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
 
 def area_label(area: str) -> str:
@@ -51,7 +54,7 @@ def check_assertions(values: list[str]) -> list[str]:
 
 class RiskIn(BaseModel):
     area: str
-    title: str = Field(min_length=1, max_length=300)
+    title: Title
     level: Level
     assertions: list[str] = Field(default=[], max_length=len(ASSERTIONS))
     description: str = Field(default="", max_length=5000)
@@ -64,7 +67,7 @@ class RiskIn(BaseModel):
 
 class RiskPatch(BaseModel):
     area: str | None = None
-    title: str | None = Field(default=None, min_length=1, max_length=300)
+    title: Title | None = None
     level: Level | None = None
     assertions: list[str] | None = Field(default=None, max_length=len(ASSERTIONS))
     description: str | None = Field(default=None, max_length=5000)
@@ -77,11 +80,11 @@ class RiskPatch(BaseModel):
 
 
 class ProcedureIn(BaseModel):
-    text: str = Field(min_length=1, max_length=2000)
+    text: ProcText
 
 
 class ProcedurePatch(BaseModel):
-    text: str | None = Field(default=None, min_length=1, max_length=2000)
+    text: ProcText | None = None
     status: Literal["planned", "done"] | None = None
     conclusion: str | None = Field(default=None, max_length=5000)
     reference: str | None = Field(default=None, max_length=200)
@@ -140,6 +143,15 @@ def options() -> dict:
 def list_risks(engagement_id: int, user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> dict:
     return register_out(get_or_404(session, Engagement, engagement_id, user))
+
+
+def held(session: Session, user: User, model, record_id: int):
+    """The risk or procedure, with its engagement's register guard held, so two people
+    changing the same register (or one removing a risk another adds to) take turns."""
+    engagement_id = get_or_404(session, model, record_id, user).engagement_id
+    auth.hold(session, f"risks:{engagement_id}")
+    session.expire_all()  # another request may have changed it before we held the guard
+    return get_or_404(session, model, record_id, user)
 
 
 def add_risk(session: Session, e: Engagement, user: User, body: RiskIn,
@@ -207,7 +219,7 @@ def import_draft(engagement_id: int, draft_id: int, user: User = Depends(require
 @router.patch("/risks/{risk_id}")
 def update_risk(risk_id: int, body: RiskPatch, user: User = Depends(require("prepare")),
                 session: Session = Depends(get_session)) -> dict:
-    r = get_or_404(session, Risk, risk_id, user)
+    r = held(session, user, Risk, risk_id)
     changes = body.model_dump(exclude_unset=True, exclude_none=True)
     for field, value in changes.items():
         setattr(r, field, value.strip() if isinstance(value, str) else value)
@@ -220,7 +232,7 @@ def update_risk(risk_id: int, body: RiskPatch, user: User = Depends(require("pre
 @router.delete("/risks/{risk_id}", status_code=204)
 def delete_risk(risk_id: int, user: User = Depends(require("review")),
                 session: Session = Depends(get_session)) -> Response:
-    r = get_or_404(session, Risk, risk_id, user)
+    r = held(session, user, Risk, risk_id)
     log(session, user, "risk.delete", f"Removed risk #{r.id}: {r.title}", r.engagement,
         details={"risk_id": r.id, "procedures": len(r.procedures),
                  "done": sum(1 for p in r.procedures if p.status == "done")})
@@ -232,7 +244,7 @@ def delete_risk(risk_id: int, user: User = Depends(require("review")),
 @router.post("/risks/{risk_id}/procedures", status_code=201)
 def add_procedure(risk_id: int, body: ProcedureIn, user: User = Depends(require("prepare")),
                   session: Session = Depends(get_session)) -> dict:
-    r = get_or_404(session, Risk, risk_id, user)
+    r = held(session, user, Risk, risk_id)
     if len(r.procedures) >= MAX_PROCEDURES:
         raise HTTPException(400, f"A risk can have at most {MAX_PROCEDURES} procedures.")
     p = RiskProcedure(risk=r, text=body.text.strip())
@@ -248,7 +260,7 @@ def add_procedure(risk_id: int, body: ProcedureIn, user: User = Depends(require(
 def update_procedure(procedure_id: int, body: ProcedurePatch,
                      user: User = Depends(require("prepare")),
                      session: Session = Depends(get_session)) -> dict:
-    p = get_or_404(session, RiskProcedure, procedure_id, user)
+    p = held(session, user, RiskProcedure, procedure_id)
     changes = body.model_dump(exclude_unset=True, exclude_none=True)
     if changes.get("status") == "done" and p.status != "done":
         p.done_by, p.done_at = user.name, utcnow()
@@ -268,7 +280,7 @@ def update_procedure(procedure_id: int, body: ProcedurePatch,
 @router.delete("/procedures/{procedure_id}", status_code=204)
 def delete_procedure(procedure_id: int, user: User = Depends(require("prepare")),
                      session: Session = Depends(get_session)) -> Response:
-    p = get_or_404(session, RiskProcedure, procedure_id, user)
+    p = held(session, user, RiskProcedure, procedure_id)
     if p.status == "done" and user.role not in ("reviewer", "partner", "admin"):
         raise HTTPException(403, "Only a reviewer can remove a procedure that has been done.")
     r = p.risk

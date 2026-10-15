@@ -151,6 +151,8 @@ def _key(name: object) -> str:
 HEADER_SEARCH_ROWS = 30  # how far down a report's title rows can push the header
 
 
+OPEN_BALANCE = ["balancedue", "amountdue", "outstandingamount", "outstanding", "openamount",
+                "openbalance", "balance"]
 KNOWN_HEADERS = {key for synonyms in COLUMN_SYNONYMS.values() for key in synonyms}
 
 
@@ -258,6 +260,13 @@ def suggest_mapping(columns: list[str]) -> dict[str, str]:
     if ("date" in mapping and ("debit" in mapping or "credit" in mapping)
             and _key(mapping.get("amount", "")) == "balance"):
         del mapping["amount"]
+    # A receivables or payables listing (it has due dates) often shows the invoice's original
+    # amount and what is still open on it; the open balance is the one to age.
+    if ("due" in mapping and "debit" not in mapping and "credit" not in mapping
+            and _key(mapping.get("amount", "")) not in OPEN_BALANCE):
+        open_cols = [c for c in columns if _key(c) in OPEN_BALANCE and c not in mapping.values()]
+        if open_cols:
+            mapping["amount"] = min(open_cols, key=lambda c: OPEN_BALANCE.index(_key(c)))
     return mapping
 
 

@@ -208,7 +208,47 @@ def test_age_a_listing_against_the_trial_balance():
 
 def test_aging_export_escapes_formulas():
     df = listing([("=HYPERLINK(1)", "2026-12-01", 10.0)])
-    r = aging.with_ledger(aging.age(df, "ar", date(2026, 12, 31)), None)
+    r = aging.with_ledger(aging.age(df, "ar", date(2026, 12, 31), with_lines=True), None)
     book = pd.read_excel(io.BytesIO(aging.to_excel(r, {"Client": "=cmd"})), sheet_name=None)
     assert "=cmd" in book["About"]["Value"].tolist()
     assert book["By customer"]["Customer"].tolist() == ["=HYPERLINK(1)"]
+
+
+def test_listings_map_the_open_balance_not_the_invoice_amount():
+    cols = ["Invoice No", "Customer", "Invoice Date", "Due Date", "Amount", "Balance"]
+    assert loader.suggest_mapping(cols)["amount"] == "Balance"
+    # With debits and credits, Balance is a running balance and stays unmapped.
+    cols = ["Invoice Date", "Due Date", "Customer", "Debit", "Credit", "Balance"]
+    assert "amount" not in loader.suggest_mapping(cols)
+
+
+def test_receivables_keep_their_signs_when_they_net_to_a_credit():
+    df = listing([("C1", "2026-12-20", -100.0), ("C2", "2026-12-20", 50.0)])
+    r = aging.age(df, "ar", date(2026, 12, 31))
+    assert not r["flipped"] and r["totals"]["balance"] == -50.0
+    assert [x["party"] for x in r["exceptions"]] == ["C1"]
+    assert r["exceptions"][0]["why"] == ["Credit balance"]
+
+
+def test_a_large_listing_ages_quickly():
+    import time
+    n = 200_000
+    df = pd.DataFrame({"row": range(2, n + 2), "account": [f"C{i % 50_000}" for i in range(n)],
+                       "date": pd.Timestamp("2026-01-01") + pd.to_timedelta(
+                           [i % 400 for i in range(n)], unit="D"),
+                       "amount": [float(i % 997 - 100) for i in range(n)]})
+    start = time.perf_counter()
+    r = aging.age(df, "ar", date(2026, 12, 31))
+    assert time.perf_counter() - start < 30 and r["totals"]["parties"] == 50_000
+    assert "lines" not in r and len(aging.age(df.head(10), "ar", date(2026, 12, 31),
+                                              with_lines=True)["lines"]) == 10
+
+
+@pytest.mark.usefixtures("real_auth")
+def test_blank_titles_are_refused():
+    _, prep, _, _, eid, _ = team()
+    assert prep.post(f"/api/engagements/{eid}/risks",
+                     json={**RISK, "title": "   "}).status_code == 422
+    risk = prep.post(f"/api/engagements/{eid}/risks", json=RISK).json()
+    assert prep.patch(f"/api/risks/{risk['id']}", json={"title": " "}).status_code == 422
+    assert prep.post(f"/api/risks/{risk['id']}/procedures", json={"text": " "}).status_code == 422

@@ -100,13 +100,15 @@ def ledger_balance(session: Session, upload: Upload) -> dict | None:
     return None
 
 
-def run_aging(session: Session, upload: Upload, body: AgingIn) -> dict:
+def run_aging(session: Session, upload: Upload, body: AgingIn,
+              with_lines: bool = False) -> dict:
     if upload.kind not in aging.SIDES:
         raise HTTPException(400, "Pick a receivables or payables listing. Upload one as "
                                  "\"Receivables listing\" or \"Payables listing\".")
     as_of = body.as_of or upload.engagement.period_end
     try:
-        result = aging.age(load_upload(upload).df, upload.kind, as_of, body.terms_days)
+        result = aging.age(load_upload(upload).df, upload.kind, as_of, body.terms_days,
+                           with_lines)
     except aging.AgingError as exc:
         raise HTTPException(400, str(exc)) from exc
     return aging.with_ledger(result, ledger_balance(session, upload))
@@ -134,7 +136,7 @@ def export_aging(upload_id: int, terms_days: int = 30, as_of: date | None = None
     except ValueError as exc:
         raise HTTPException(400, f"Credit terms must be between 0 and {aging.MAX_TERMS} "
                                  "days.") from exc
-    result = run_aging(session, upload, body)
+    result = run_aging(session, upload, body, with_lines=True)
     e = upload.engagement
     log(session, user, "analysis.download",
         f"Downloaded the aging workpaper for {upload.filename}", e,

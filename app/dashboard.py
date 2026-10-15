@@ -111,8 +111,8 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
             add("medium", f"Follow up {_plural(bank['stale'], 'old reconciling item')} on the "
                           "bank reconciliation.", "bank-panel")
     if risks is not None:
-        if not risks["risks"]:
-            add("low", "Record the risks of material misstatement in the risk register.",
+        if not risks["risks"] and risks.get("ai_draft"):
+            add("low", "Add the risks from the AI risk assessment to the risk register.",
                 "rr-panel")
         if risks["without_procedures"]:
             add("medium", f"Plan procedures for {_plural(risks['without_procedures'], 'risk')} "
@@ -159,7 +159,10 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     last = e.runs[-1] if e.runs else None
     bank = bank_state(e)
     from .risks import summary  # here, as risks imports ai_writer, which imports this module
-    risk_summary = summary(list(e.risks))
+    # Teams may keep their risk assessment elsewhere: only suggest the register to those who
+    # started one here, or asked the AI for a risk assessment.
+    risk_summary = {**summary(list(e.risks)),
+                    "ai_draft": any(d.kind == "risk" for d in e.ai_drafts)}
     days_left = (e.period_end - date.today()).days
     return {
         "period_end": e.period_end.isoformat(),

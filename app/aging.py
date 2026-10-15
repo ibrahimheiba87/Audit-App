@@ -46,13 +46,9 @@ def bucket_of(days: float | None) -> str:
     return "current"  # not reached: the bands cover every number of days
 
 
-def _text(value) -> str:
-    if value is None or (not isinstance(value, str) and pd.isna(value)):
-        return ""
-    return str(value).strip()
-
-
-def age(df: pd.DataFrame, side: str, as_of: date, terms_days: int = 30) -> dict:
+def age(df: pd.DataFrame, side: str, as_of: date, terms_days: int = 30,
+        with_lines: bool = False) -> dict:
+    """Age the listing. The full list of items (for the Excel download) only `with_lines`."""
     if side not in SIDES:
         raise AgingError("Pick a receivables or payables listing.")
     if not 0 <= terms_days <= MAX_TERMS:
@@ -60,72 +56,88 @@ def age(df: pd.DataFrame, side: str, as_of: date, terms_days: int = 30) -> dict:
     if df.empty:
         raise AgingError("The listing has no items to age.")
     amount = df["amount"].astype(float)
-    # Payables are often exported as credits (negative). Show the listing as a positive
-    # balance either way, so a credit balance on one item still stands out.
-    flipped = bool(amount.sum() < 0)
+    # Payables are often exported as credits (negative). Show them as a positive balance, so a
+    # debit balance on one item stands out. Receivables keep their signs: one that nets to a
+    # credit is unusual, and flipping it would hide that.
+    flipped = side == "ap" and bool(amount.sum() < 0)
     balance = -amount if flipped else amount
     as_of_ts = pd.Timestamp(as_of)
-    invoice_date = (pd.to_datetime(df["date"], errors="coerce") if "date" in df
-                    else pd.Series(pd.NaT, index=df.index))
+    blank = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+    invoice_date = pd.to_datetime(df["date"], errors="coerce") if "date" in df else blank
     has_due = "due" in df and df["due"].notna().any()
-    due = pd.to_datetime(df["due"], errors="coerce") if "due" in df else pd.Series(
-        pd.NaT, index=df.index)
+    due = pd.to_datetime(df["due"], errors="coerce") if "due" in df else blank
     # A missing due date on a line falls back to its invoice date plus the terms.
     due = due.fillna(invoice_date + pd.Timedelta(days=terms_days))
     days = (as_of_ts - due).dt.days
-    party = (df["account"].map(_text) if "account" in df
-             else pd.Series("", index=df.index)).replace("", "(none)")
-    name = df["description"].map(_text) if "description" in df else pd.Series(
-        "", index=df.index)
-    invoice = df["entry_id"].map(_text) if "entry_id" in df else pd.Series("", index=df.index)
+
+    def text(col: str) -> pd.Series:
+        if col not in df:
+            return pd.Series("", index=df.index)
+        return df[col].astype("string").str.strip().fillna("").astype(object)
+
+    party = text("account").replace("", "(none)")
     lines = pd.DataFrame({
         "row": df["row"].to_numpy() if "row" in df else range(1, len(df) + 1),
-        "party": party.to_numpy(), "name": name.to_numpy(), "invoice": invoice.to_numpy(),
-        "date": invoice_date.to_numpy(), "due": due.to_numpy(),
-        "days": days.to_numpy(), "balance": balance.round(2).to_numpy(),
+        "party": party.to_numpy(), "name": text("description").to_numpy(),
+        "invoice": text("entry_id").to_numpy(), "date": invoice_date.to_numpy(),
+        "due": due.to_numpy(), "days": days.to_numpy(), "balance": balance.round(2).to_numpy(),
     })
-    lines["bucket"] = [bucket_of(None if pd.isna(d) else d) for d in lines["days"]]
+    bucket = pd.Series("no_date", index=lines.index, dtype=object)
+    for key, _, low, high in BUCKETS[:-1]:
+        mask = lines["days"].notna()
+        if low is not None:
+            mask &= lines["days"] >= low
+        if high is not None:
+            mask &= lines["days"] <= high
+        bucket[mask] = key
+    lines["bucket"] = bucket.to_numpy()
 
     total = float(lines["balance"].sum())
+    by_bucket = lines.groupby("bucket")["balance"].agg(["sum", "size"])
     buckets = []
     for key, label, _, _ in BUCKETS:
-        mask = lines["bucket"] == key
-        value = float(lines.loc[mask, "balance"].sum())
-        buckets.append({"id": key, "label": label, "items": int(mask.sum()),
-                        "balance": round(value, 2),
-                        "pct": round(100 * value / total, 1) if total else 0.0})
+        value = float(by_bucket["sum"].get(key, 0.0))
+        buckets.append({"id": key, "label": label, "items": int(by_bucket["size"].get(key, 0)),
+                         "balance": round(value, 2),
+                         "pct": round(100 * value / total, 1) if total else 0.0})
 
+    # Each customer or vendor: totals, a column per age band, the oldest item and a name.
+    keys = [b[0] for b in BUCKETS]
+    grid = lines.pivot_table(index="party", columns="bucket", values="balance",
+                             aggfunc="sum", fill_value=0.0).reindex(columns=keys, fill_value=0.0)
+    grouped = lines.groupby("party")
+    named = lines[lines["name"] != ""]
+    names = named.groupby("party")["name"].agg(lambda s: s.value_counts().index[0])
+    summary = pd.DataFrame({"items": grouped.size(), "balance": grouped["balance"].sum(),
+                            "oldest": grouped["days"].max()})
     parties = []
-    for key, grp in lines.groupby("party", sort=False):
-        names = grp["name"][grp["name"] != ""]
-        row = {"party": key, "name": names.mode().iloc[0] if len(names) else "",
-               "items": len(grp), "balance": round(float(grp["balance"].sum()), 2),
-               "oldest_days": None if grp["days"].isna().all() else int(grp["days"].max()),
-               "buckets": {b[0]: round(float(grp.loc[grp["bucket"] == b[0], "balance"].sum()), 2)
-                           for b in BUCKETS}}
-        row["long_overdue"] = round(sum(row["buckets"][k] for k in ("d91_180", "over_180")), 2)
-        parties.append(row)
+    for key, r in summary.iterrows():
+        row_buckets = {k: round(float(v), 2) for k, v in grid.loc[key].items()}
+        parties.append({
+            "party": key, "name": names.get(key, ""), "items": int(r["items"]),
+            "balance": round(float(r["balance"]), 2),
+            "oldest_days": None if pd.isna(r["oldest"]) else int(r["oldest"]),
+            "buckets": row_buckets,
+            "long_overdue": round(row_buckets["d91_180"] + row_buckets["over_180"], 2)})
     parties.sort(key=lambda p: -abs(p["balance"]))
 
-    long_mask = lines["days"] > LONG_OVERDUE
+    long_mask = (lines["days"] > LONG_OVERDUE).fillna(False)
     credit_mask = lines["balance"] < 0
-    after_mask = lines["date"] > as_of_ts
+    after_mask = (lines["date"] > as_of_ts).fillna(False)
+    flagged = lines[long_mask | credit_mask | after_mask]
     exceptions = []
-    for _, r in lines[long_mask | credit_mask | after_mask].iterrows():
-        why = []
-        if r["days"] > LONG_OVERDUE:
-            why.append("Long overdue")
-        if r["balance"] < 0:
-            why.append("Credit balance")
-        if pd.notna(r["date"]) and r["date"] > as_of_ts:
-            why.append("Dated after the period end")
-        exceptions.append({**line_out(r), "why": why})
+    for r, is_long, is_credit, is_after in zip(
+            records(flagged), long_mask[flagged.index], credit_mask[flagged.index],
+            after_mask[flagged.index], strict=True):
+        why = [w for w, on in (("Long overdue", is_long), ("Credit balance", is_credit),
+                               ("Dated after the period end", is_after)) if on]
+        exceptions.append({**r, "why": why})
     exceptions.sort(key=lambda x: -abs(x["balance"]))
 
     def amount_of(mask) -> float:
         return round(float(lines.loc[mask, "balance"].sum()), 2)
 
-    return {
+    out = {
         "side": side, "side_label": SIDES[side], "party_label": PARTY[side],
         "as_of": as_of.isoformat(), "terms_days": terms_days,
         "basis": "due" if has_due else "terms", "flipped": flipped,
@@ -138,19 +150,32 @@ def age(df: pd.DataFrame, side: str, as_of: date, terms_days: int = 30) -> dict:
             "no_date": amount_of(lines["bucket"] == "no_date"),
         },
         "buckets": buckets, "parties": parties, "exceptions": exceptions,
-        "lines": [line_out(r) for _, r in lines.iterrows()],
     }
+    if with_lines:
+        out["lines"] = records(lines)
+    return out
 
 
-def _day(value) -> str | None:
-    return None if pd.isna(value) else pd.Timestamp(value).date().isoformat()
-
-
-def line_out(r) -> dict:
-    return {"row": int(r["row"]), "party": r["party"], "name": r["name"],
-            "invoice": r["invoice"], "date": _day(r["date"]), "due": _day(r["due"]),
-            "days": None if pd.isna(r["days"]) else int(r["days"]),
-            "bucket": r["bucket"], "balance": float(r["balance"])}
+def records(lines: pd.DataFrame) -> list[dict]:
+    """Items as plain values: dates as ISO text, days as whole numbers or None."""
+    if lines.empty:
+        return []
+    out = pd.DataFrame({
+        "row": lines["row"].astype(int), "party": lines["party"], "name": lines["name"],
+        "invoice": lines["invoice"],
+        "date": lines["date"].dt.strftime("%Y-%m-%d").astype(object).where(
+            lines["date"].notna(), None),
+        "due": lines["due"].dt.strftime("%Y-%m-%d").astype(object).where(
+            lines["due"].notna(), None),
+        "days": lines["days"].astype(object).where(lines["days"].notna(), None),
+        "bucket": lines["bucket"], "balance": lines["balance"].astype(float),
+    })
+    rows = out.to_dict("records")
+    for r in rows:
+        r["row"] = int(r["row"])
+        if r["days"] is not None:
+            r["days"] = int(r["days"])
+    return rows
 
 
 def with_ledger(result: dict, ledger: dict | None) -> dict:
@@ -162,7 +187,7 @@ def with_ledger(result: dict, ledger: dict | None) -> dict:
 
 
 def trimmed(result: dict) -> dict:
-    """The result for the page: no line list, and parties and exceptions cut to MAX_ROWS."""
+    """The result for the page: parties and exceptions cut to MAX_ROWS."""
     out = {k: v for k, v in result.items() if k != "lines"}
     out["parties"] = result["parties"][:MAX_ROWS]
     out["exceptions"] = result["exceptions"][:MAX_ROWS]

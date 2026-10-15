@@ -943,7 +943,7 @@ I18N.add({
     "Remove this procedure?": "إزالة هذا الإجراء؟",
     "Risks and audit program": "المخاطر وبرنامج التدقيق",
     "The risk register and the procedures planned and done in response.": "سجل المخاطر والإجراءات المخططة والمنجزة استجابةً لها.",
-    "Record the risks of material misstatement in the risk register.": "سجّل مخاطر التحريف الجوهري في سجل المخاطر.",
+    "Add the risks from the AI risk assessment to the risk register.": "أضف المخاطر من تقييم المخاطر بالذكاء الاصطناعي إلى سجل المخاطر.",
     "Risk register": "سجل المخاطر",
     "Audit program": "برنامج التدقيق",
     "Stratification and aging": "التقسيم الطبقي وأعمار الذمم",
