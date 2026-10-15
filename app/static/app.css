@@ -196,3 +196,13 @@ header.top h1 { margin-inline-end: auto; }
 [dir="rtl"] input[type="email"], [dir="rtl"] input[type="password"], [dir="rtl"] input[type="number"],
 [dir="rtl"] input[type="date"] { direction: ltr; text-align: right; }
 [dir="rtl"] .bars { direction: ltr; }  /* the Benford chart is drawn left to right */
+
+/* Engagement overview and ratios */
+.next-steps { margin: 6px 0 0; padding-inline-start: 22px; }
+.next-steps li { margin: 6px 0; }
+.next-steps .sev { margin-inline-end: 8px; }
+.next-steps button.link { font-size: 14px; text-align: start; }
+.warn-list { margin: 0 0 12px; padding-block: 8px; padding-inline: 30px 12px; color: var(--medium); background: var(--medium-bg); border-radius: 6px; }
+.warn-list li.warn-high { color: var(--high); font-weight: 600; }
+.warn-list[hidden] { display: none; }
+tr.group-row th { background: var(--low-bg); }

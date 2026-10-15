@@ -271,6 +271,7 @@ async function openEngagement(id) {
     $("rq-form").reset();
     rq = null; rqDrafts = {};
     $("rq-cards").innerHTML = $("rq-list").innerHTML = $("rq-contacts").textContent = "";
+    $("dash-cards").innerHTML = $("dash-steps").innerHTML = "";
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -639,6 +640,8 @@ function renderStatementsPanel(error = null) {
   renderLeadSheets();
   renderStatementTables();
   renderUncorrected();
+  renderRatios();
+  refreshDashboard();
 }
 
 ["fs-tb", "fs-prior"].forEach((id) => $(id).addEventListener("change", () => guard(loadStatements)));
@@ -957,6 +960,87 @@ function showSample(s) {
   $("smp-result").scrollIntoView({ behavior: "smooth" });
 }
 
+// Ratios: this year against last, with the big moves flagged
+
+const RATIO_GROUPS = ["liquidity", "profitability", "efficiency", "leverage"];
+
+// A ratio as text; `change` is the move on last year (percentage points for a % ratio).
+function ratioValue(v, unit, change = false) {
+  if (v == null) return "–";
+  const digits = unit === "days" ? 0 : unit === "%" ? 1 : 2;
+  const text = Math.abs(v).toLocaleString(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const prefix = v < 0 ? "−" : change && v > 0 ? "+" : "";
+  const suffix = unit === "x" ? "×" : unit === "%" && !change ? "%" : "";
+  return `<span dir="ltr">${prefix}${text}${suffix}</span>`;  // keeps the sign in place in Arabic
+}
+
+function renderRatios() {
+  const r = fs.ratios;
+  $("ratio-warnings").innerHTML = r.warnings.map((w) =>
+    `<li class="${w.severity === "high" ? "warn-high" : ""}">${esc(w.text)}</li>`).join("");
+  $("ratio-warnings").hidden = !r.warnings.length;
+  $("ratio-note").textContent = r.has_prior
+    ? (r.flagged ? `${r.flagged} of ${r.ratios.length} ratios moved a lot on last year.` : "No ratio moved a lot on last year.")
+    : "Upload last year's trial balance as \"Prior-year trial balance\" to compare with last year.";
+  const head = `<tr><th>Ratio</th><th class="num">This year</th>${r.has_prior ? '<th class="num">Last year</th><th class="num">Change</th><th>Follow up</th>' : ""}</tr>`;
+  $("ratio-table").innerHTML = head + RATIO_GROUPS.map((g) => {
+    const rows = r.ratios.filter((x) => x.group === g);
+    if (!rows.length) return "";
+    return `<tr class="group-row"><th colspan="${r.has_prior ? 5 : 2}">${esc(rows[0].group_label)}</th></tr>` + rows.map((x) => `<tr${x.flag ? ' class="flagged"' : ""}>
+      <td>${esc(x.label)}<div class="tag">${esc(x.basis)}</div></td>
+      <td class="num">${ratioValue(x.current, x.unit)}</td>
+      ${r.has_prior ? `<td class="num">${ratioValue(x.prior, x.unit)}</td>
+      <td class="num">${ratioValue(x.change, x.unit, true)}</td>
+      <td>${x.flag ? `<span class="sev medium">${esc(x.flag)}</span>` : ""}</td>` : ""}</tr>`).join("");
+  }).join("");
+}
+
+// Overview: where the engagement stands and what to do next
+
+let dashTimer = null;
+let dashLoads = 0;  // only the latest answer is shown, if an older one arrives after it
+// Many panels reload together after a change, so wait for them to settle before asking.
+function refreshDashboard() {
+  clearTimeout(dashTimer);
+  dashTimer = setTimeout(() => { if (currentEngagement) guard(loadDashboard); }, 300);
+}
+
+async function loadDashboard() {
+  const id = currentEngagement.id;
+  const load = ++dashLoads;
+  // The same trial balances as the statements panel, once it has loaded this engagement's.
+  const q = fsEngagementId === id ? fsQuery() : "";
+  const d = await getJSON(`/api/engagements/${id}/dashboard?${q}`);
+  if (currentEngagement?.id !== id || load !== dashLoads) return;
+  const sevs = d.findings.open_by_severity;
+  const cards = [
+    [d.materiality ? money(d.materiality.overall_materiality) : "Not set", "Overall materiality"],
+    [d.uploads, "Files uploaded"],
+    [d.findings.open, "Open findings"],
+    [sevs.high || 0, "Open high-severity findings"],
+    [`${d.review.reviewed}/${d.review.total}`, "Sections reviewed"],
+    [d.requests.outstanding, "Requests waiting for the client"],
+    [d.requests.overdue, "Overdue requests"],
+  ];
+  if (d.statements && !d.statements.error) cards.push([d.statements.ratio_flags, "Ratios to explain"]);
+  if (d.days_since_period_end) cards.push([d.days_since_period_end, "Days since period end"]);
+  $("dash-cards").innerHTML = cards.map(([v, k]) =>
+    `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("dash-steps").innerHTML = d.next_steps.length ? d.next_steps.map((s) => `<li>
+      <span class="sev ${esc(s.priority)}">${esc(SEVERITY_LABEL[s.priority])}</span>
+      <button type="button" class="link" data-goto="${esc(s.panel)}" data-tab-to="${esc(s.tab || "")}">${esc(s.text)}</button></li>`).join("")
+    : '<li class="muted">Nothing outstanding. Every section is reviewed and nothing is open.</li>';
+}
+
+const SEVERITY_LABEL = { high: "High", medium: "Medium", low: "Low" };
+
+$("dash-steps").addEventListener("click", (ev) => {
+  const go = ev.target.closest("[data-goto]");
+  if (!go) return;
+  if (go.dataset.tabTo) $("fs-tabs").querySelector(`[data-tab="${go.dataset.tabTo}"]`)?.click();
+  $(go.dataset.goto)?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
 // Findings register
 
 const REG_PAGE = 200;
@@ -1008,6 +1092,7 @@ async function loadReview() {
   if (currentEngagement?.id !== id) return;  // the user has opened another engagement
   rv = data;
   renderReview();
+  refreshDashboard();
 }
 
 function signoffCell(s, kind) {
@@ -1257,6 +1342,7 @@ async function loadRequests() {
   if (currentEngagement?.id !== id) return;  // the user has opened another engagement
   rq = data;
   renderRequests();
+  refreshDashboard();
 }
 
 function renderRequests() {

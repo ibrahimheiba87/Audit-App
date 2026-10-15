@@ -478,12 +478,22 @@ def to_excel(data: dict, entries: list[dict], context: dict | None = None) -> by
                    ("Largest effect as % of overall materiality", u["pct_of_overall"]),
                    ("Accounts not on a statement line", ", ".join(u["unclassified"]) or None),
                    ("Conclusion", u["conclusion"])]
+    units = {"x": "times", "%": "%", "days": "days"}
+    rt = data.get("ratios") or {"ratios": [], "warnings": []}
+    ratio_rows = [{"Group": r["group_label"], "Ratio": r["label"], "Unit": units[r["unit"]],
+                   "Current": r["current"], "Prior": r["prior"], "Change": r["change"],
+                   "Follow up": r["flag"], "How it's worked out": r["basis"]}
+                  for r in rt["ratios"]]
+    ratio_rows += [{"Group": "Warning", "Ratio": w["text"]} for w in rt["warnings"]]
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
         pd.DataFrame(summary, columns=["Item", "Value"]).to_excel(xl, sheet_name="Summary",
                                                                   index=False)
         pd.DataFrame(statements, columns=["Statement", "Line", "Current", "Prior"]).to_excel(
             xl, sheet_name="Statements", index=False)
+        pd.DataFrame(ratio_rows, columns=["Group", "Ratio", "Unit", "Current", "Prior", "Change",
+                                          "Follow up", "How it's worked out"]).to_excel(
+            xl, sheet_name="Ratios", index=False)
         pd.DataFrame(lead, columns=["FS line", "Account", "Name", "Unadjusted", "Adjusting",
                                     "Reclassification", "Adjusted", "Prior year"]).to_excel(
             xl, sheet_name="Lead sheets", index=False)
