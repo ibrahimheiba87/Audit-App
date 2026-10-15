@@ -233,3 +233,16 @@ tr.group-row th { background: var(--low-bg); }
 .pill.ev-close { color: var(--medium); background: var(--medium-bg); }
 .pill.ev-acceptable { color: var(--ok, #1e8449); }
 td.bad { color: var(--high); }
+/* Risk register and audit program */
+.risk-item { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 14px; }
+.risk-item h3 { margin: 0 0 4px; }
+.risk-item p { white-space: pre-wrap; }
+.proc-table td { vertical-align: top; }
+.proc-table [data-ref], .proc-table textarea { min-width: 140px; margin: 0; }
+.proc-table td:nth-child(2) { min-width: 220px; }
+.check-label { display: flex; gap: 6px; align-items: center; margin: 0; color: inherit; font-size: 14px; }
+.check-label input { width: auto; margin: 0; }
+.proc-add { display: flex; gap: 8px; margin-top: 8px; }
+.proc-add input { flex: 1; margin: 0; }
+/* Aging */
+#ag-buckets tr.total th { border-top: 1px solid var(--muted); }

@@ -118,6 +118,9 @@ class Engagement(Base):
     team: Mapped[list[EngagementMember]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan"
     )
+    risks: Mapped[list[Risk]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Risk.id"
+    )
     bank_reconciliations: Mapped[list[BankReconciliation]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="BankReconciliation.id"
@@ -228,6 +231,51 @@ class AiDraft(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="ai_drafts")
+
+
+class Risk(Base):
+    """A risk of material misstatement on the engagement's risk register."""
+
+    __tablename__ = "risks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"))
+    area: Mapped[str] = mapped_column(String(50))  # a statement line id, or entity/fraud/...
+    title: Mapped[str] = mapped_column(String(300))
+    level: Mapped[str] = mapped_column(String(20))
+    assertions: Mapped[list] = mapped_column(JSON, default=list)
+    description: Mapped[str] = mapped_column(Text, default="")
+    response: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(50), default="")  # "ai-draft:<id>" if imported
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="risks")
+    procedures: Mapped[list[RiskProcedure]] = relationship(
+        back_populates="risk", cascade="all, delete-orphan", order_by="RiskProcedure.id"
+    )
+
+
+class RiskProcedure(Base):
+    """An audit procedure planned in response to a risk, and its result once done."""
+
+    __tablename__ = "risk_procedures"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    risk_id: Mapped[int] = mapped_column(ForeignKey("risks.id"))
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="planned")
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    reference: Mapped[str] = mapped_column(String(200), default="")  # the workpaper
+    done_by: Mapped[str] = mapped_column(String(200), default="")
+    done_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    risk: Mapped[Risk] = relationship(back_populates="procedures")
+
+    @property
+    def engagement_id(self) -> int:
+        return self.risk.engagement_id
 
 
 class Sample(Base):

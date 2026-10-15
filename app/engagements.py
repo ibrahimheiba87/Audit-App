@@ -37,7 +37,7 @@ from .uploads import parse_mapping, read_upload
 router = APIRouter(prefix="/api")
 
 UPLOAD_KINDS = {"gl": "General ledger", "tb": "Trial balance", "prior_tb": "Prior-year trial balance",
-                "bank": "Bank statement"}
+                "bank": "Bank statement", "ar": "Receivables listing", "ap": "Payables listing"}
 FRAMEWORKS = ["IFRS", "US GAAP", "IFRS for SMEs", "Local GAAP", "Other"]
 
 

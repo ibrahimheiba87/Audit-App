@@ -27,6 +27,7 @@ import pandas as pd
 FIELDS: list[dict] = [
     {"id": "date", "label": "Transaction date"},
     {"id": "posted", "label": "Posting date"},
+    {"id": "due", "label": "Due date"},
     {"id": "account", "label": "Account"},
     {"id": "entry_id", "label": "Entry / document number"},
     {"id": "description", "label": "Description"},
@@ -36,6 +37,7 @@ FIELDS: list[dict] = [
     {"id": "credit", "label": "Credit"},
 ]
 FIELD_IDS = [f["id"] for f in FIELDS]
+DATE_FIELDS = ("date", "posted", "due")
 
 # Source header spellings for each normalized column, compared after lowercasing
 # and stripping everything that is not a letter or digit.
@@ -43,23 +45,32 @@ COLUMN_SYNONYMS: dict[str, list[str]] = {
     "entry_id": ["entryid", "entry", "entryno", "entrynumber", "journalid", "journal",
                  "journalno", "journalnumber", "je", "jeno", "jenumber", "jv", "jvno", "jvnumber",
                  "journalentry", "journalentryid", "documentno", "documentnumber",
-                 "docno", "voucher", "voucherno", "transactionid", "txnid", "reference", "ref"],
+                 "docno", "voucher", "voucherno", "transactionid", "txnid", "reference", "ref",
+                 "invoice", "invoiceno", "invoicenumber", "invno", "billno", "billnumber"],
     "date": ["date", "transactiondate", "txndate", "entrydate", "effectivedate", "valuedate",
-             "documentdate", "gldate", "accountingdate"],
+             "documentdate", "gldate", "accountingdate", "invoicedate", "billdate"],
     "posted": ["posteddate", "postingdate", "posted", "postdate", "createddate", "enteredon",
                "entereddate"],
+    # Receivables and payables listings: when each item falls due.
+    "due": ["duedate", "dueon", "paymentduedate", "paymentdue", "datedue", "maturitydate"],
     "account": ["account", "accountno", "accountnumber", "accountcode", "glaccount",
-                "glaccountnumber", "acct", "acctno", "accountname", "ledgeraccount"],
+                "glaccountnumber", "acct", "acctno", "accountname", "ledgeraccount",
+                # Receivables and payables listings name the customer or vendor instead.
+                "customercode", "customerid", "customerno", "customer", "vendorcode",
+                "vendorid", "vendorno", "vendor", "suppliercode", "supplierid", "supplierno",
+                "supplier", "debtor", "creditor", "party"],
     "description": ["description", "memo", "narration", "narrative", "details", "text",
                     "particulars", "transactiondetails", "transactiondescription",
-                    "linedescription", "comment", "accountname", "accountdescription", "name"],
+                    "linedescription", "comment", "accountname", "accountdescription", "name",
+                    "customername", "vendorname", "suppliername"],
     "user": ["user", "createdby", "postedby", "enteredby", "preparer", "username", "userid"],
     # Bank statements say withdrawals and deposits: a debit and a credit on the bank's side.
     "debit": ["debit", "debits", "dr", "debitamount", "amountdr", "balancedr", "debitbalance",
               "withdrawal", "withdrawals", "paidout", "moneyout"],
     "credit": ["credit", "credits", "cr", "creditamount", "amountcr", "balancecr",
                "creditbalance", "deposit", "deposits", "paidin", "moneyin"],
-    "amount": ["amount", "value", "netamount", "balance", "amt", "signedamount"],
+    "amount": ["amount", "value", "netamount", "balance", "amt", "signedamount", "amountdue",
+               "balancedue", "outstanding", "outstandingamount", "openamount", "openbalance"],
 }
 
 
@@ -359,8 +370,9 @@ def normalize(raw: pd.DataFrame, mapping: dict[str, str] | None = None) -> Loade
     keys = [c for c in ("account", "entry_id", "date") if c in df]
     unnamed = pd.concat([_blank(df[c]) for c in keys], axis=1).all(axis=1) if keys else None
 
-    dayfirst = _day_first([df[c] for c in ("date", "posted") if c in df])
-    for col, label in (("date", "transaction date"), ("posted", "posting date")):
+    dayfirst = _day_first([df[c] for c in DATE_FIELDS if c in df])
+    for col, label in (("date", "transaction date"), ("posted", "posting date"),
+                       ("due", "due date")):
         if col in df:
             parsed = _to_dates(df[col], dayfirst)
             bad = parsed.isna() & df[col].notna()
