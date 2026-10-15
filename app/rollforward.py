@@ -1,0 +1,139 @@
+"""Roll an engagement forward: start next year's file from this year's.
+
+The new engagement gets the next period, and (each optional) the team, the account mapping,
+the materiality method without its amounts, the client request list (open again, without due
+dates) and this year's adjusted trial balance as its prior-year trial balance.
+"""
+
+from __future__ import annotations
+
+import calendar
+import csv
+import hashlib
+import io
+import re
+from datetime import date, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from . import auth, loader
+from .auth import log, require
+from .db import AccountMapping, DocumentRequest, Engagement, EngagementMember, Upload, User, get_session
+from .engagements import engagement_out, get_or_404
+from .leadsheets import compute
+
+router = APIRouter(prefix="/api")
+
+
+class RollForwardIn(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    team: bool = True
+    mapping: bool = True
+    materiality: bool = True
+    requests: bool = True
+    trial_balance: bool = True
+
+
+def next_year(d: date) -> date:
+    """The same date a year on; a month end stays a month end (28 Feb 2027 -> 29 Feb 2028)."""
+    last = calendar.monthrange(d.year, d.month)[1]
+    new_last = calendar.monthrange(d.year + 1, d.month)[1]
+    return date(d.year + 1, d.month, new_last if d.day == last else min(d.day, new_last))
+
+
+def next_name(name: str) -> str:
+    """"FY2026" -> "FY2027"; a name without a year gets "(rolled forward)"."""
+    bumped, n = re.subn(r"(?<!\d)(19|20)(\d\d)(?!\d)", lambda m: str(int(m[0]) + 1), name)
+    return bumped if n else f"{name[:183]} (rolled forward)"
+
+
+def adjusted_tb_csv(data: dict) -> tuple[bytes, int]:
+    """This year's adjusted trial balance as a CSV the loader reads back (debit positive)."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Account", "Account Name", "Amount"])
+    rows = 0
+    for r in data["accounts"]:
+        if r["in_tb"] or abs(r["adjusting"]) >= 0.005 or abs(r["reclassification"]) >= 0.005:
+            w.writerow([r["account"], r["name"] or "", f"{r['adjusted']:.2f}"])
+            rows += 1
+    return buf.getvalue().encode("utf-8"), rows
+
+
+@router.post("/engagements/{engagement_id}/roll-forward", status_code=201)
+def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(require("review")),
+                 session: Session = Depends(get_session)) -> dict:
+    old = get_or_404(session, Engagement, engagement_id, user)
+    name = (body.name or "").strip() or next_name(old.name)
+    period_end = next_year(old.period_end)
+    if any(x.name == name and x.period_end == period_end for x in old.client.engagements):
+        raise HTTPException(409, f"This client already has an engagement called {name} "
+                                 f"for the period ending {period_end}.")
+    new = Engagement(client=old.client, name=name, period_end=period_end,
+                     # The day after this period (which may have been a short first one).
+                     period_start=old.period_end + timedelta(days=1) if old.period_start else None,
+                     framework=old.framework)
+    session.add(new)
+    carried: dict[str, int | bool | str] = {}
+    if body.team:
+        # Admins see every engagement, so they aren't put on teams (see set_team).
+        members = [m.user for m in old.team
+                   if m.user.active and m.user.role not in ("client", "admin")]
+        for u in members:
+            new.team.append(EngagementMember(user_id=u.id))
+        carried["team"] = len(members)
+    if not auth.sees_all_engagements(user) and all(m.user_id != user.id for m in new.team):
+        new.team.append(EngagementMember(user_id=user.id))  # or they'd lose it at once
+    if body.mapping:
+        for m in old.account_mappings:
+            new.account_mappings.append(AccountMapping(account=m.account, line=m.line,
+                                                       updated_by=user.name))
+        carried["mapping"] = len(old.account_mappings)
+    if body.materiality and old.benchmark:
+        # The method, not the amounts: this year's benchmark amount is entered afresh.
+        new.benchmark, new.benchmark_pct = old.benchmark, old.benchmark_pct
+        new.performance_pct, new.trivial_pct = old.performance_pct, old.trivial_pct
+        new.materiality_rationale = old.materiality_rationale
+        carried["materiality"] = True
+    if body.requests:
+        for number, r in enumerate(old.document_requests, start=1):
+            new.document_requests.append(DocumentRequest(
+                number=number, title=r.title, details=r.details, status="open",
+                created_by=user.name))
+        carried["requests"] = len(old.document_requests)
+    session.flush()
+
+    upload = None
+    if body.trial_balance:
+        try:
+            data, tb, _ = compute(session, old, None, None)
+        except HTTPException as exc:  # a trial balance the statements can't be built from
+            data, tb = None, None
+            carried["trial_balance_error"] = str(exc.detail)
+        if tb is not None:
+            content, rows = adjusted_tb_csv(data)
+            filename = f"{old.name} adjusted trial balance.csv"
+            loaded = loader.load(filename, content)
+            upload = Upload(engagement=new, kind="prior_tb", filename=filename, content=content,
+                            size=len(content), sha256=hashlib.sha256(content).hexdigest(),
+                            mapping=loaded.report.mapping, import_report=loaded.report.to_dict())
+            session.add(upload)
+            session.flush()
+            carried["trial_balance"] = rows
+    log(session, user, "engagement.roll_forward",
+        f"Rolled forward to {new.name} (period end {period_end})", old,
+        details={"to_engagement_id": new.id, "carried": carried})
+    log(session, user, "engagement.create",
+        f"Created engagement {new.name} (period end {period_end}) by rolling forward "
+        f"{old.name}", new, details={"from_engagement_id": old.id, "carried": carried})
+    if upload is not None:
+        log(session, user, "upload.create",
+            f"Uploaded {upload.filename} (Prior-year trial balance) from {old.name}", new,
+            details={"upload_id": upload.id, "filename": upload.filename, "kind": "prior_tb",
+                     "sha256": upload.sha256, "size": upload.size, "sheet": None,
+                     "mapping": upload.mapping, "rows_used": carried["trial_balance"],
+                     "from_engagement_id": old.id})
+    session.commit()
+    return {**engagement_out(new), "carried": carried}

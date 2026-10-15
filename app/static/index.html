@@ -78,6 +78,24 @@
     </form>
   </dialog>
 
+  <dialog id="roll-dialog">
+    <form id="roll-form" class="stack">
+      <h2>Roll forward <span id="roll-who" translate="no"></span></h2>
+      <p class="muted">Start next year's engagement from this one. The period moves on a year; nothing in this engagement changes.</p>
+      <div><label for="roll-name">Name of the new engagement</label><input id="roll-name" name="name" maxlength="200" required></div>
+      <p class="muted" id="roll-period"></p>
+      <fieldset class="team-list">
+        <label><input type="checkbox" name="trial_balance" checked> This year's adjusted trial balance, as next year's prior-year trial balance</label>
+        <label><input type="checkbox" name="mapping" checked> The account mapping to statement lines</label>
+        <label><input type="checkbox" name="materiality" checked> The materiality benchmark and percentages (not the amounts)</label>
+        <label><input type="checkbox" name="requests" checked> The client request list, open again with no due dates</label>
+        <label><input type="checkbox" name="team" checked> The team</label>
+      </fieldset>
+      <div class="actions"><button type="submit" id="roll-submit">Create next year's engagement</button><button type="button" class="secondary" id="roll-cancel">Cancel</button></div>
+      <div class="error" id="roll-error" hidden></div>
+    </form>
+  </dialog>
+
   <!-- Client portal (client users) --------------------------------------->
   <div id="view-portal" class="view" hidden>
     <p class="lead" id="pt-lead">Documents your auditors have asked for. Upload a file against each request; they will accept it or tell you what else they need.</p>
@@ -182,6 +200,7 @@
                 <p class="muted" id="eng-team"></p>
               </div>
               <div class="cell-actions">
+                <button type="button" class="secondary min-2" id="eng-roll">Roll forward</button>
                 <button type="button" class="secondary min-4" id="eng-team-edit">Change team</button>
                 <button type="button" class="secondary danger min-3" id="eng-delete">Delete engagement</button>
               </div>
@@ -256,6 +275,46 @@
               <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="cmp-flagged-only" style="width:auto" checked> Flagged accounts only</label>
             </div>
             <div class="table-wrap"><table id="cmp-table"></table></div>
+          </section>
+
+          <section class="panel" id="bank-panel">
+            <h2>Bank reconciliation</h2>
+            <p class="muted">Match a bank statement to the cash account in the general ledger. Upload the statement above as "Bank statement", with a few weeks after the period end so the items that cleared later are found.</p>
+            <form id="bank-form">
+              <div class="grid">
+                <div><label for="bank-file">Bank statement</label><select id="bank-file" class="map" required></select></div>
+                <div><label for="bank-gl">General ledger</label><select id="bank-gl" class="map" required></select></div>
+                <div><label for="bank-window">Match dates up to this many days apart</label><input id="bank-window" type="number" min="0" max="60" value="5"></div>
+                <div><label for="bank-balance">Balance per bank statement at the period end</label><input id="bank-balance" type="number" step="any"></div>
+                <div><label for="bank-book">Balance per books at the period end</label><input id="bank-book" type="number" step="any"></div>
+              </div>
+              <h3>Cash accounts in the ledger</h3>
+              <div class="check-list" id="bank-accounts"></div>
+              <label style="display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="bank-flip" style="width:auto"> The statement's Amount column shows money paid out as positive</label>
+              <div class="actions"><button type="submit" id="bank-run">Reconcile</button></div>
+            </form>
+            <div class="table-wrap"><table id="bank-recs"></table></div>
+          </section>
+
+          <section class="panel" id="bank-result" hidden>
+            <div class="row-between">
+              <h2>Bank reconciliation <span id="bank-title" translate="no"></span></h2>
+              <div class="actions" id="bank-actions" style="margin:0"></div>
+            </div>
+            <p class="muted" id="bank-files"></p>
+            <div class="cards" id="bank-cards"></div>
+            <h3>Reconciliation at the period end</h3>
+            <div class="table-wrap"><table id="bank-statement"></table></div>
+            <h3>Outstanding at the period end</h3>
+            <p class="muted">In the books by the period end but not on the bank statement by then. The later bank line that cleared each one is shown; old items that never cleared need a question.</p>
+            <div class="table-wrap"><table id="bank-outstanding"></table></div>
+            <h3>On the bank statement, not in the books</h3>
+            <p class="muted">Bank charges, interest, direct debits and receipts the client hasn't booked by the period end.</p>
+            <div class="table-wrap"><table id="bank-only"></table></div>
+            <details style="margin-top:12px">
+              <summary>Matched lines</summary>
+              <div class="table-wrap"><table id="bank-matched"></table></div>
+            </details>
           </section>
 
           <section class="panel" id="fs-panel">

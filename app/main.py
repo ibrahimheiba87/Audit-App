@@ -26,7 +26,9 @@ from .exports import attachment
 from .findings import router as findings_router
 from .leadsheets import router as leadsheets_router
 from .portal import router as portal_router
+from .reconciliations import router as reconciliations_router
 from .review import router as review_router
+from .rollforward import router as rollforward_router
 from .samples import router as samples_router
 from .uploads import FORM_OVERHEAD, MAX_UPLOAD_BYTES, BodyLimit, parse_mapping, read_upload
 
@@ -47,7 +49,8 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 app.include_router(accounts_router)
 # Everything else needs a signed-in user; endpoints check the role they need.
 for router in (engagements_router, comparisons_router, samples_router, findings_router,
-               leadsheets_router, review_router, assistant_router, dashboard_router):
+               leadsheets_router, review_router, assistant_router, dashboard_router,
+               reconciliations_router, rollforward_router):
     app.include_router(router, dependencies=[Depends(current_user)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router)

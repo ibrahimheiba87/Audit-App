@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, object_session
 from . import auth, checks, loader, materiality, register, report
 from .auth import current_user, log, require
 from .db import (
+    BankReconciliation,
     Client,
     Comparison,
     Engagement,
@@ -35,7 +36,8 @@ from .uploads import parse_mapping, read_upload
 
 router = APIRouter(prefix="/api")
 
-UPLOAD_KINDS = {"gl": "General ledger", "tb": "Trial balance", "prior_tb": "Prior-year trial balance"}
+UPLOAD_KINDS = {"gl": "General ledger", "tb": "Trial balance", "prior_tb": "Prior-year trial balance",
+                "bank": "Bank statement"}
 FRAMEWORKS = ["IFRS", "US GAAP", "IFRS for SMEs", "Local GAAP", "Other"]
 
 
@@ -122,6 +124,15 @@ def materiality_out(e: Engagement) -> dict | None:
     }
 
 
+def materiality_carried(e: Engagement) -> dict | None:
+    """The method rolled forward from last year, until this year's materiality is set."""
+    if e.overall_materiality is not None or not e.benchmark:
+        return None
+    return {"benchmark": e.benchmark, "benchmark_pct": e.benchmark_pct,
+            "performance_pct": e.performance_pct, "trivial_pct": e.trivial_pct,
+            "rationale": e.materiality_rationale}
+
+
 def upload_out(u: Upload) -> dict:
     return {"id": u.id, "kind": u.kind, "kind_label": UPLOAD_KINDS[u.kind],
             "filename": u.filename, "sha256": u.sha256, "size": u.size, "sheet": u.sheet,
@@ -142,6 +153,7 @@ def engagement_out(e: Engagement) -> dict:
         "period_start": e.period_start.isoformat() if e.period_start else None,
         "period_end": e.period_end.isoformat(), "framework": e.framework,
         "created_at": e.created_at.isoformat(), "materiality": materiality_out(e),
+        "materiality_carried": materiality_carried(e),
         "uploads": [upload_out(u) for u in e.uploads],
         "runs": [run_brief(r) for r in reversed(e.runs)],
         "comparisons": [comparison_brief(c) for c in reversed(e.comparisons)],
@@ -546,6 +558,11 @@ def delete_upload(upload_id: int, user: User = Depends(require("review")),
             (Comparison.current_upload_id == upload_id) | (Comparison.prior_upload_id == upload_id))):
         session.delete(c)
         affects.add("comparison")
+    for r in session.scalars(select(BankReconciliation).where(
+            (BankReconciliation.bank_upload_id == upload_id)
+            | (BankReconciliation.gl_upload_id == upload_id))):
+        session.delete(r)
+        affects.add("bank")
     if upload.kind in ("tb", "prior_tb"):
         affects.add("statements")
     log(session, user, "upload.delete", f"Deleted {upload.filename}", upload.engagement,
@@ -582,6 +599,9 @@ def create_run(engagement_id: int, body: RunIn, user: User = Depends(require("pr
     upload = get_or_404(session, Upload, body.upload_id, user)
     if upload.engagement_id != e.id:
         raise HTTPException(400, "That upload belongs to another engagement.")
+    if upload.kind == "bank":
+        raise HTTPException(400, "The audit checks run on ledgers and trial balances. "
+                                 "Reconcile a bank statement in the bank reconciliation panel.")
     loaded = load_upload(upload)
     settings = engagement_settings(e, body)
     result = checks.run_all(
