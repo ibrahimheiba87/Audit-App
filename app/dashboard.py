@@ -24,10 +24,12 @@ def _plural(n: int, one: str, many: str | None = None) -> str:
     return f"{n} {one if n == 1 else (many or one + 's')}"
 
 
-def statements_state(session: Session, e: Engagement) -> dict | None:
-    """The parts of the draft statements that need attention, or None without a trial balance."""
+def statements_state(session: Session, e: Engagement, upload_id: int | None = None,
+                     prior_upload_id: int | None = None) -> dict | None:
+    """The parts of the draft statements that need attention, or None without a trial balance.
+    Uses the same files as the statements panel when given their ids, else the latest."""
     try:
-        data, tb, _ = compute(session, e, None, None)
+        data, tb, _ = compute(session, e, upload_id, prior_upload_id)
     except HTTPException as exc:  # a trial balance the statements can't be built from
         return {"error": str(exc.detail)}
     if tb is None:
@@ -43,13 +45,14 @@ def statements_state(session: Session, e: Engagement) -> dict | None:
     }
 
 
-def next_steps(e: Engagement, mat: dict | None, kinds: set[str], runs: int, findings: dict,
+def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, findings: dict,
                open_high: int, rv: dict, rq: dict, fs: dict | None) -> list[dict]:
-    """The to-do list, most pressing first. Each step names the panel that deals with it."""
+    """The to-do list, most pressing first. Each step names the panel (and tab) that deals
+    with it."""
     steps: list[dict] = []
 
-    def add(priority: str, text: str, panel: str) -> None:
-        steps.append({"priority": priority, "text": text, "panel": panel})
+    def add(priority: str, text: str, panel: str, tab: str | None = None) -> None:
+        steps.append({"priority": priority, "text": text, "panel": panel, "tab": tab})
 
     if mat is None:
         add("high", "Set materiality.", "mat-panel")
@@ -57,7 +60,7 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], runs: int, find
         add("high", "Upload this year's trial balance.", "files-panel")
     if "gl" not in kinds:
         add("medium", "Upload the general ledger to run the journal entry checks.", "files-panel")
-    elif not runs:
+    elif not gl_runs:
         add("medium", "Run the audit checks on the general ledger.", "files-panel")
     if "prior_tb" not in kinds:
         add("low", "Upload last year's trial balance for comparatives and ratio trends.",
@@ -69,18 +72,18 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], runs: int, find
         else:
             if fs["unmapped"]:
                 add("high", f"Map {_plural(fs['unmapped'], 'account')} to a statement line.",
-                    "fs-panel")
+                    "fs-panel", "mapping")
             if abs(fs["difference"]) >= 0.01:
                 add("high", "The balance sheet doesn't balance; check the trial balance.",
                     "fs-panel")
             for w in fs["warnings"]:
                 if w["severity"] == "high":
-                    add("high", w["text"], "fs-panel")
+                    add("high", w["text"], "fs-panel", "ratios")
             if fs["ratio_flags"]:
                 add("medium", f"Explain {_plural(fs['ratio_flags'], 'ratio')} that moved a lot "
-                              "on last year.", "fs-panel")
+                              "on last year.", "fs-panel", "ratios")
             if (fs["uncorrected"] or "").startswith(MATERIAL_UNCORRECTED):
-                add("high", fs["uncorrected"], "fs-panel")
+                add("high", fs["uncorrected"], "fs-panel", "uncorrected")
     if open_high:
         add("high", f"Work through {_plural(open_high, 'open high-severity finding')}.", "reg-panel")
     elif findings["open"]:
@@ -98,7 +101,8 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], runs: int, find
 
 
 @router.get("/engagements/{engagement_id}/dashboard")
-def get_dashboard(engagement_id: int, user: User = Depends(current_user),
+def get_dashboard(engagement_id: int, upload_id: int | None = None,
+                  prior_upload_id: int | None = None, user: User = Depends(current_user),
                   session: Session = Depends(get_session)) -> dict:
     e = get_or_404(session, Engagement, engagement_id, user)
     mat = materiality_out(e)
@@ -111,7 +115,8 @@ def get_dashboard(engagement_id: int, user: User = Depends(current_user),
         .group_by(Finding.severity)).all())
     rv = review.review_out(session, e)
     rq = portal.summary(list(e.document_requests))
-    fs = statements_state(session, e)
+    fs = statements_state(session, e, upload_id, prior_upload_id)
+    gl_runs = sum(1 for r in e.runs if r.upload.kind == "gl")
     last = e.runs[-1] if e.runs else None
     days_left = (e.period_end - date.today()).days
     return {
@@ -135,6 +140,6 @@ def get_dashboard(engagement_id: int, user: User = Depends(current_user),
                      "outstanding": sum(rq[s] for s in portal.OUTSTANDING),
                      "to_check": rq.get("submitted", 0)},
         "statements": fs,
-        "next_steps": next_steps(e, mat, kinds, len(e.runs), findings,
+        "next_steps": next_steps(e, mat, kinds, gl_runs, findings,
                                  open_by_severity.get("high", 0), rv, rq, fs),
     }

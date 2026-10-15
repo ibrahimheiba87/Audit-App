@@ -5,8 +5,8 @@ import io
 import openpyxl
 import pytest
 
-from app import ratios, statements
-from tests.test_statements import TB, client, engagement, map_all, post_entry, tb_frame
+from app import dashboard, ratios, statements
+from tests.test_statements import DATA, TB, client, engagement, map_all, post_entry, tb_frame
 
 # A small company: 1,000 revenue, 600 cost of sales, 200 overheads, 50 interest, 30 tax.
 ROWS = [("1000", "Cash", 150.0), ("1200", "Receivables", 250.0), ("1300", "Inventory", 120.0),
@@ -138,3 +138,74 @@ def test_dashboard_follows_the_work():
     assert steps[material]["priority"] == "high" and steps[material]["panel"] == "fs-panel"
     assert any(t.startswith("Explain ") for t in steps)
 
+
+
+def test_flags_compare_against_the_size_of_last_year():
+    prior = [(a, n, -2000.0 if a == "4000" else amt) for a, n, amt in ROWS]
+    prior = [(a, n, amt) if a != "3100" else (a, n, 720.0) for a, n, amt in prior]
+    _, r = ratio_table(prior)  # last year: much higher sales, so margins and cover moved
+    assert r["interest_cover"]["prior"] == round(1200 / 50, 2)
+    assert r["interest_cover"]["flag"] == "Down 83% on last year"
+    assert r["gross_margin"]["flag"].startswith("Down ")
+
+
+def test_only_general_ledger_runs_count_as_running_the_checks():
+    eid = engagement(with_prior=False)
+    gl = client.post(f"/api/engagements/{eid}/uploads", data={"kind": "gl"},
+                     files={"file": ("gl.csv", (DATA / "sample_gl.csv").read_bytes(), "text/csv")})
+    assert gl.status_code == 201, gl.text
+    step = "Run the audit checks on the general ledger."
+    texts = lambda: [s["text"] for s in  # noqa: E731
+                     client.get(f"/api/engagements/{eid}/dashboard").json()["next_steps"]]
+    assert step in texts()
+    tb = next(u for u in client.get(f"/api/engagements/{eid}").json()["uploads"]
+              if u["kind"] == "tb")
+    assert client.post(f"/api/engagements/{eid}/runs", json={"upload_id": tb["id"]}).status_code == 201
+    assert step in texts()
+    r = client.post(f"/api/engagements/{eid}/runs", json={"upload_id": gl.json()["id"]})
+    assert r.status_code == 201 and step not in texts()
+
+
+def test_dashboard_uses_the_chosen_trial_balances():
+    eid = engagement()
+    map_all(eid)
+    prior = next(u for u in client.get(f"/api/engagements/{eid}").json()["uploads"]
+                 if u["kind"] == "prior_tb")
+    latest = client.get(f"/api/engagements/{eid}/dashboard").json()["statements"]
+    chosen = client.get(f"/api/engagements/{eid}/dashboard",
+                        params={"prior_upload_id": prior["id"]}).json()["statements"]
+    assert chosen == latest  # only one prior-year file, so the same answer
+    steps = client.get(f"/api/engagements/{eid}/dashboard").json()["next_steps"]
+    assert {s["tab"] for s in steps if s["panel"] == "fs-panel"} <= {"ratios", "mapping",
+                                                                     "uncorrected", None}
+
+
+def test_every_next_step_and_flag_has_an_arabic_translation():
+    import re  # noqa: PLC0415
+
+    from tests.test_i18n import dictionary  # noqa: PLC0415
+
+    d = dictionary()
+    patterns = [re.compile("^" + re.sub(r"\\\{(?:t:)?\w+\\\}", ".+", re.escape(p)) + "$")
+                for p in d["patterns"]]
+    translated = lambda text: text in d["exact"] or any(p.match(text) for p in patterns)  # noqa: E731
+    texts = []
+    for rows in (ROWS, [("1000", "Cash", 100.0), ("2000", "Payables", -300.0),
+                        ("3000", "Capital", -100.0), ("4000", "Sales", -500.0),
+                        ("5000", "Purchases", 600.0), ("7000", "Interest", 200.0)]):
+        mapping = {**MAPPING, "3000": "share_capital"}
+        out = ratios.compute(statements.build(tb_frame(rows), tb_frame(ROWS), mapping, []))
+        texts += [w["text"] for w in out["warnings"]] + [r["flag"] for r in out["ratios"] if r["flag"]]
+        texts += [r["label"] for r in out["ratios"]] + [r["basis"] for r in out["ratios"]]
+        texts += [r["group_label"] for r in out["ratios"]]
+    for n in (1, 2):
+        rv = {"open_notes": n, "reviewed": 0, "total": n}
+        rq = {"overdue": n}
+        fs = {"unmapped": n, "difference": 1, "warnings": [], "ratio_flags": n,
+              "uncorrected": None}
+        steps = dashboard.next_steps(None, None, {"gl"}, 0, {"open": n}, n, rv, rq, fs)
+        steps += dashboard.next_steps(None, None, set(), 0, {"open": n}, 0, rv, rq,
+                                      {"error": "x"})
+        texts += [s["text"] for s in steps]
+    missing = sorted({t for t in texts if not translated(t)})
+    assert not missing, missing

@@ -288,7 +288,6 @@ async function openEngagement(id) {
   renderSamples(e.samples);
   if (currentFinding && currentFinding.engagement_id !== e.id) closeFinding();
   guard(loadReview);  // on its own, so a slow or failing panel above doesn't hold it up
-  guard(loadDashboard);
   guard(loadRequests);
   await loadStatements();
   await loadRegister();
@@ -642,6 +641,7 @@ function renderStatementsPanel(error = null) {
   renderStatementTables();
   renderUncorrected();
   renderRatios();
+  refreshDashboard();
 }
 
 ["fs-tb", "fs-prior"].forEach((id) => $(id).addEventListener("change", () => guard(loadStatements)));
@@ -998,6 +998,7 @@ function renderRatios() {
 // Overview: where the engagement stands and what to do next
 
 let dashTimer = null;
+let dashLoads = 0;  // only the latest answer is shown, if an older one arrives after it
 // Many panels reload together after a change, so wait for them to settle before asking.
 function refreshDashboard() {
   clearTimeout(dashTimer);
@@ -1006,8 +1007,11 @@ function refreshDashboard() {
 
 async function loadDashboard() {
   const id = currentEngagement.id;
-  const d = await getJSON(`/api/engagements/${id}/dashboard`);
-  if (currentEngagement?.id !== id) return;  // the user has opened another engagement
+  const load = ++dashLoads;
+  // The same trial balances as the statements panel, once it has loaded this engagement's.
+  const q = fsEngagementId === id ? fsQuery() : "";
+  const d = await getJSON(`/api/engagements/${id}/dashboard?${q}`);
+  if (currentEngagement?.id !== id || load !== dashLoads) return;
   const sevs = d.findings.open_by_severity;
   const cards = [
     [d.materiality ? money(d.materiality.overall_materiality) : "Not set", "Overall materiality"],
@@ -1024,7 +1028,7 @@ async function loadDashboard() {
     `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
   $("dash-steps").innerHTML = d.next_steps.length ? d.next_steps.map((s) => `<li>
       <span class="sev ${esc(s.priority)}">${esc(SEVERITY_LABEL[s.priority])}</span>
-      <button type="button" class="link" data-goto="${esc(s.panel)}">${esc(s.text)}</button></li>`).join("")
+      <button type="button" class="link" data-goto="${esc(s.panel)}" data-tab-to="${esc(s.tab || "")}">${esc(s.text)}</button></li>`).join("")
     : '<li class="muted">Nothing outstanding. Every section is reviewed and nothing is open.</li>';
 }
 
@@ -1032,7 +1036,9 @@ const SEVERITY_LABEL = { high: "High", medium: "Medium", low: "Low" };
 
 $("dash-steps").addEventListener("click", (ev) => {
   const go = ev.target.closest("[data-goto]");
-  if (go) $(go.dataset.goto)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!go) return;
+  if (go.dataset.tabTo) $("fs-tabs").querySelector(`[data-tab="${go.dataset.tabTo}"]`)?.click();
+  $(go.dataset.goto)?.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 // Findings register
