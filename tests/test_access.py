@@ -11,6 +11,7 @@ pytestmark = pytest.mark.usefixtures("real_auth")
 
 TB = ("tb.csv", b"Account,Description,Amount\n1000,Cash,9\n")
 PRIOR = ("prior.csv", b"Account,Description,Amount\n1000,Cash,5\n")
+AR = ("ar.csv", b"Customer,Invoice,Invoice date,Amount\nC1,I1,2026-01-05,100\n")
 BANK = ("bank.csv", b"Date,Description,Withdrawals,Deposits\n2026-05-21,CHQ,33.32,\n")
 REC = {"accounts": ["1000 Cash"]}
 
@@ -47,14 +48,22 @@ def full_engagement(a):
     with db.SessionLocal() as s:
         draft = db.AiDraft(engagement_id=eid, kind="letter", content={
             "intro": "", "closing": "", "points": []}, created_by="A")
-        s.add(draft)
+        risk_draft = db.AiDraft(engagement_id=eid, kind="risk", content={
+            "summary": "", "risks": []}, created_by="A")
+        s.add_all([draft, risk_draft])
         s.commit()
-        draft_id = draft.id
+        draft_id, risk_draft_id = draft.id, risk_draft.id
+    risk = a.post(f"/api/engagements/{eid}/risks", json={
+        "area": "revenue", "title": "Cut-off", "level": "significant",
+        "procedures": ["Test cut-off"]}).json()
+    ar = a.post(f"/api/engagements/{eid}/uploads", data={"kind": "ar"},
+                files={"file": AR}).json()["id"]
     return {"engagement_id": eid, "upload_id": gl, "run_id": run, "finding_id": finding,
             "evidence_id": evidence, "comparison_id": comparison, "sample_id": sample,
             "entry_id": entry["id"], "note_id": note, "request_id": req, "file_id": file,
             "section": "data", "kind": "prepared", "bank_upload_id": bank, "rec_id": rec,
-            "draft_id": draft_id}
+            "draft_id": draft_id, "risk_draft_id": risk_draft_id, "risk_id": risk["id"],
+            "procedure_id": risk["procedures"][0]["id"], "ar_upload_id": ar}
 
 
 def bodies(ids):
@@ -85,6 +94,18 @@ def bodies(ids):
         ("PUT", "/api/samples/{sample_id}/evaluation"): {"json": {"items": []}},
         ("POST", "/api/uploads/{upload_id}/stratify"): {"json": {}},
         ("GET", "/api/uploads/{upload_id}/stratify/export"): {},
+        ("POST", "/api/uploads/{upload_id}/aging"): {"json": {}},
+        ("GET", "/api/uploads/{upload_id}/aging/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/risks"): {},
+        ("POST", "/api/engagements/{engagement_id}/risks"):
+            {"json": {"area": "revenue", "title": "x", "level": "lower"}},
+        ("POST", "/api/engagements/{engagement_id}/risks/from-draft/{draft_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/risks/export"): {},
+        ("PATCH", "/api/risks/{risk_id}"): {"json": {"title": "y"}},
+        ("DELETE", "/api/risks/{risk_id}"): {},
+        ("POST", "/api/risks/{risk_id}/procedures"): {"json": {"text": "x"}},
+        ("PATCH", "/api/procedures/{procedure_id}"): {"json": {"status": "done"}},
+        ("DELETE", "/api/procedures/{procedure_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/findings"): {},
         ("POST", "/api/engagements/{engagement_id}/findings"): {"json": {"detail": "x"}},
         ("POST", "/api/engagements/{engagement_id}/findings/bulk"):

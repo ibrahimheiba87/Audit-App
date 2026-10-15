@@ -144,7 +144,9 @@
           <option value="run.">Audit runs</option>
           <option value="comparison.">Comparisons</option>
           <option value="sample.">Samples</option>
-          <option value="analysis.">Stratification</option>
+          <option value="analysis.">Stratification and aging</option>
+          <option value="risk.">Risk register</option>
+          <option value="procedure.">Audit program</option>
           <option value="mapping.">Account mapping</option>
           <option value="entry.">Adjusting entries</option>
           <option value="statements.">Statements</option>
@@ -243,7 +245,39 @@
               <p class="muted" id="ra-label"></p>
               <p id="ra-summary"></p>
               <div class="table-wrap"><table id="ra-risks"></table></div>
+              <div class="actions"><button type="button" class="secondary" id="ra-import">Add these risks to the register</button><span class="muted" id="ra-imported"></span></div>
             </div>
+          </section>
+
+          <section class="panel" id="rr-panel">
+            <div class="row-between">
+              <h2>Risk register and audit program</h2>
+              <a class="button secondary" id="rr-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">The risks of material misstatement you've identified, and the procedures that respond to each. When a procedure is done, tick it and note the workpaper and your conclusion.</p>
+            <div class="cards" id="rr-cards"></div>
+            <details id="rr-add">
+              <summary id="rr-form-title">Add a risk</summary>
+              <form id="rr-form">
+                <div class="grid">
+                  <div><label for="rr-area">Area</label><select id="rr-area" name="area" class="map" required></select></div>
+                  <div><label for="rr-level">Level</label><select id="rr-level" name="level" class="map" required></select></div>
+                </div>
+                <label for="rr-title">Risk</label>
+                <input id="rr-title" name="title" maxlength="300" required placeholder="e.g. Revenue recorded in the wrong period">
+                <fieldset class="checks-inline" id="rr-assertions"><legend>Assertions</legend></fieldset>
+                <label for="rr-description">Why it's a risk</label>
+                <textarea id="rr-description" name="description" rows="2" maxlength="5000"></textarea>
+                <label for="rr-response">Overall response</label>
+                <textarea id="rr-response" name="response" rows="2" maxlength="5000"></textarea>
+                <div id="rr-procs-wrap">
+                  <label for="rr-procedures">Planned procedures <span class="muted">(one per line)</span></label>
+                  <textarea id="rr-procedures" name="procedures" rows="3"></textarea>
+                </div>
+                <div class="actions"><button type="submit" id="rr-save">Add risk</button><button type="button" class="secondary" id="rr-cancel" hidden>Cancel</button></div>
+              </form>
+            </details>
+            <div id="rr-list"></div>
           </section>
 
           <section class="panel" id="files-panel">
@@ -460,6 +494,30 @@
               </div>
               <p class="muted" id="str-note"></p>
               <div class="table-wrap"><table id="str-table"></table></div>
+            </div>
+          </section>
+
+          <section class="panel" id="ag-panel">
+            <h2>Receivables and payables aging</h2>
+            <p class="muted">Age a customer or vendor listing at the period end, see who owes what and for how long, and check the total agrees to the trial balance. Upload the listing under Files as a receivables or payables listing.</p>
+            <form id="ag-form">
+              <div class="grid">
+                <div><label for="ag-upload">Listing</label><select id="ag-upload" class="map" required></select></div>
+                <div><label for="ag-terms">Credit terms in days <span class="muted">(used where there's no due date)</span></label><input id="ag-terms" type="number" min="0" max="365" value="30" required></div>
+              </div>
+              <div class="actions"><button type="submit">Age the listing</button><a class="button secondary" id="ag-export" hidden>Download Excel</a></div>
+            </form>
+            <div id="ag-result" hidden>
+              <p class="muted" id="ag-note"></p>
+              <div class="cards" id="ag-cards"></div>
+              <div id="ag-ledger"></div>
+              <div class="table-wrap"><table id="ag-buckets"></table></div>
+              <div class="tabs" role="tablist" id="ag-tabs">
+                <button type="button" role="tab" data-ag="parties" aria-selected="true">By customer or vendor</button>
+                <button type="button" role="tab" data-ag="exceptions" aria-selected="false">Items to look at</button>
+              </div>
+              <p class="muted" id="ag-more"></p>
+              <div class="table-wrap"><table id="ag-table"></table></div>
             </div>
           </section>
 

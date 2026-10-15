@@ -14,7 +14,7 @@ import math
 import pandas as pd
 
 from .exports import finish_workbook
-from .loader import FIELDS
+from .loader import DATE_FIELDS, FIELDS
 
 MAX_BANDS = 20
 MAX_ROWS = 500  # summary rows sent to the page; the Excel download has them all
@@ -139,7 +139,7 @@ def field_stats(df: pd.DataFrame) -> list[dict]:
                             min=round(float(nums.min()), 2), max=round(float(nums.max()), 2),
                             average=round(float(nums.mean()), 2),
                             zeros=int((nums == 0).sum()), negatives=int((nums < 0).sum()))
-        elif col in ("date", "posted") or pd.api.types.is_datetime64_any_dtype(s):
+        elif col in DATE_FIELDS or pd.api.types.is_datetime64_any_dtype(s):
             dates = pd.to_datetime(filled, errors="coerce").dropna()
             if len(dates):
                 stat.update(kind="date", earliest=_plain(dates.min()), latest=_plain(dates.max()))

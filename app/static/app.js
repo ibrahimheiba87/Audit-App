@@ -274,6 +274,8 @@ async function openEngagement(id) {
     $("dash-cards").innerHTML = $("dash-steps").innerHTML = "";
     bank = null; bankChecked = null;
     strat = null; $("str-result").hidden = $("str-export").hidden = true; $("str-bands").value = "";
+    aged = null; $("ag-result").hidden = $("ag-export").hidden = true; $("ag-terms").value = "30";
+    rr = null; renderRisks(); resetRiskForm(); $("rr-add").open = false; $("ra-imported").textContent = "";
     $("bank-file").innerHTML = $("bank-gl").innerHTML = $("bank-accounts").innerHTML = "";
     $("bank-recs").innerHTML = "";
     $("bank-balance").value = $("bank-book").value = "";
@@ -300,6 +302,7 @@ async function openEngagement(id) {
   renderComparisonForm(e);
   renderComparisons(e.comparisons);
   renderStratifyForm(e);
+  renderAgingForm(e);
   renderSampleForm(e);
   renderSamples(e.samples);
   guard(loadBank);
@@ -309,6 +312,7 @@ async function openEngagement(id) {
   guard(loadReview);  // on its own, so a slow or failing panel above doesn't hold it up
   guard(loadRequests);
   guard(loadAiDrafts);
+  guard(loadRisks);
   await loadStatements();
   await loadRegister();
 }
@@ -920,6 +924,7 @@ function showRisk(d) {
   $("ra-export").hidden = !d;
   if (!d) return;
   $("ra-export").href = `/api/ai-drafts/${d.id}/export`;
+  $("ra-import").hidden = !d.content.risks.length;
   $("ra-label").innerHTML = draftLabel(d);
   $("ra-summary").innerHTML = data(d.content.summary);
   $("ra-risks").innerHTML = "<tr><th>Level</th><th>Area</th><th>Risk</th><th>Assertions</th><th>Why</th><th>Planned procedures</th></tr>" +
@@ -1005,6 +1010,183 @@ $("ml-letter").addEventListener("click", (ev) => {
   ev.preventDefault();
   guard(async () => openFinding(await getJSON(`/api/findings/${a.dataset.openFinding}`)));
 });
+
+// Risk register and audit program
+
+let rr = null;         // the register on show: {engagement_id, summary, risks}
+let rrOptions = null;  // areas, levels and assertions, loaded once
+let rrEditing = null;  // the risk being changed in the form, or null when adding one
+let rrLoads = 0;       // only the latest answer is shown, if an older one arrives after it
+
+async function loadRiskOptions() {
+  if (rrOptions) return;
+  const o = await getJSON("/api/risk-register/options");
+  $("rr-area").innerHTML = o.areas.map((a) => `<option value="${esc(a.id)}">${esc(a.label)}</option>`).join("");
+  $("rr-level").innerHTML = o.levels.map((l) => `<option value="${esc(l.id)}">${esc(l.label)}</option>`).join("");
+  $("rr-assertions").innerHTML = "<legend>Assertions</legend>" + o.assertions.map((a) =>
+    `<label><input type="checkbox" name="assertions" value="${esc(a.id)}"><span>${esc(a.label)}</span></label>`).join("");
+  rrOptions = o;
+}
+
+async function loadRisks() {
+  const id = currentEngagement.id;
+  const load = ++rrLoads;
+  await loadRiskOptions();
+  const r = await getJSON(`/api/engagements/${id}/risks`);
+  if (load !== rrLoads || currentEngagement?.id !== id) return;
+  rr = { ...r, engagement_id: id };
+  renderRisks();
+}
+
+function resetRiskForm() {
+  rrEditing = null;
+  $("rr-form").reset();
+  $("rr-form-title").textContent = "Add a risk";
+  $("rr-save").textContent = "Add risk";
+  $("rr-cancel").hidden = true;
+  $("rr-procs-wrap").hidden = false;
+}
+
+function renderRisks() {
+  if (!rr) { $("rr-cards").innerHTML = $("rr-list").innerHTML = ""; return; }
+  const s = rr.summary;
+  $("rr-export").href = `/api/engagements/${rr.engagement_id}/risks/export`;
+  $("rr-cards").innerHTML = [[s.risks, "Risks"], [s.by_level.significant, "Significant risks"],
+    [`${s.done}/${s.procedures}`, "Procedures done"], [s.without_procedures, "Risks with no procedures"]]
+    .map(([v, k]) => `<div class="card${k === "Risks with no procedures" && v ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  if (!rr.risks.length) {
+    $("rr-list").innerHTML = '<p class="muted">No risks yet. Add one above, or add the risks from an AI risk assessment.</p>';
+    return;
+  }
+  $("rr-list").innerHTML = rr.risks.map((r, i) => {
+    const procs = r.procedures.map((p) => {
+      const removable = p.status !== "done" || me.rank >= 2;
+      return `<tr data-proc="${p.id}">
+        <td class="nowrap"><label class="check-label"><input type="checkbox" data-done ${p.status === "done" ? "checked" : ""}><span>Done</span></label></td>
+        <td>${data(p.text)}</td>
+        <td><input data-ref maxlength="200" value="${esc(p.reference)}" aria-label="Workpaper reference"></td>
+        <td><textarea data-conclusion rows="2" maxlength="5000" aria-label="Conclusion">${esc(p.conclusion)}</textarea></td>
+        <td class="muted">${p.done_by ? `${data(p.done_by)}<br>${data(when(p.done_at))}` : ""}</td>
+        <td class="nowrap"><button type="button" class="small" data-proc-save>Save</button>
+          ${removable ? '<button type="button" class="small secondary danger" data-proc-delete>Remove</button>' : ""}</td></tr>`;
+    }).join("");
+    return `<div class="risk-item" data-risk="${r.id}">
+      <div class="row-between"><h3><bdi>R${i + 1}.</bdi> ${data(r.title)}</h3><span class="nowrap level-${esc(r.level)}">${esc(r.level_label)}</span></div>
+      <div class="tag"><span>${esc(r.area_label)}</span>${r.assertion_labels.map((a) => ` · <span>${esc(a)}</span>`).join("")}${r.source ? " · <span>From the AI risk assessment</span>" : ""}</div>
+      ${r.description ? `<p>${data(r.description)}</p>` : ""}
+      ${r.response ? `<p><strong>Overall response</strong><br>${data(r.response)}</p>` : ""}
+      ${procs ? `<div class="table-wrap"><table class="proc-table"><tr><th>Status</th><th>Procedure</th><th>Workpaper</th><th>Conclusion</th><th>Done by</th><th></th></tr>${procs}</table></div>`
+        : '<p class="warn-box">No procedures planned for this risk yet.</p>'}
+      <form class="proc-add" data-proc-add>
+        <input data-proc-text maxlength="2000" required placeholder="Add a procedure" aria-label="New procedure">
+        <button type="submit" class="small">Add procedure</button>
+      </form>
+      <div class="actions"><button type="button" class="small secondary" data-risk-edit>Edit risk</button>
+        ${me.rank >= 2 ? '<button type="button" class="small secondary danger" data-risk-delete>Remove risk</button>' : ""}</div>
+    </div>`;
+  }).join("");
+}
+
+// After a change: reload the register, and the activity log and sign-offs it can affect.
+async function risksChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await loadRisks();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+$("rr-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("rr-save"), async () => {
+    const id = currentEngagement.id;
+    const f = formObject($("rr-form"));
+    const body = { area: f.area, level: f.level, title: f.title,
+      assertions: [...$("rr-assertions").querySelectorAll("input:checked")].map((el) => el.value),
+      description: f.description || "", response: f.response || "" };
+    if (rrEditing) {
+      await sendJSON("PATCH", `/api/risks/${rrEditing}`, body);
+    } else {
+      body.procedures = (f.procedures || "").split("\n").map((t) => t.trim()).filter(Boolean);
+      await sendJSON("POST", `/api/engagements/${id}/risks`, body);
+    }
+    if (currentEngagement?.id !== id) return;
+    resetRiskForm();
+    $("rr-add").open = false;
+    await risksChanged(id);
+  });
+});
+
+$("rr-cancel").addEventListener("click", () => { resetRiskForm(); $("rr-add").open = false; });
+
+$("rr-list").addEventListener("submit", (ev) => {
+  const form = ev.target.closest("[data-proc-add]");
+  if (!form) return;
+  ev.preventDefault();
+  const riskId = form.closest("[data-risk]").dataset.risk;
+  busy(form.querySelector("button"), async () => {
+    const id = currentEngagement.id;
+    await sendJSON("POST", `/api/risks/${riskId}/procedures`, { text: form.querySelector("[data-proc-text]").value.trim() });
+    await risksChanged(id);
+  });
+});
+
+$("rr-list").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-proc-save], button[data-proc-delete], button[data-risk-edit], button[data-risk-delete]");
+  if (!btn) return;
+  const id = currentEngagement.id;
+  const riskId = Number(btn.closest("[data-risk]").dataset.risk);
+  const risk = rr.risks.find((r) => r.id === riskId);
+  const row = btn.closest("[data-proc]");
+  if (btn.hasAttribute("data-proc-save")) {
+    busy(btn, async () => {
+      await sendJSON("PATCH", `/api/procedures/${row.dataset.proc}`, {
+        status: row.querySelector("[data-done]").checked ? "done" : "planned",
+        reference: row.querySelector("[data-ref]").value.trim(),
+        conclusion: row.querySelector("[data-conclusion]").value.trim(),
+      });
+      await risksChanged(id);
+    });
+  } else if (btn.hasAttribute("data-proc-delete")) {
+    if (!confirm("Remove this procedure?")) return;
+    busy(btn, async () => {
+      await sendJSON("DELETE", `/api/procedures/${row.dataset.proc}`);
+      await risksChanged(id);
+    });
+  } else if (btn.hasAttribute("data-risk-delete")) {
+    if (!confirm(`Remove the risk "${risk.title}" and its procedures?`)) return;
+    busy(btn, async () => {
+      await sendJSON("DELETE", `/api/risks/${riskId}`);
+      if (rrEditing === riskId) resetRiskForm();
+      await risksChanged(id);
+    });
+  } else if (risk) {  // edit: load the risk into the form above
+    resetRiskForm();
+    rrEditing = riskId;
+    const form = $("rr-form");
+    form.area.value = risk.area;
+    form.level.value = risk.level;
+    form.title.value = risk.title;
+    form.description.value = risk.description;
+    form.response.value = risk.response;
+    $("rr-assertions").querySelectorAll("input").forEach((el) => { el.checked = risk.assertions.includes(el.value); });
+    $("rr-form-title").textContent = "Change the risk";
+    $("rr-save").textContent = "Save changes";
+    $("rr-cancel").hidden = false;
+    $("rr-procs-wrap").hidden = true;
+    $("rr-add").open = true;
+    $("rr-add").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+});
+
+$("ra-import").addEventListener("click", () => busy($("ra-import"), async () => {
+  const id = currentEngagement.id;
+  const out = await sendJSON("POST", `/api/engagements/${id}/risks/from-draft/${aiShown.risk}`);
+  if (currentEngagement?.id !== id) return;
+  $("ra-imported").textContent = out.skipped
+    ? `Added ${out.added} risks. ${out.skipped} were already in the register.`
+    : `Added ${out.added} risks to the register.`;
+  await risksChanged(id);
+}));
 
 // Lead sheets and draft statements
 
@@ -1596,6 +1778,97 @@ function renderStrat() {
   $("str-table").innerHTML = html;
 }
 
+// Receivables and payables aging
+
+let aged = null;  // the aging on show
+let agingTab = "parties";
+const AGING_SIDES = ["ar", "ap"];
+
+function renderAgingForm(e) {
+  const keep = $("ag-upload").value;
+  const files = e.uploads.filter((u) => AGING_SIDES.includes(u.kind));
+  $("ag-upload").innerHTML = files
+    .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
+    .join("") || '<option value="">Upload a receivables or payables listing first</option>';
+  if (files.some((u) => String(u.id) === keep)) $("ag-upload").value = keep;
+  if (aged && !files.some((u) => u.id === aged.upload_id)) {
+    aged = null; $("ag-result").hidden = $("ag-export").hidden = true;
+  }
+}
+
+$("ag-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const button = ev.submitter || ev.currentTarget.querySelector("button[type=submit]");
+  busy(button, async () => {
+    const id = Number($("ag-upload").value);
+    if (!id) throw new Error("Upload a receivables or payables listing first.");
+    const terms = Number($("ag-terms").value);
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/uploads/${id}/aging`, { terms_days: terms });
+    if (currentEngagement?.id !== engagementId) return;  // they moved on to another engagement
+    aged = out;
+    $("ag-export").href = `/api/uploads/${id}/aging/export?terms_days=${out.terms_days}&as_of=${out.as_of}`;
+    $("ag-export").hidden = false;
+    renderAging();
+  });
+});
+
+$("ag-tabs").addEventListener("click", (ev) => {
+  const tab = ev.target.closest("[data-ag]");
+  if (!tab) return;
+  agingTab = tab.dataset.ag;
+  renderAging();
+});
+
+const AGING_BUCKETS = { current: "Not yet due", d1_30: "1 to 30 days overdue", d31_60: "31 to 60 days overdue",
+  d61_90: "61 to 90 days overdue", d91_180: "91 to 180 days overdue", over_180: "Over 180 days overdue", no_date: "No date" };
+const AGING_SHORT = { current: "Not due", d1_30: "1-30", d31_60: "31-60", d61_90: "61-90", d91_180: "91-180", over_180: "180+", no_date: "No date" };
+
+function renderAging() {
+  $("ag-result").hidden = !aged;
+  if (!aged) return;
+  $("ag-tabs").querySelectorAll("[data-ag]").forEach((b) => b.setAttribute("aria-selected", b.dataset.ag === agingTab));
+  const t = aged.totals;
+  $("ag-note").textContent = aged.basis === "due"
+    ? `${aged.side_label} aged at ${aged.as_of} from the due dates in the listing.`
+    : `${aged.side_label} aged at ${aged.as_of}: the listing has no due dates, so each item is due ${aged.terms_days} days after its date.`;
+  const cards = [[money(t.balance), "Listing total"], [t.parties.toLocaleString(LOCALE), aged.side === "ar" ? "Customers" : "Vendors"],
+    [money(t.overdue), "Overdue"], [money(t.long_overdue), "Over 90 days overdue", t.long_overdue_items],
+    [money(t.credit_balances), "Credit balances", t.credit_items], [money(t.after_period_end), "Dated after the period end", t.after_items]];
+  $("ag-cards").innerHTML = cards.map(([v, k, flag]) =>
+    `<div class="card${flag ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  const lg = aged.ledger;
+  $("ag-ledger").innerHTML = lg
+    ? `<p class="${Math.abs(lg.difference) >= 0.005 ? "warn-box" : "muted"}"><span>Trial balance, ${esc(lg.label)}:</span> ${money(lg.balance)}. <span>Difference (listing less trial balance):</span> ${money(lg.difference)}</p>`
+    : '<p class="muted">Map the trial balance in the lead sheets panel to compare the listing with the ledger.</p>';
+  $("ag-buckets").innerHTML = "<tr><th>Age</th><th>Items</th><th>Balance</th><th>% of total</th></tr>" +
+    aged.buckets.filter((b) => b.items || b.id !== "no_date").map((b) => `<tr><td>${esc(b.label)}</td><td class="num">${b.items.toLocaleString(LOCALE)}</td>
+      <td class="num">${money(b.balance)}</td><td class="num">${b.pct}%</td></tr>`).join("") +
+    `<tr class="total"><th>Total</th><th class="num">${t.items.toLocaleString(LOCALE)}</th><th class="num">${money(t.balance)}</th><th></th></tr>`;
+  const party = aged.side === "ar" ? "Customer" : "Vendor";
+  let html = "", more = 0;
+  if (agingTab === "parties") {
+    const keys = Object.keys(AGING_BUCKETS).filter((k) => k !== "no_date" || t.no_date);
+    more = aged.parties_truncated;
+    html = `<tr><th>${party}</th><th>Name</th><th>Items</th><th>Balance</th>${keys.map((k) => `<th class="nowrap" title="${esc(AGING_BUCKETS[k])}">${esc(AGING_SHORT[k])}</th>`).join("")}<th>Oldest (days overdue)</th></tr>` +
+      aged.parties.map((p) => `<tr><td>${data(p.party)}</td><td>${data(p.name)}</td><td class="num">${p.items}</td>
+        <td class="num${p.balance < 0 ? " bad" : ""}">${money(p.balance)}</td>
+        ${keys.map((k) => `<td class="num${p.buckets[k] && ["d91_180", "over_180"].includes(k) ? " bad" : ""}">${p.buckets[k] ? money(p.buckets[k]) : ""}</td>`).join("")}
+        <td class="num">${p.oldest_days ?? ""}</td></tr>`).join("");
+  } else {
+    more = aged.exceptions_truncated;
+    html = aged.exceptions.length
+      ? `<tr><th>Row</th><th>${party}</th><th>Invoice</th><th>Date</th><th>Due</th><th>Days overdue</th><th>Balance</th><th>Why</th></tr>` +
+        aged.exceptions.map((x) => `<tr><td class="num">${x.row}</td><td>${data(x.party)} ${x.name ? `<span class="muted">${data(x.name)}</span>` : ""}</td>
+          <td>${data(x.invoice)}</td><td class="nowrap">${esc(x.date || "")}</td><td class="nowrap">${esc(x.due || "")}</td>
+          <td class="num">${x.days ?? ""}</td><td class="num">${money(x.balance)}</td>
+          <td>${x.why.map((w) => `<div>${esc(w)}</div>`).join("")}</td></tr>`).join("")
+      : '<tr><td class="muted">Nothing to look at: no item is more than 90 days overdue, has a credit balance or is dated after the period end.</td></tr>';
+  }
+  $("ag-more").textContent = more ? `Showing the largest ${agingTab === "parties" ? aged.parties.length : aged.exceptions.length}. The Excel download has all ${more + (agingTab === "parties" ? aged.parties.length : aged.exceptions.length)}.` : "";
+  $("ag-table").innerHTML = html;
+}
+
 // Ratios: this year against last, with the big moves flagged
 
 const RATIO_GROUPS = ["liquidity", "profitability", "efficiency", "leverage"];
@@ -1664,6 +1937,7 @@ async function loadDashboard() {
       : d.bank.difference == null ? ["No balances", "Bank reconciliation"]
         : [money(d.bank.difference), "Bank difference"]);
   }
+  if (d.risks?.risks) cards.push([`${d.risks.done}/${d.risks.procedures}`, "Audit procedures done"]);
   if (d.days_since_period_end) cards.push([d.days_since_period_end, "Days since period end"]);
   $("dash-cards").innerHTML = cards.map(([v, k]) =>
     `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
