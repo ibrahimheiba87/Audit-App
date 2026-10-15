@@ -117,6 +117,9 @@ def bodies(ids):
         ("PATCH", "/api/requests/{request_id}"): {"json": {"title": "y"}},
         ("POST", "/api/requests/{request_id}/status"): {"json": {"status": "accepted"}},
         ("DELETE", "/api/requests/{request_id}"): {},
+        ("POST", "/api/engagements/{engagement_id}/mapping/suggest"): {"json": {}},
+        ("POST", "/api/engagements/{engagement_id}/documents/read"):
+            {"data": {"kind": "invoice"}, "files": {"file": PDF}},
         ("POST", "/api/requests/{request_id}/files"): {"files": {"file": PDF}},
         ("POST", "/api/requests/{request_id}/messages"): {"json": {"text": "x"}},
         ("GET", "/api/request-files/{file_id}"): {},
@@ -136,6 +139,7 @@ NOT_ENGAGEMENT_ROUTES = {
 def test_every_engagement_route_looks_missing_to_someone_not_on_it(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr(assistant, "call_claude", lambda system, prompt: "answer")
+    monkeypatch.setattr(assistant, "request_claude", lambda system, content, **kw: "{}")
     a = admin()
     ids = full_engagement(a)
     table = bodies(ids)

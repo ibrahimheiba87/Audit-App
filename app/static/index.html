@@ -296,6 +296,27 @@
             <div class="table-wrap"><table id="bank-recs"></table></div>
           </section>
 
+          <section class="panel" id="doc-panel">
+            <h2>Read documents with AI</h2>
+            <p class="muted">Read a bank statement or an invoice from a PDF or photo. A bank statement is saved under Files as a bank statement, ready to reconcile. An invoice is checked and looked up in the general ledger. Check what the AI read against the document.</p>
+            <p class="warn-box" id="doc-off" hidden>The AI assistant is off. An administrator turns it on by setting ANTHROPIC_API_KEY on the server.</p>
+            <form id="doc-form">
+              <div class="grid">
+                <div><label for="doc-kind">Document</label><select id="doc-kind" class="map"><option value="bank">Bank statement</option><option value="invoice">Invoice</option></select></div>
+                <div><label for="doc-file">File (PDF, PNG or JPEG, up to 15 MB)</label><input id="doc-file" type="file" accept=".pdf,.png,.jpg,.jpeg" required></div>
+              </div>
+              <div class="actions"><button type="submit" id="doc-run">Read with AI</button><span class="muted" id="doc-wait" hidden>Reading… this can take a minute or two.</span></div>
+            </form>
+            <div id="doc-out" hidden>
+              <p class="muted" id="doc-label"></p>
+              <div class="cards" id="doc-cards"></div>
+              <ul class="warn-list" id="doc-problems" hidden></ul>
+              <ul id="doc-checks"></ul>
+              <h3 id="doc-matches-title" hidden>Possible entries in the general ledger</h3>
+              <div class="table-wrap"><table id="doc-matches"></table></div>
+            </div>
+          </section>
+
           <section class="panel" id="bank-result" hidden>
             <div class="row-between">
               <h2>Bank reconciliation <span id="bank-title" translate="no"></span></h2>
@@ -343,8 +364,10 @@
 
               <div class="tab" data-pane="mapping">
                 <p class="muted" id="fs-map-note"></p>
+                <p class="muted" id="fs-ai-note" hidden></p>
                 <div class="actions" style="margin:0 0 10px">
                   <button type="button" class="small secondary" id="fs-accept">Use suggestions for unmapped accounts</button>
+                  <button type="button" class="small secondary" id="fs-ai-map" hidden>Suggest unmapped with AI</button>
                   <button type="button" class="small" id="fs-save-map" disabled>Save mapping</button>
                   <label class="inline" style="margin-inline-start:auto"><input type="checkbox" id="fs-unmapped-only" style="width:auto"> Unmapped only</label>
                 </div>

@@ -279,6 +279,11 @@ async function openEngagement(id) {
     $("bank-window").value = "5";
     $("bank-flip").checked = false;
     $("bank-result").hidden = true;
+    $("doc-out").hidden = true;
+    $("doc-form").reset();
+    $("doc-wait").hidden = true;
+    aiMapHints = {};
+    $("fs-ai-note").hidden = true;
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -294,6 +299,7 @@ async function openEngagement(id) {
   renderSampleForm(e);
   renderSamples(e.samples);
   guard(loadBank);
+  renderDocPanel();
   if (currentFinding && currentFinding.engagement_id !== e.id) closeFinding();
   guard(loadReview);  // on its own, so a slow or failing panel above doesn't hold it up
   guard(loadRequests);
@@ -479,7 +485,7 @@ function renderUploads(uploads) {
       <td>${esc(u.kind_label)}</td>
       <td class="num">${u.import.rows_used.toLocaleString(LOCALE)}</td>
       <td class="nowrap">${esc(when(u.uploaded_at))}</td>
-      <td class="muted">${u.import.warnings.length ? esc(u.import.warnings.join(" ")) : "OK"}</td>
+      <td class="muted">${u.import.warnings.length ? u.import.warnings.map((w) => `<div>${esc(w)}</div>`).join("") : "OK"}</td>
       <td><div class="cell-actions">
         ${u.kind === "bank"
           ? `<button type="button" class="small" data-reconcile="${u.id}">Reconcile</button>`
@@ -661,6 +667,7 @@ async function loadBank(glId) {
   if (o.gl_upload_id) $("bank-gl").value = o.gl_upload_id;
   renderBankAccounts();
   renderBankRecs();
+  bankBalanceHint();
 }
 
 function renderBankAccounts() {
@@ -679,6 +686,15 @@ function renderBankAccounts() {
 function bankTicked() {
   return [...$("bank-accounts").querySelectorAll("input:checked")].map((i) => i.value);
 }
+
+function bankBalanceHint() {
+  const u = bank.bank_uploads.find((x) => String(x.id) === $("bank-file").value);
+  const read = u?.import?.read_by_ai;
+  $("bank-balance").placeholder = read && read.period_end === bank.period_end && read.balance_at_period_end != null
+    && !(read.problems || []).length
+    ? `${money(read.balance_at_period_end)} (from the statement)` : "";
+}
+$("bank-file").addEventListener("change", () => { if (bank) bankBalanceHint(); });
 
 function bankBookHint() {
   const codes = new Set(bankTicked().map((a) => bank.accounts.find((x) => x.account === a)?.code));
@@ -789,6 +805,80 @@ function showBankRec(r) {
   $("bank-result").scrollIntoView({ behavior: "smooth" });
 }
 
+// Reading documents with AI
+
+let docReading = 0;  // reads still waiting on the AI, even for another engagement
+
+function renderDocPanel() {
+  const off = !assistant.enabled;
+  $("doc-off").hidden = !off;
+  $("doc-form").querySelectorAll("select, input, button").forEach((el) => { el.disabled = off; });
+  if (docReading) $("doc-run").disabled = true;
+}
+
+$("doc-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const fd = new FormData();
+  fd.append("kind", $("doc-kind").value);
+  fd.append("file", $("doc-file").files[0]);
+  guard(async () => {
+    docReading += 1;
+    $("doc-run").disabled = true;
+    $("doc-wait").hidden = false;
+    try {
+      const r = await (await postForm(`/api/engagements/${id}/documents/read`, fd)).json();
+      if (currentEngagement?.id !== id) return;
+      showDocument(r);
+      if (r.kind === "bank") await openEngagement(id);  // the new file, ready to reconcile
+    } finally {
+      docReading -= 1;
+      $("doc-run").disabled = docReading > 0 || !assistant.enabled;
+      $("doc-wait").hidden = true;
+      if (currentEngagement?.id === id) loadEngagementActivity();
+    }
+  });
+});
+
+function showDocument(r) {
+  const card = (v, k) => `<div class="card"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`;
+  $("doc-out").hidden = false;
+  $("doc-label").innerHTML = `<span>Read by the AI assistant</span> (${data(r.model)}): ${data(r.kind === "bank" ? r.read.source : r.filename)}`;
+  const problems = r.kind === "bank" ? r.read.problems : [];
+  $("doc-problems").hidden = !problems.length;
+  $("doc-problems").innerHTML = problems.map((p) => `<li>${esc(p)}</li>`).join("");
+  $("doc-matches-title").hidden = r.kind !== "invoice";
+  if (r.kind === "bank") {
+    const x = r.read;
+    $("doc-cards").innerHTML = [
+      card(r.lines, "Lines read"),
+      card(data(`${x.statement_from} – ${x.statement_to}`), "Dates"),
+      card(x.closing_balance == null ? "–" : money(x.closing_balance), "Closing balance"),
+      card(x.balance_at_period_end == null ? "–" : money(x.balance_at_period_end), "Balance at the period end"),
+    ].join("");
+    $("doc-checks").innerHTML = `<li>${problems.length ? "" : "✓ "}<span>Saved as the bank statement</span> ${data(r.upload.filename)}<span>. Reconcile it in the bank reconciliation panel.</span></li>`;
+    $("doc-matches").innerHTML = "";
+    return;
+  }
+  const inv = r.invoice;
+  $("doc-cards").innerHTML = [
+    card(data(inv.supplier || "–"), "Supplier"),
+    card(data(inv.invoice_number || "–"), "Invoice number"),
+    card(data(inv.invoice_date || "–"), "Invoice date"),
+    card(inv.total == null ? "–" : `${money(inv.total)} ${esc(inv.currency || "")}`, "Total"),
+    card(inv.tax == null ? "–" : money(inv.tax), "Tax"),
+  ].join("");
+  $("doc-checks").innerHTML = r.checks.map((c) => `<li class="${c.ok ? "" : "warn-high"}">${c.ok ? "✓" : "✗"} <span>${esc(c.text)}</span></li>`).join("");
+  $("doc-matches").innerHTML = !r.ledger
+    ? '<tr><td class="muted">Upload the general ledger to look the invoice up in it.</td></tr>'
+    : r.matches.length
+      ? "<tr><th>Date</th><th>Entry</th><th>Account</th><th>Description</th><th>Amount</th><th>Days from the invoice</th><th>Why</th></tr>" +
+        r.matches.map((m) => `<tr><td class="nowrap">${data(m.date || "")}</td><td>${data(m.entry_id || "")}</td>
+          <td>${data(m.account)}</td><td>${data(m.description)}</td><td class="num">${money(m.amount)}</td>
+          <td class="num">${m.days_from_invoice ?? ""}</td><td>${m.reasons.map((x) => `<div>${esc(x)}</div>`).join("")}</td></tr>`).join("")
+      : '<tr><td class="muted">No entry in the general ledger has this amount or invoice number.</td></tr>';
+}
+
 // Lead sheets and draft statements
 
 let fs = null;          // latest /statements response
@@ -855,7 +945,10 @@ function renderStatementsPanel(error = null) {
   renderRatios();
 }
 
-["fs-tb", "fs-prior"].forEach((id) => $(id).addEventListener("change", () => guard(loadStatements)));
+["fs-tb", "fs-prior"].forEach((id) => $(id).addEventListener("change", () => {
+  $("fs-ai-note").hidden = true;
+  guard(loadStatements);
+}));
 
 $("fs-tabs").addEventListener("click", (ev) => {
   const tab = ev.target.closest("[data-tab]");
@@ -873,6 +966,7 @@ function lineOptions(selected) {
 }
 
 function renderMapping() {
+  $("fs-ai-map").hidden = !assistant.enabled || !fs.unmapped.length;
   const lineLabel = Object.fromEntries(fs.lines.map((l) => [l.id, l.label]));
   const mapped = fs.accounts.filter((a) => a.line).length;
   $("fs-map-note").textContent = `${mapped} of ${fs.accounts.length} accounts mapped.` +
@@ -882,8 +976,11 @@ function renderMapping() {
   $("fs-map").innerHTML = "<tr><th>Account</th><th>Name</th><th class=\"num\">Adjusted balance</th><th>Financial statement line</th></tr>" +
     rows.map((a) => {
       const value = a.account in fsMapEdits ? fsMapEdits[a.account] : a.line || "";
-      const hint = !a.line && a.suggested && !(a.account in fsMapEdits)
-        ? `<div class="tag">Suggested: ${esc(lineLabel[a.suggested])}</div>` : "";
+      const ai = aiMapHints[a.account];
+      const hint = ai && a.account in fsMapEdits
+        ? `<div class="tag">AI (${esc(CONFIDENCE[ai.confidence])}): ${data(ai.reason)}</div>`
+        : !a.line && a.suggested && !(a.account in fsMapEdits)
+          ? `<div class="tag">Suggested: ${esc(lineLabel[a.suggested])}</div>` : "";
       return `<tr data-account="${esc(a.account)}"${a.account in fsMapEdits ? ' class="changed"' : ""}>
         <td>${data(a.account)}${a.in_tb ? "" : ` <span class="tag">(${a.prior != null ? "prior year only" : a.proposed_only ? "proposed entries only" : "from entries"})</span>`}</td><td>${data(a.name)}</td>
         <td class="num">${drcr(a.adjusted)}</td>
@@ -898,6 +995,10 @@ $("fs-map").addEventListener("change", (ev) => {
   const account = row.dataset.account;
   const saved = fs.accounts.find((a) => a.account === account).line || "";
   if (ev.target.value === saved) delete fsMapEdits[account]; else fsMapEdits[account] = ev.target.value;
+  if (aiMapHints[account]) {  // their own choice now, not the AI's
+    delete aiMapHints[account];
+    ev.target.parentElement.querySelector("div.tag")?.remove();
+  }
   row.classList.toggle("changed", account in fsMapEdits);
   $("fs-save-map").disabled = !canSaveMapping() || $("fs-save-map").busy > 0;
 });
@@ -907,6 +1008,40 @@ $("fs-accept").addEventListener("click", () => {
     .forEach((a) => { fsMapEdits[a.account] = a.suggested; });
   renderMapping();
 });
+let aiMapHints = {};  // account -> {reason, confidence} for the AI's unsaved suggestions
+const CONFIDENCE = { high: "high confidence", medium: "medium confidence", low: "low confidence" };
+
+$("fs-ai-map").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
+  const id = fsEngagementId;
+  const query = fsQuery();
+  const q = Object.fromEntries(new URLSearchParams(query));
+  try {
+    const r = await sendJSON("POST", `/api/engagements/${id}/mapping/suggest`, {
+      upload_id: q.upload_id ? Number(q.upload_id) : null,
+      prior_upload_id: q.prior_upload_id ? Number(q.prior_upload_id) : null,
+      language: I18N.lang,
+    });
+    // Drop the answer if they've opened other files, or are saving, while the AI was answering.
+    if (currentEngagement.id !== id || fsQuery() !== query || $("fs-save-map").busy > 0) return;
+    let used = 0;
+    const accounts = new Map(fs.accounts.map((a) => [a.account, a]));
+    for (const s of r.suggestions) {
+      const a = accounts.get(s.account);
+      if (!a || a.line || s.account in fsMapEdits) continue;  // mapped meanwhile, or their own choice
+      fsMapEdits[s.account] = s.line;
+      aiMapHints[s.account] = s;
+      used++;
+    }
+    $("fs-ai-note").hidden = false;
+    $("fs-ai-note").textContent = r.total > r.sent
+      ? `The AI suggested a line for ${used} of the first ${r.sent} of ${r.total} unmapped accounts. Check them, save, then ask again for the rest.`
+      : `The AI suggested a line for ${used} of ${r.sent} unmapped accounts. Check them, then save the mapping.`;
+    renderMapping();
+  } finally {
+    loadEngagementActivity();
+  }
+}));
+
 const canSaveMapping = () => Object.keys(fsMapEdits).length > 0;
 $("fs-save-map").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
   const id = fsEngagementId;
@@ -915,6 +1050,8 @@ $("fs-save-map").addEventListener("click", (ev) => busy(ev.currentTarget, async 
   await sendJSON("PUT", `/api/engagements/${id}/mapping`, { mappings });
   if (currentEngagement.id !== id) return;  // the user has opened another engagement
   fsMapEdits = {};
+  aiMapHints = {};
+  $("fs-ai-note").hidden = true;
   await loadStatements();
   await loadEngagementActivity();
 }, canSaveMapping));
