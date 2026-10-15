@@ -86,6 +86,10 @@ def test_risk_assessment_needs_a_trial_balance_and_some_risks(fake_api):  # noqa
     for _ in range(2):
         assert client.post(f"/api/engagements/{eid}/ai/risk-assessment", json={}).status_code == 502
     assert client.get(f"/api/engagements/{eid}/ai-drafts").json()["risk"]["count"] == 0
+    # An answer that can't be used is logged as a failure, not as a success.
+    entries = activity(eid, "assistant.risk_assessment")
+    assert {e["summary"] for e in entries} == {"Asked the AI assistant for a risk assessment (failed)"}
+    assert "no risks" in entries[-1]["details"]["outcome"]
 
 
 def test_management_letter_cites_only_findings_it_was_sent(fake_api):  # noqa: F811
@@ -137,6 +141,25 @@ def test_long_registers_send_the_most_severe(fake_api, monkeypatch):  # noqa: F8
     prompt = fake_api["calls"][0][1]
     first = json.loads(prompt.split("<findings>\n")[1].splitlines()[0])
     assert ai_writer.SEVERITY_RANK[first["severity"]] == worst
+    # The auditor can see that the letter doesn't cover every finding.
+    book = openpyxl.load_workbook(io.BytesIO(client.get(f"/api/ai-drafts/{d['id']}/export").content))
+    summary = {r[0].value: r[1].value for r in book["Summary"].iter_rows()}
+    assert summary["Coverage"].startswith(f"Written from 3 of {len(findings)} findings")
+
+
+def test_risk_assessment_sees_findings_added_by_hand(fake_api):  # noqa: F811
+    eid, _ = findings_engagement()
+    r = client.post(f"/api/engagements/{eid}/findings", json={
+        "severity": "low", "detail": "Inventory count not attended", "account": "1300",
+        "amount": 5000})
+    assert r.status_code == 201, r.text
+    fake_api["answers"].append(RISKS)
+    assert client.post(f"/api/engagements/{eid}/ai/risk-assessment", json={}).status_code == 201
+    prompt = fake_api["calls"][0][1]
+    context = json.loads(prompt.split("<engagement>\n")[1].split("\n</engagement>")[0])
+    first = context["most_severe_findings"][0]
+    assert first["detail"] == "Inventory count not attended" and first["account"] == "1300"
+    assert "unclassified_accounts" in context["uncorrected_misstatements"]
 
 
 def test_drafts_go_with_their_engagement(fake_api):  # noqa: F811
@@ -169,6 +192,7 @@ def test_busy_and_failed_are_logged(fake_api, monkeypatch):  # noqa: F811
     "Asked the AI assistant to draft a management letter from 12 findings (failed)",
     "Asked the AI assistant for a risk assessment (failed)",
     "Downloaded AI risk assessment #3", "Downloaded AI management letter #4",
+    "Written from 80 of 120 findings, the most severe first. The rest were not sent.",
     "There are no findings with those statuses to write about.",
     "The AI's answer had no risks in it. Try again.",
     "The AI's answer had no letter points in it. Try again.",

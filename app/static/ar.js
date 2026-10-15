@@ -852,6 +852,7 @@ I18N.add({
     "Asked the AI assistant for a risk assessment (failed)": "تم طلب تقييم المخاطر من المساعد الذكي (فشل)",
   },
   patterns: {
+    "Written from {n} of {total} findings, the most severe first. The rest were not sent.": "صيغت من {n} من أصل {total} ملاحظة، الأشد خطورة أولاً. لم تُرسل البقية.",
     "{n} of {total} ratios moved a lot on last year.": "{n} من أصل {total} نسبة تغيرت بشكل كبير عن السنة السابقة.",
     "Up {x} points on last year": "ارتفعت {x} نقطة عن السنة السابقة",
     "Down {x} points on last year": "انخفضت {x} نقطة عن السنة السابقة",

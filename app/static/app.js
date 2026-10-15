@@ -894,6 +894,7 @@ const ASSERTIONS = {
 const PRIORITIES = { high: "High priority", medium: "Medium priority", low: "Low priority" };
 const aiDrafting = {};  // requests still waiting on the AI, by "kind:engagement id"
 let letterText = "";
+const aiShown = { risk: 0, letter: 0 };  // the draft on show, so an older load can't replace it
 
 function renderAiPanels() {
   const off = !assistant.enabled;
@@ -912,6 +913,7 @@ function draftLabel(d) {
 }
 
 function showRisk(d) {
+  aiShown.risk = d?.id || 0;
   $("ra-out").hidden = !d;
   $("ra-export").hidden = !d;
   if (!d) return;
@@ -928,12 +930,15 @@ function showRisk(d) {
 }
 
 function showLetter(d) {
+  aiShown.letter = d?.id || 0;
   $("ml-out").hidden = !d;
   $("ml-export").hidden = $("ml-copy").hidden = !d;
   if (!d) return;
   const c = d.content;
   $("ml-export").href = `/api/ai-drafts/${d.id}/export`;
-  $("ml-label").innerHTML = draftLabel(d);
+  const s = d.sent || {};
+  $("ml-label").innerHTML = draftLabel(d) + (s.findings_total > s.findings
+    ? `<div class="warn-box">${esc(`Written from ${s.findings} of ${s.findings_total} findings, the most severe first. The rest were not sent.`)}</div>` : "");
   const findings = (ids) => ids.map((i) => `<a href="#" data-open-finding="${i}" translate="no">#${i}</a>`).join(", ");
   $("ml-letter").innerHTML = `<p>${data(c.intro)}</p>` + c.points.map((p, i) => `<div class="point">
       <h3>${i + 1}. ${data(p.title)}</h3>
@@ -951,8 +956,9 @@ async function loadAiDrafts() {
   const id = currentEngagement.id;
   const r = await getJSON(`/api/engagements/${id}/ai-drafts`);
   if (currentEngagement?.id !== id) return;
-  showRisk(r.risk.latest);
-  showLetter(r.letter.latest);
+  // A draft made while this was loading is newer than what it found.
+  if ((r.risk.latest?.id || 0) >= aiShown.risk) showRisk(r.risk.latest);
+  if ((r.letter.latest?.id || 0) >= aiShown.letter) showLetter(r.letter.latest);
 }
 
 async function draftWithAi(kind, url, body) {

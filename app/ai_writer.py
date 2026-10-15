@@ -26,7 +26,7 @@ from .ai_tools import DATA_ONLY, _list, _text, ask, require_ai
 from .auth import current_user, log, require
 from .dashboard import bank_state
 from .db import AiDraft, Engagement, Finding, User, get_session
-from .engagements import get_or_404, materiality_out, safe_stem
+from .engagements import get_or_404, held_engagement, materiality_out, safe_stem
 from .exports import attachment, finish_workbook
 from .leadsheets import compute
 from .statements import LINE
@@ -36,6 +36,7 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 TIMEOUT = 240
 MAX_TOKENS = 16000
 MAX_LETTER_FINDINGS = 80
+MAX_RISK_FINDINGS = 30  # findings described one by one in the risk assessment
 MAX_RISKS = 25
 MAX_POINTS = 30
 SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
@@ -132,6 +133,14 @@ def risk_context(session: Session, e: Engagement, body: RiskIn) -> tuple[dict, d
     by_check: dict[tuple[str, str], int] = {}
     for f in findings:
         by_check[(f.check_name, f.severity)] = by_check.get((f.check_name, f.severity), 0) + 1
+    # The counts say little about findings added by hand (all one "check"), so the most
+    # severe findings are also described one by one, those added by hand first.
+    findings.sort(key=lambda f: (f.source != "manual", SEVERITY_RANK.get(f.severity, 3),
+                                 f.id))
+    detailed = [{"check": f.check_name, "severity": f.severity, "account": f.account,
+                 "description": _text(f.description, 300),
+                 "detail": _text(f.detail, 300), "amount": f.amount}
+                for f in findings[:MAX_RISK_FINDINGS]]
     unc = data["uncorrected"]
     context = {
         "engagement": {"framework": e.framework, "period_end": e.period_end.isoformat(),
@@ -144,9 +153,15 @@ def risk_context(session: Session, e: Engagement, body: RiskIn) -> tuple[dict, d
         "findings_not_cleared": [{"check": c, "severity": s, "count": n}
                                  for (c, s), n in sorted(by_check.items(),
                                                          key=lambda x: -x[1])][:40],
-        "uncorrected_misstatements": {"entries": len(unc["entries"]), "profit": unc["profit"],
-                                      "net_assets": unc["net_assets"],
-                                      "pct_of_materiality": unc["pct_of_overall"]},
+        "most_severe_findings": detailed,
+        "findings_described": f"{len(detailed)} of {len(findings)}",
+        # Accounts not mapped yet aren't counted in the effect, so no percentage until they are.
+        "uncorrected_misstatements": {
+            "entries": len(unc["entries"]), "profit": unc["profit"],
+            "net_assets": unc["net_assets"],
+            "pct_of_materiality": None if unc["unclassified"] else unc["pct_of_overall"],
+            "unclassified_accounts": unc["unclassified"][:20],
+            "conclusion": unc["conclusion"]},
         "bank_reconciliation": bank_state(e),
     }
     sent = {"lines": len(lines), "ratios": len(ratios), "findings": len(findings),
@@ -181,6 +196,13 @@ def clean_risks(answer: dict) -> dict:
     return {"summary": _text(answer.get("summary"), 2000), "risks": risks[:MAX_RISKS]}
 
 
+def checked_risks(answer: dict) -> dict:
+    content = clean_risks(answer)
+    if not content["risks"]:
+        raise ValueError("The AI's answer had no risks in it. Try again.")
+    return content
+
+
 @router.post("/engagements/{engagement_id}/ai/risk-assessment", status_code=201)
 def risk_assessment(engagement_id: int, body: RiskIn, user: User = Depends(require("prepare")),
                     session: Session = Depends(get_session)) -> dict:
@@ -190,13 +212,11 @@ def risk_assessment(engagement_id: int, body: RiskIn, user: User = Depends(requi
     context, sent = risk_context(session, e, body)
     prompt = (f"<engagement>\n{json.dumps(context, default=str)}\n</engagement>\n\n"
               "Assess the risks of material misstatement." + LANGUAGE[body.language])
-    answer = ask(session, user, e.id, "assistant.risk_assessment",
-                 "Asked the AI assistant for a risk assessment", sent, RISK_SYSTEM, prompt,
-                 max_tokens=MAX_TOKENS, timeout=TIMEOUT)
-    content = clean_risks(answer)
-    if not content["risks"]:
-        raise HTTPException(502, "The AI's answer had no risks in it. Try again.")
-    e = get_or_404(session, Engagement, engagement_id, user)
+    content = ask(session, user, e.id, "assistant.risk_assessment",
+                  "Asked the AI assistant for a risk assessment", sent, RISK_SYSTEM, prompt,
+                  check=checked_risks, max_tokens=MAX_TOKENS, timeout=TIMEOUT)
+    # Held like a deletion holds it, so the engagement can't go between the check and the save.
+    e = held_engagement(session, user, engagement_id, f"team:{engagement_id}")
     d = save(session, e, user, "risk", body.language, content, sent)
     session.commit()
     return draft_out(d)
@@ -259,13 +279,19 @@ def management_letter(engagement_id: int, body: LetterIn,
               + "\n</findings>\n\nWrite the management letter points."
               + LANGUAGE[body.language])
     sent = {"findings": len(briefs), "findings_total": total, "statuses": statuses}
-    answer = ask(session, user, e.id, "assistant.management_letter",
-                 f"Asked the AI assistant to draft a management letter from {len(briefs)} "
-                 "findings", sent, LETTER_SYSTEM, prompt, max_tokens=MAX_TOKENS, timeout=TIMEOUT)
-    content = clean_letter(answer, {b["number"] for b in briefs})
-    if not content["points"]:
-        raise HTTPException(502, "The AI's answer had no letter points in it. Try again.")
-    e = get_or_404(session, Engagement, engagement_id, user)
+    sent_ids = {b["number"] for b in briefs}
+
+    def checked(answer: dict) -> dict:
+        content = clean_letter(answer, sent_ids)
+        if not content["points"]:
+            raise ValueError("The AI's answer had no letter points in it. Try again.")
+        return content
+
+    content = ask(session, user, e.id, "assistant.management_letter",
+                  f"Asked the AI assistant to draft a management letter from {len(briefs)} "
+                  "findings", sent, LETTER_SYSTEM, prompt, check=checked, max_tokens=MAX_TOKENS,
+                  timeout=TIMEOUT)
+    e = held_engagement(session, user, engagement_id, f"team:{engagement_id}")
     d = save(session, e, user, "letter", body.language, content, sent)
     session.commit()
     return draft_out(d)
@@ -303,6 +329,10 @@ def to_excel(d: AiDraft, context: dict) -> bytes:
         } for r in c["risks"]])
         sheet = "Risks"
     else:
+        s = d.sent
+        if s.get("findings_total", 0) > s.get("findings", 0):
+            head += [("Coverage", f"Written from {s['findings']} of {s['findings_total']} "
+                                  "findings, the most severe first. The rest were not sent.")]
         head += [("Introduction", c["intro"]), ("Closing", c["closing"])]
         rows = pd.DataFrame([{
             "Priority": PRIORITIES[p["priority"]], "Point": p["title"],

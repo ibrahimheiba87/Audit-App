@@ -109,8 +109,11 @@ def parse_json(text: str) -> dict:
 
 
 def ask(session: Session, user: User, engagement_id: int, action: str, summary: str,
-        details: dict, system: str, content, **kw) -> dict:
-    """Call the API outside any transaction, log the outcome, and return the parsed JSON."""
+        details: dict, system: str, content, check=None, **kw):
+    """Call the API outside any transaction, log the outcome, and return the parsed JSON.
+
+    `check`, if given, turns the answer into what the caller keeps, or raises ValueError with
+    why it can't be used; that is logged as a failure, not as "ok"."""
     session.rollback()  # don't hold a transaction open while waiting on the API
     details = {**details, "model": assistant.model()}
     if not assistant._slots.acquire(blocking=False):
@@ -124,6 +127,11 @@ def ask(session: Session, user: User, engagement_id: int, action: str, summary: 
         answer, error = None, str(exc)
     finally:
         assistant._slots.release()
+    if error is None and check is not None:
+        try:
+            answer = check(answer)
+        except ValueError as exc:
+            answer, error = None, str(exc)
     e = session.get(Engagement, engagement_id)
     outcome = "ok" if error is None else error
     if error is None and e is None:
