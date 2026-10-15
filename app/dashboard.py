@@ -116,7 +116,10 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     rv = review.review_out(session, e)
     rq = portal.summary(list(e.document_requests))
     fs = statements_state(session, e, upload_id, prior_upload_id)
-    gl_runs = sum(1 for r in e.runs if r.upload.kind == "gl")
+    # The checks count as run once the latest general ledger has been checked.
+    gls = [u for u in e.uploads if u.kind == "gl"]
+    latest_gl = max(gls, key=lambda u: (u.uploaded_at, u.id)) if gls else None
+    gl_runs = sum(1 for r in e.runs if latest_gl is not None and r.upload_id == latest_gl.id)
     last = e.runs[-1] if e.runs else None
     days_left = (e.period_end - date.today()).days
     return {

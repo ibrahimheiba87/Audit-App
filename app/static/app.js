@@ -401,6 +401,7 @@ $("mat-form").addEventListener("submit", (e) => {
     const eng = await sendJSON("PUT", `/api/engagements/${currentEngagement.id}/materiality`, materialityBody());
     currentEngagement = eng;
     renderMateriality(eng.materiality);
+    refreshDashboard();
   });
 });
 
@@ -609,6 +610,7 @@ async function loadStatements() {
   fs = error ? null : data;
   fsEngagementId = error ? null : id;
   renderStatementsPanel(error);
+  refreshDashboard();  // also after a failure, so the overview shows the same files
 }
 
 function renderStatementsPanel(error = null) {
@@ -641,7 +643,6 @@ function renderStatementsPanel(error = null) {
   renderStatementTables();
   renderUncorrected();
   renderRatios();
-  refreshDashboard();
 }
 
 ["fs-tb", "fs-prior"].forEach((id) => $(id).addEventListener("change", () => guard(loadStatements)));
@@ -1008,8 +1009,8 @@ function refreshDashboard() {
 async function loadDashboard() {
   const id = currentEngagement.id;
   const load = ++dashLoads;
-  // The same trial balances as the statements panel, once it has loaded this engagement's.
-  const q = fsEngagementId === id ? fsQuery() : "";
+  // The trial balances picked in the statements panel (fsQuery skips any not of this engagement).
+  const q = fsQuery();
   const d = await getJSON(`/api/engagements/${id}/dashboard?${q}`);
   if (currentEngagement?.id !== id || load !== dashLoads) return;
   const sevs = d.findings.open_by_severity;
@@ -1029,7 +1030,7 @@ async function loadDashboard() {
   $("dash-steps").innerHTML = d.next_steps.length ? d.next_steps.map((s) => `<li>
       <span class="sev ${esc(s.priority)}">${esc(SEVERITY_LABEL[s.priority])}</span>
       <button type="button" class="link" data-goto="${esc(s.panel)}" data-tab-to="${esc(s.tab || "")}">${esc(s.text)}</button></li>`).join("")
-    : '<li class="muted">Nothing outstanding. Every section is reviewed and nothing is open.</li>';
+    : '<li class="muted">No next steps right now.</li>';
 }
 
 const SEVERITY_LABEL = { high: "High", medium: "Medium", low: "Low" };

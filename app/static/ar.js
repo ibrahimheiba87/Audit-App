@@ -683,7 +683,7 @@ I18N.add({
     "Overdue requests": "الطلبات المتأخرة",
     "Ratios to explain": "نسب تحتاج إلى تفسير",
     "Days since period end": "أيام منذ نهاية الفترة",
-    "Nothing outstanding. Every section is reviewed and nothing is open.": "لا يوجد شيء معلّق. جميع الأقسام مراجَعة ولا يوجد شيء مفتوح.",
+    "No next steps right now.": "لا توجد خطوات تالية حاليًا.",
     "Set materiality.": "حدّد الأهمية النسبية.",
     "Upload this year's trial balance.": "ارفع ميزان المراجعة لهذه السنة.",
     "Upload the general ledger to run the journal entry checks.": "ارفع دفتر الأستاذ العام لتشغيل اختبارات قيود اليومية.",
