@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from . import checks, db, loader, portal, report
 from .accounts import router as accounts_router
+from .ai_tools import router as ai_tools_router
 from .assistant import router as assistant_router
 from .auth import current_user, log
 from .comparisons import router as comparisons_router
@@ -50,7 +51,7 @@ app.include_router(accounts_router)
 # Everything else needs a signed-in user; endpoints check the role they need.
 for router in (engagements_router, comparisons_router, samples_router, findings_router,
                leadsheets_router, review_router, assistant_router, dashboard_router,
-               reconciliations_router, rollforward_router):
+               reconciliations_router, rollforward_router, ai_tools_router):
     app.include_router(router, dependencies=[Depends(current_user)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router)

@@ -114,7 +114,12 @@ def create_reconciliation(engagement_id: int, body: BankRecIn,
         balances = tb_balances(e, {bankrec.account_code(a) for a in accounts})
         if balances:
             book_balance, book_source = round(sum(balances.values()), 2), "trial balance"
-    settings = bankrec.Settings(e.period_end, accounts, body.window_days, body.bank_balance,
+    bank_balance, bank_source = body.bank_balance, "entered"
+    read = (bank_upload.import_report or {}).get("read_by_ai") or {}
+    if (bank_balance is None and read.get("period_end") == e.period_end.isoformat()
+            and read.get("balance_at_period_end") is not None):
+        bank_balance, bank_source = read["balance_at_period_end"], "statement"
+    settings = bankrec.Settings(e.period_end, accounts, body.window_days, bank_balance,
                                 book_balance, body.flip_bank, e.period_start)
     bank = load_upload(bank_upload)
     try:
@@ -124,6 +129,7 @@ def create_reconciliation(engagement_id: int, body: BankRecIn,
     except bankrec.BankRecError as exc:
         raise HTTPException(400, str(exc)) from exc
     result["settings"]["book_balance_source"] = book_source if book_balance is not None else None
+    result["settings"]["bank_balance_source"] = bank_source if bank_balance is not None else None
     r = BankReconciliation(engagement=e, bank_upload=bank_upload, gl_upload=gl_upload,
                            settings=result["settings"], result=result, created_by=user.name)
     session.add(r)

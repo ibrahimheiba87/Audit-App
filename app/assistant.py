@@ -94,15 +94,17 @@ def enabled() -> bool:
     return bool(api_key())
 
 
-def call_claude(system: str, prompt: str) -> str:
-    """Send one message to the Claude API and return the text of the answer."""
-    body = json.dumps({"model": model(), "max_tokens": MAX_TOKENS, "system": system,
-                       "messages": [{"role": "user", "content": prompt}]}).encode()
+def request_claude(system: str, content: str | list, max_tokens: int = MAX_TOKENS,
+                   timeout: int = TIMEOUT_SECONDS) -> str:
+    """Send one message (text, or content blocks such as a PDF) to the Claude API and return
+    the text of the answer, whole."""
+    body = json.dumps({"model": model(), "max_tokens": max_tokens, "system": system,
+                       "messages": [{"role": "user", "content": content}]}).encode()
     req = urllib.request.Request(API_URL, data=body, method="POST", headers={
         "x-api-key": api_key(), "anthropic-version": "2023-06-01",
         "content-type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as res:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
             data = json.load(res)
         stop = data.get("stop_reason")
         text = "".join(block.get("text", "") for block in data.get("content", [])
@@ -124,6 +126,12 @@ def call_claude(system: str, prompt: str) -> str:
         raise AssistantError("The answer was cut off before it finished. Try again.")
     if not text:
         raise AssistantError("The Claude API sent back an empty answer.")
+    return text
+
+
+def call_claude(system: str, prompt: str) -> str:
+    """Ask about a finding; the answer is cut to fit a finding note."""
+    text = request_claude(system, prompt)
     if len(text) > MAX_ANSWER:
         text = text[:MAX_ANSWER].rstrip() + " [cut to fit a note]"
     return text
