@@ -128,6 +128,16 @@ class Engagement(Base):
     ai_drafts: Mapped[list[AiDraft]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="AiDraft.id"
     )
+    lock: Mapped[EngagementLock | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
+    acceptance: Mapped[AcceptanceChecklist | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
+    declarations: Mapped[list[IndependenceDeclaration]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="IndependenceDeclaration.id"
+    )
 
 
 class Upload(Base):
@@ -231,6 +241,61 @@ class AiDraft(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="ai_drafts")
+
+
+class EngagementLock(Base):
+    """A locked engagement: its file is final and read-only (locking.py). Archived ones are
+    also left out of the engagement list unless asked for."""
+
+    __tablename__ = "engagement_locks"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    locked_by: Mapped[str] = mapped_column(String(200), default="")
+    locked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    note: Mapped[str] = mapped_column(Text, default="")
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    archived_by: Mapped[str] = mapped_column(String(200), default="")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="lock")
+
+
+class AcceptanceChecklist(Base):
+    """The acceptance and continuance checklist for an engagement, and the partner's decision
+    (acceptance.py)."""
+
+    __tablename__ = "acceptance_checklists"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    answers: Mapped[dict] = mapped_column(JSON, default=dict)  # {question: {answer, comment}}
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    decision: Mapped[str | None] = mapped_column(String(20), nullable=True)  # accept | decline
+    decision_note: Mapped[str] = mapped_column(Text, default="")
+    decided_by: Mapped[str] = mapped_column(String(200), default="")
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="acceptance")
+
+
+class IndependenceDeclaration(Base):
+    """A team member's confirmation of their independence from the client, or the threats
+    they declare and the safeguards against them. One per person, replaced when renewed."""
+
+    __tablename__ = "independence_declarations"
+    __table_args__ = (UniqueConstraint("engagement_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    user_name: Mapped[str] = mapped_column(String(200), default="")
+    independent: Mapped[bool] = mapped_column(Boolean)
+    threats: Mapped[str] = mapped_column(Text, default="")
+    safeguards: Mapped[str] = mapped_column(Text, default="")
+    declared_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="declarations")
 
 
 class Risk(Base):

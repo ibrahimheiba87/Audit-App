@@ -246,3 +246,11 @@ td.bad { color: var(--high); }
 .proc-add input { flex: 1; margin: 0; }
 /* Aging */
 #ag-buckets tr.total th { border-top: 1px solid var(--muted); }
+/* Acceptance checklist */
+.ac-q { border-bottom: 1px solid var(--border); padding: 10px 0; }
+.ac-q p { margin: 0 0 4px; }
+.ac-q [data-comment] { margin-top: 6px; }
+.ac-q.flagged { border-inline-start: 3px solid var(--medium); padding-inline-start: 10px; }
+.ac-q .flag-note { color: var(--medium); margin-top: 4px; }
+#ac-decide { margin-top: 16px; }
+#eng-locked { margin-top: 10px; }

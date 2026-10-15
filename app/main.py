@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from . import checks, db, loader, portal, report
+from .acceptance import router as acceptance_router
 from .accounts import router as accounts_router
 from .ai_tools import router as ai_tools_router
 from .ai_writer import router as ai_writer_router
@@ -28,6 +29,8 @@ from .engagements import router as engagements_router
 from .exports import attachment
 from .findings import router as findings_router
 from .leadsheets import router as leadsheets_router
+from .locking import check_unlocked
+from .locking import router as locking_router
 from .portal import router as portal_router
 from .reconciliations import router as reconciliations_router
 from .review import router as review_router
@@ -55,10 +58,11 @@ app.include_router(accounts_router)
 for router in (engagements_router, comparisons_router, samples_router, findings_router,
                leadsheets_router, review_router, assistant_router, dashboard_router,
                reconciliations_router, rollforward_router, ai_tools_router,
-               ai_writer_router, analysis_router, risks_router):
-    app.include_router(router, dependencies=[Depends(current_user)])
+               ai_writer_router, analysis_router, risks_router, locking_router,
+               acceptance_router):
+    app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
-app.include_router(portal_router)
+app.include_router(portal_router, dependencies=[Depends(check_unlocked)])
 
 
 @dataclass

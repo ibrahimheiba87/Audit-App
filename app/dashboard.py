@@ -63,7 +63,8 @@ def bank_state(e: Engagement) -> dict | None:
 
 def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, findings: dict,
                open_high: int, rv: dict, rq: dict, fs: dict | None,
-               bank: dict | None = None, risks: dict | None = None) -> list[dict]:
+               bank: dict | None = None, risks: dict | None = None,
+               acceptance: dict | None = None) -> list[dict]:
     """The to-do list, most pressing first. Each step names the panel (and tab) that deals
     with it."""
     steps: list[dict] = []
@@ -110,6 +111,18 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
         elif bank["stale"]:
             add("medium", f"Follow up {_plural(bank['stale'], 'old reconciling item')} on the "
                           "bank reconciliation.", "bank-panel")
+    if acceptance is not None:
+        if acceptance["started"] and not acceptance["decision"]:
+            add("medium", "Record the acceptance decision.", "ac-panel")
+        if acceptance["decision"] == "decline":
+            add("high", "The engagement was declined at acceptance.", "ac-panel")
+        if acceptance["threats"]:
+            add("high", f"Consider the threats to independence declared by "
+                        f"{_plural(acceptance['threats'], 'team member')}.", "ac-panel")
+        missing = acceptance["team"] - acceptance["declared"]
+        if acceptance["any_declared"] and missing > 0:
+            add("medium", f"{_plural(missing, 'team member')} still to confirm independence.",
+                "ac-panel")
     if risks is not None:
         if not risks["risks"] and risks.get("ai_draft"):
             add("low", "Add the risks from the AI risk assessment to the risk register.",
@@ -158,7 +171,9 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     gl_runs = sum(1 for r in e.runs if latest_gl is not None and r.upload_id == latest_gl.id)
     last = e.runs[-1] if e.runs else None
     bank = bank_state(e)
-    from .risks import summary  # here, as risks imports ai_writer, which imports this module
+    # Imported here, as both import ai_writer or engagements, which import this module.
+    from .acceptance import summary as acceptance_summary
+    from .risks import summary
     # Teams may keep their risk assessment elsewhere: only suggest the register to those who
     # started one here, or asked the AI for a risk assessment.
     risk_summary = {**summary(list(e.risks)),
@@ -189,5 +204,6 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
         "risks": risk_summary,
         "next_steps": next_steps(e, mat, kinds, gl_runs, findings,
                                  open_by_severity.get("high", 0), rv, rq, fs, bank,
-                                 risk_summary),
+                                 risk_summary, acceptance_summary(e))
+        if e.lock is None else [],
     }

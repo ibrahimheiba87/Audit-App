@@ -160,6 +160,14 @@ def bodies(ids):
         ("POST", "/api/requests/{request_id}/messages"): {"json": {"text": "x"}},
         ("GET", "/api/request-files/{file_id}"): {},
         ("DELETE", "/api/request-files/{file_id}"): {},
+        ("POST", "/api/engagements/{engagement_id}/lock"): {"json": {}},
+        ("POST", "/api/engagements/{engagement_id}/archive"): {"json": {"archived": True}},
+        ("GET", "/api/engagements/{engagement_id}/acceptance"): {},
+        ("PUT", "/api/engagements/{engagement_id}/acceptance"): {"json": {}},
+        ("POST", "/api/engagements/{engagement_id}/acceptance/decision"):
+            {"json": {"decision": "decline"}},
+        ("GET", "/api/engagements/{engagement_id}/acceptance/export"): {},
+        ("POST", "/api/engagements/{engagement_id}/independence"): {"json": {"independent": True}},
     }
 
 
@@ -169,6 +177,7 @@ NOT_ENGAGEMENT_ROUTES = {
     ("DELETE", "/api/clients/{client_id}"), ("POST", "/api/clients/{client_id}/engagements"),
     ("PATCH", "/api/users/{user_id}"),
     ("PUT", "/api/engagements/{engagement_id}/team"),  # admins only
+    ("DELETE", "/api/engagements/{engagement_id}/lock"),  # admins only
 }
 
 
