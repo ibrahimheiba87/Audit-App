@@ -1073,6 +1073,9 @@ I18N.add({
     "This engagement is already locked.": "هذا الارتباط مقفل بالفعل.",
     "This engagement isn't locked.": "هذا الارتباط غير مقفل.",
     "Lock the engagement before archiving it.": "اقفل الارتباط قبل أرشفته.",
+    "Independent": "مستقل",
+    "Your auditors have closed this audit file, so nothing more can be sent for it.": "أغلق مدققوك ملف التدقيق هذا، لذا لا يمكن إرسال أي شيء آخر له.",
+    "Your auditors have closed this audit file, so nothing more can be sent for it. Contact them if you need to.": "أغلق مدققوك ملف التدقيق هذا، لذا لا يمكن إرسال أي شيء آخر له. تواصل معهم إن احتجت إلى ذلك.",
   },
   patterns: {
     "Written from {n} of {total} findings, the most severe first. The rest were not sent.": "صيغت من {n} من أصل {total} ملاحظة، الأشد خطورة أولاً. لم تُرسل البقية.",

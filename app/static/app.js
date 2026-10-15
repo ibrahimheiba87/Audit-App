@@ -491,6 +491,10 @@ function renderAcceptance() {
     $("ac-cards").innerHTML = $("ac-status").innerHTML = $("ac-questions").innerHTML = "";
     $("ac-members").innerHTML = $("ind-mine").textContent = $("ac-saved").textContent = "";
     $("ac-conclusion").value = $("ac-note").value = "";
+    $("ac-export").removeAttribute("href");
+    $("ac-pick").value = "accept";
+    $("ind-form").reset();
+    $("ind-threat").hidden = true;
     return;
   }
   const ind = ac.independence;
@@ -522,7 +526,7 @@ function renderAcceptance() {
   }).join("");
   $("ac-conclusion").value = ac.conclusion;
   $("ac-saved").innerHTML = ac.updated_by ? `<span>Last saved by</span> ${data(ac.updated_by)} · <span>${esc(when(ac.updated_at))}</span>` : "";
-  if (ac.decision) $("ac-pick").value = ac.decision;
+  $("ac-pick").value = ac.decision || "accept";
   $("ac-note").value = ac.decision_note;
   $("ac-members").innerHTML = ind.members.length
     ? `<thead><tr><th>Team member</th><th>Role</th><th>Declaration</th><th>Threats and safeguards</th><th>Declared</th></tr></thead><tbody>
@@ -2341,8 +2345,9 @@ function restoreDrafts(root) {
   });
 }
 
-function requestCard(r, team) {
-  const open = r.status !== "accepted";
+// `locked`: the engagement is locked, so nothing can be sent, changed or removed.
+function requestCard(r, team, locked = false) {
+  const open = r.status !== "accepted" && !locked;
   const files = r.files.map((f) => {
     const canRemove = open && (f.uploaded_by_id === me.id || (team && me.rank >= 2));
     return `<li><button type="button" class="small secondary file" data-rq-file="${f.id}">${data(f.filename)}</button>
@@ -2355,10 +2360,10 @@ function requestCard(r, team) {
     team && m.from_client ? esc(m.author) + " (client)" : data(m.author)} · ${esc(when(m.at))}</div></div>`).join("");
   const actions = [];
   if (open) actions.push(`<label class="button small upload">${r.files.length ? "Add a file" : "Upload a file"}<input type="file" multiple data-rq-upload class="visually-hidden"></label>`);
-  if (team && r.status === "submitted") actions.push('<button type="button" class="small" data-rq-accept>Accept files</button>');
+  if (team && !locked && r.status === "submitted") actions.push('<button type="button" class="small" data-rq-accept>Accept files</button>');
   if (team && open && (!r.files.length || me.rank >= 2)) actions.push('<button type="button" class="small secondary danger" data-rq-delete>Delete request</button>');
   // Reopening accepted files is for reviewers; the server refuses preparers.
-  const returnable = team && (r.status === "submitted" || (r.status === "accepted" && me.rank >= 2));
+  const returnable = team && !locked && (r.status === "submitted" || (r.status === "accepted" && me.rank >= 2));
   return `<div class="rq ${r.status}" data-rq="${r.id}">
     <div class="head"><strong>${r.number}. ${data(r.title)}</strong>
       <span class="st rq-${r.status}">${esc(r.status_label)}</span>
@@ -2368,9 +2373,9 @@ function requestCard(r, team) {
     ${files ? `<ul class="rq-files">${files}</ul>` : `<p class="tag">${team ? "No files yet." : "Nothing sent yet."}</p>`}
     ${messages}
     ${actions.length ? `<div class="cell-actions">${actions.join("")}</div>` : ""}
-    <form data-rq-message><textarea name="text" rows="1" maxlength="5000" aria-label="Message" placeholder="${team ? "Message to the client" : "Message to your auditors"}"></textarea>
+    ${locked ? "" : `<form data-rq-message><textarea name="text" rows="1" maxlength="5000" aria-label="Message" placeholder="${team ? "Message to the client" : "Message to your auditors"}"></textarea>
       <button type="submit" class="small secondary">Send message</button>
-      ${returnable ? '<button type="button" class="small secondary" data-rq-return title="Send this request back to the client with the message">Send back with message</button>' : ""}</form>
+      ${returnable ? '<button type="button" class="small secondary" data-rq-return title="Send this request back to the client with the message">Send back with message</button>' : ""}</form>`}
   </div>`;
 }
 
@@ -2463,7 +2468,7 @@ function renderRequests() {
   keepDrafts($("rq-list"));
   const filter = $("rq-filter").value.split(",").filter(Boolean);
   const list = rq.requests.filter((r) => !filter.length || filter.includes(r.status));
-  $("rq-list").innerHTML = list.length ? list.map((r) => requestCard(r, true)).join("")
+  $("rq-list").innerHTML = list.length ? list.map((r) => requestCard(r, true, !!currentEngagement?.lock)).join("")
     : `<p class="muted">${rq.requests.length ? "No requests match." : "No requests yet."}</p>`;
   restoreDrafts($("rq-list"));
 }
@@ -2517,7 +2522,8 @@ function renderPortal() {
     return `<section class="panel">
       <h2>${data(e.name)} <span class="muted">· period ending ${esc(e.period_end)}</span></h2>
       <p class="tag" style="margin-top:-6px">${owed ? `${owed} still to send` : "Nothing left to send"}${e.summary.overdue ? ` · <span class="overdue">${e.summary.overdue} overdue</span>` : ""} · ${e.summary.accepted} of ${e.summary.total} accepted</p>
-      ${list.length ? list.map((r) => requestCard(r, false)).join("") : '<p class="muted">Nothing here right now.</p>'}
+      ${e.locked ? '<p class="warn-box">Your auditors have closed this audit file, so nothing more can be sent for it.</p>' : ""}
+      ${list.length ? list.map((r) => requestCard(r, false, e.locked)).join("") : '<p class="muted">Nothing here right now.</p>'}
     </section>`;
   }).join("");
   $("pt-list").innerHTML = html || '<section class="panel muted">Your auditors haven\'t asked for anything yet.</section>';

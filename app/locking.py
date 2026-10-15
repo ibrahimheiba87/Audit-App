@@ -15,6 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, StringConstraints
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from . import auth
@@ -69,6 +70,8 @@ ALLOWED_WHEN_LOCKED = {
 READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 LOCKED = ("This engagement is locked, so its file can't be changed. An admin can unlock it "
           "if it has to be.")
+CLIENT_LOCKED = ("Your auditors have closed this audit file, so nothing more can be sent "
+                 "for it. Contact them if you need to.")
 Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)]
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
@@ -102,10 +105,30 @@ def check_unlocked(request: Request, user: User = Depends(signed_in_user),
         engagement_id = engagement_id_of(obj) if obj is not None else None
         if engagement_id is None:
             return  # missing: the route answers with its own 404
-        if (session.get(EngagementLock, engagement_id) is not None
-                and can_see(session, user, obj, engagement_id)):
-            raise HTTPException(409, LOCKED)
+        if not can_see(session, user, obj, engagement_id):
+            return  # the route answers with its own 404
+        if session.get(EngagementLock, engagement_id) is not None:
+            raise HTTPException(409, locked_message(user))
+        # Checked again as the change is saved: the engagement may be locked in between,
+        # for instance while the AI assistant is answering or a large file is uploading.
+        session.info["unlocked_engagement"] = (engagement_id, locked_message(user))
         return
+
+
+def locked_message(user: User) -> str:
+    return CLIENT_LOCKED if user.role == "client" else LOCKED
+
+
+@event.listens_for(Session, "before_commit")
+def _still_unlocked(session: Session) -> None:
+    checked = session.info.get("unlocked_engagement")
+    if checked is None:
+        return
+    engagement_id, message = checked
+    locked = session.execute(select(EngagementLock.engagement_id)
+                             .where(EngagementLock.engagement_id == engagement_id)).first()
+    if locked is not None:
+        raise HTTPException(409, message)
 
 
 def held(session: Session, user: User, engagement_id: int) -> Engagement:

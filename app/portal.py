@@ -368,6 +368,7 @@ def portal_requests(user: User = Depends(client_user),
         return {"client": None, "engagements": []}
     engagements = [{
         "id": e.id, "name": e.name, "period_end": e.period_end.isoformat(),
+        "locked": e.lock is not None,
         "requests": [request_out(r) for r in e.document_requests],
         "summary": summary(e.document_requests),
     } for e in sorted(link.client.engagements, key=lambda e: e.period_end, reverse=True)

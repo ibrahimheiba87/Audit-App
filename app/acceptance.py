@@ -15,7 +15,7 @@ from typing import Annotated, Literal
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -72,15 +72,7 @@ class AnswerIn(BaseModel):
 
 class ChecklistIn(BaseModel):
     answers: dict[str, AnswerIn] = Field(default={}, max_length=len(QUESTIONS))
-    conclusion: Text = ""
-
-    @field_validator("answers")
-    @classmethod
-    def known(cls, v: dict[str, AnswerIn]) -> dict[str, AnswerIn]:
-        unknown = sorted(set(v) - set(QUESTION))
-        if unknown:
-            raise ValueError(f"Unknown question: {unknown[0]}.")
-        return v
+    conclusion: Text | None = None  # None keeps the conclusion as it is
 
 
 class DecisionIn(BaseModel):
@@ -160,7 +152,7 @@ def state(session: Session, e: Engagement, user: User) -> dict:
 def summary(e: Engagement) -> dict:
     """For the dashboard: where acceptance and independence stand."""
     c = e.acceptance
-    on_team = {m.user_id for m in e.team}
+    on_team = {m.user_id for m in e.team if m.user.active}  # as state() counts them
     declared = {d.user_id for d in e.declarations}
     return {"started": c is not None, "decision": c.decision if c else None,
             "threats": sum(1 for d in e.declarations if not d.independent),
@@ -178,18 +170,27 @@ def get_acceptance(engagement_id: int, user: User = Depends(current_user),
 def save_checklist(engagement_id: int, body: ChecklistIn,
                    user: User = Depends(require("prepare")),
                    session: Session = Depends(get_session)) -> dict:
+    unknown = sorted(set(body.answers) - set(QUESTION))
+    if unknown:
+        raise HTTPException(400, f"Unknown question: {unknown[0]}.")
     e = held_engagement(session, user, engagement_id, f"acceptance:{engagement_id}")
     before = answered(e.acceptance)
-    c = e.acceptance or AcceptanceChecklist(engagement=e)
     answers = {**before, **{q: a.model_dump() for q, a in body.answers.items()}}
     changed = sorted(q for q in QUESTION if answers[q] != before[q])
-    c.answers = {q: a for q, a in answers.items() if a["answer"] or a["comment"]}
-    c.conclusion = body.conclusion
-    c.updated_by, c.updated_at = user.name, utcnow()
-    session.add(c)
-    log(session, user, "acceptance.update", "Updated the acceptance and continuance checklist",
-        e, details={"changed": changed, "answers": {q: answers[q]["answer"] for q in changed}})
-    session.commit()
+    old_conclusion = e.acceptance.conclusion if e.acceptance else ""
+    conclusion = old_conclusion if body.conclusion is None else body.conclusion
+    # Saving without a change leaves it alone, so the decision isn't marked out of date.
+    if changed or conclusion != old_conclusion:
+        c = e.acceptance or AcceptanceChecklist(engagement=e)
+        c.answers = {q: a for q, a in answers.items() if a["answer"] or a["comment"]}
+        c.conclusion = conclusion
+        c.updated_by, c.updated_at = user.name, utcnow()
+        session.add(c)
+        log(session, user, "acceptance.update",
+            "Updated the acceptance and continuance checklist", e,
+            details={"changed": changed, "answers": {q: answers[q]["answer"] for q in changed},
+                     "conclusion_changed": conclusion != old_conclusion})
+        session.commit()
     return state(session, e, user)
 
 

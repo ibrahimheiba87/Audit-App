@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from openpyxl import load_workbook
 
-from app import acceptance, db
+from app import acceptance, auth, db
 from tests.test_auth import add_user, admin, join, setup_engagement
 from tests.test_portal import PDF, add_client_user, ask, upload
 from tests.test_review import section
@@ -122,7 +122,7 @@ def test_the_client_portal_is_locked_too():
     rq = ask(prep, eid)
     partner.post(f"/api/engagements/{eid}/lock", json={})
     r = upload(cl, rq["id"], PDF)
-    assert r.status_code == 409 and "locked" in r.json()["detail"]
+    assert r.status_code == 409 and "closed this audit file" in r.json()["detail"]
     assert cl.get("/api/portal/requests").status_code == 200
 
 
@@ -163,7 +163,7 @@ def test_checklist_decision_and_flags():
     assert r.json()["answers"]["integrity"]["answer"] == "yes"
     assert r.json()["flags"] == ["fees"]
     assert prep.put(f"/api/engagements/{eid}/acceptance",
-                    json={"answers": {"nonsense": {"answer": "yes"}}}).status_code == 422
+                    json={"answers": {"nonsense": {"answer": "yes"}}}).status_code == 400
 
     # Only a partner decides, once every question is answered...
     assert rev.post(f"/api/engagements/{eid}/acceptance/decision",
@@ -231,3 +231,65 @@ def test_acceptance_export():
     assert not [c for ws in book for row in ws.iter_rows() for c in row if c.data_type == "f"]
     assert any(c.value == "=SUM(A1)" for ws in book for row in ws.iter_rows() for c in row)
     assert "acceptance.download" in actions(eid)
+
+
+def lock_now(eid):
+    """Lock the engagement from elsewhere, as a partner would while a request is under way."""
+    with db.SessionLocal() as s:
+        s.add(db.EngagementLock(engagement_id=eid, locked_by="Partner"))
+        s.commit()
+
+
+def test_a_change_under_way_when_the_engagement_is_locked_is_refused(monkeypatch):
+    _, prep, _, _, eid, _ = crew()
+    real_hold = auth.hold
+
+    def lock_then_hold(session, key):  # after check_unlocked has let the request through
+        lock_now(eid)
+        return real_hold(session, key)
+
+    monkeypatch.setattr(auth, "hold", lock_then_hold)
+    r = prep.post(f"/api/engagements/{eid}/risks",
+                  json={"area": "revenue", "title": "Cut-off", "level": "lower"})
+    assert r.status_code == 409 and "locked" in r.json()["detail"]
+    with db.SessionLocal() as s:
+        assert s.query(db.Risk).count() == 0
+
+
+def test_clients_are_told_the_file_is_closed():
+    a = admin()
+    prep, partner = add_user(a, "preparer"), add_user(a, "partner")
+    acme = a.post("/api/clients", json={"name": "Acme"}).json()
+    eid = a.post(f"/api/clients/{acme['id']}/engagements",
+                 json={"name": "FY2026", "period_end": "2026-12-31"}).json()["id"]
+    cl = add_client_user(a, acme["id"])
+    join(a, eid, prep, partner)
+    rq = ask(prep, eid)
+    assert cl.get("/api/portal/requests").json()["engagements"][0]["locked"] is False
+    partner.post(f"/api/engagements/{eid}/lock", json={})
+    assert cl.get("/api/portal/requests").json()["engagements"][0]["locked"] is True
+    r = cl.post(f"/api/requests/{rq['id']}/messages", json={"text": "Here you go"})
+    assert r.status_code == 409 and "Your auditors have closed" in r.json()["detail"]
+
+
+def test_saving_an_unchanged_checklist_changes_nothing():
+    _, prep, _, partner, eid, _ = crew()
+    prep.put(f"/api/engagements/{eid}/acceptance",
+             json={"answers": all_answers(), "conclusion": "Fine."})
+    partner.post(f"/api/engagements/{eid}/acceptance/decision", json={"decision": "accept"})
+    before = actions(eid).count("acceptance.update")
+    s = prep.put(f"/api/engagements/{eid}/acceptance", json={"answers": all_answers()}).json()
+    assert s["conclusion"] == "Fine." and not s["changed_since_decision"]
+    assert actions(eid).count("acceptance.update") == before
+    r = prep.put(f"/api/engagements/{eid}/acceptance", json={"answers": {"x": {"answer": "yes"}}})
+    assert r.status_code == 400 and r.json()["detail"] == "Unknown question: x."
+
+
+def test_deactivated_members_are_not_waited_for():
+    a, prep, rev, partner, eid, _ = crew()
+    prep.post(f"/api/engagements/{eid}/independence", json={"independent": True})
+    partner.post(f"/api/engagements/{eid}/independence", json={"independent": True})
+    assert "1 team member still to confirm independence." in steps(prep, eid)
+    rev_id = rev.get("/api/auth/me").json()["id"]
+    assert a.patch(f"/api/users/{rev_id}", json={"active": False}).status_code == 200
+    assert not any("independence" in s for s in steps(prep, eid))
