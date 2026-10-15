@@ -209,3 +209,32 @@ def test_every_next_step_and_flag_has_an_arabic_translation():
         texts += [s["text"] for s in steps]
     missing = sorted({t for t in texts if not translated(t)})
     assert not missing, missing
+
+
+def test_warnings_without_assets_or_revenue():
+    rows = [("6100", "Salaries", 100.0), ("2000", "Payables", -100.0)]
+    data = statements.build(tb_frame(rows), None, {"6100": "staff_costs", "2000": "payables"}, [])
+    ids = [w["id"] for w in ratios.compute(data)["warnings"]]
+    assert ids == ["net_current_liabilities", "negative_equity", "loss"]
+
+
+def test_a_new_general_ledger_needs_the_checks_run_again():
+    eid = engagement(with_prior=False)
+    step = "Run the audit checks on the general ledger."
+
+    def upload_gl():
+        r = client.post(f"/api/engagements/{eid}/uploads", data={"kind": "gl"},
+                        files={"file": ("gl.csv", (DATA / "sample_gl.csv").read_bytes(),
+                                        "text/csv")})
+        assert r.status_code == 201, r.text
+        return r.json()["id"]
+
+    def texts():
+        d = client.get(f"/api/engagements/{eid}/dashboard").json()
+        return [s["text"] for s in d["next_steps"]]
+
+    first = upload_gl()
+    assert client.post(f"/api/engagements/{eid}/runs", json={"upload_id": first}).status_code == 201
+    assert step not in texts()
+    upload_gl()  # a revised ledger, not checked yet
+    assert step in texts()

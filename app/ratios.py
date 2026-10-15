@@ -95,11 +95,11 @@ def _warnings(f: dict[str, float]) -> list[dict]:
         out.append({"id": "net_current_liabilities", "severity": "high",
                     "text": "Current liabilities are more than current assets "
                             "(net current liabilities), a going concern indicator."})
-    if f["total_equity"] < 0 and (f["total_assets"] or f.get("equity")):
+    if f["total_equity"] < 0:
         out.append({"id": "negative_equity", "severity": "high",
                     "text": "Total equity is negative (liabilities exceed assets), "
                             "a going concern indicator."})
-    if f.get("revenue", 0) > 0 and f["profit"] < 0:
+    if f["profit"] < 0:
         out.append({"id": "loss", "severity": "medium",
                     "text": "The company made a loss this year."})
     if f.get("finance_costs", 0) > 0 and f["operating_profit"] < 1.5 * f["finance_costs"]:
