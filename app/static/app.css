@@ -227,3 +227,9 @@ tr.group-row th { background: var(--low-bg); }
 .letter dt { font-weight: 600; margin-top: 6px; }
 .letter dd { margin: 0; white-space: pre-wrap; }
 .letter p { white-space: pre-wrap; }
+/* Sample results: the conclusion in the samples list, and misstatements in the item table */
+.pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--low-bg); color: var(--low); }
+.pill.ev-exceeds { color: var(--high); background: var(--high-bg); }
+.pill.ev-close { color: var(--medium); background: var(--medium-bg); }
+.pill.ev-acceptable { color: var(--ok, #1e8449); }
+td.bad { color: var(--high); }

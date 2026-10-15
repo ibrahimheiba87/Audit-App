@@ -144,6 +144,7 @@
           <option value="run.">Audit runs</option>
           <option value="comparison.">Comparisons</option>
           <option value="sample.">Samples</option>
+          <option value="analysis.">Stratification</option>
           <option value="mapping.">Account mapping</option>
           <option value="entry.">Adjusting entries</option>
           <option value="statements.">Statements</option>
@@ -439,6 +440,30 @@
           </section>
 
           <section class="panel">
+            <h2>Stratification and summaries</h2>
+            <p class="muted">See where the value sits before you choose what to test: lines split into bands by size, totals by account, user and month, and statistics for each column.</p>
+            <form id="str-form">
+              <div class="grid">
+                <div><label for="str-upload">File</label><select id="str-upload" class="map" required></select></div>
+                <div><label for="str-bands">Bands start at <span class="muted">(blank for materiality levels)</span></label><input id="str-bands" placeholder="e.g. 0, 1000, 10000, 100000"></div>
+              </div>
+              <div class="actions"><button type="submit">Analyse</button><a class="button secondary" id="str-export" hidden>Download Excel</a></div>
+            </form>
+            <div id="str-result" hidden>
+              <div class="cards" id="str-cards"></div>
+              <div class="tabs" role="tablist" id="str-tabs">
+                <button type="button" role="tab" data-str="strata" aria-selected="true">Stratification</button>
+                <button type="button" role="tab" data-str="account" aria-selected="false">By account</button>
+                <button type="button" role="tab" data-str="user" aria-selected="false">By user</button>
+                <button type="button" role="tab" data-str="month" aria-selected="false">By month</button>
+                <button type="button" role="tab" data-str="fields" aria-selected="false">Field statistics</button>
+              </div>
+              <p class="muted" id="str-note"></p>
+              <div class="table-wrap"><table id="str-table"></table></div>
+            </div>
+          </section>
+
+          <section class="panel">
             <h2>Sampling</h2>
             <p class="muted">Pick items to test. The seed is saved with every sample, so the same file, settings and seed always give the same selection.</p>
             <form id="smp-form">
@@ -465,7 +490,15 @@
             </div>
             <div class="cards" id="smp-cards"></div>
             <p class="muted" id="smp-note"></p>
+            <h3>Results of testing</h3>
+            <p class="muted">Enter the audited amount of each item you have tested (the amount it should be, as a positive figure). The difference from the book amount is the misstatement, and the app projects it to the whole population.</p>
+            <div class="grid">
+              <div><label for="smp-ev-tm">Tolerable misstatement</label><input id="smp-ev-tm" type="number" min="0" step="any"></div>
+            </div>
+            <div class="cards" id="smp-ev-cards"></div>
+            <p id="smp-ev-conclusion"></p>
             <div class="table-wrap"><table id="smp-table"></table></div>
+            <div class="actions"><button type="button" id="smp-ev-all" class="secondary">Fill untested items with the book amount</button><button type="button" id="smp-ev-save">Save results</button></div>
           </section>
 
           <section class="panel">

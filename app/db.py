@@ -246,6 +246,24 @@ class Sample(Base):
 
     engagement: Mapped[Engagement] = relationship(back_populates="samples")
     upload: Mapped[Upload] = relationship()
+    evaluation: Mapped[SampleEvaluation | None] = relationship(
+        back_populates="sample", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class SampleEvaluation(Base):
+    """The results of testing a sample's items, and the misstatement projected from them."""
+
+    __tablename__ = "sample_evaluations"
+
+    sample_id: Mapped[int] = mapped_column(ForeignKey("samples.id"), primary_key=True)
+    tested: Mapped[list] = mapped_column(JSON)  # [{row, audited_amount, notes}]
+    tolerable_misstatement: Mapped[float | None] = mapped_column(Float, nullable=True)
+    result: Mapped[dict] = mapped_column(JSON)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    sample: Mapped[Sample] = relationship(back_populates="evaluation")
 
 
 class Finding(Base):

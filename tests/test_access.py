@@ -82,6 +82,9 @@ def bodies(ids):
             {"json": {"upload_id": ids["upload_id"], "method": "random", "sample_size": 1}},
         ("GET", "/api/samples/{sample_id}"): {},
         ("GET", "/api/samples/{sample_id}/export"): {},
+        ("PUT", "/api/samples/{sample_id}/evaluation"): {"json": {"items": []}},
+        ("POST", "/api/uploads/{upload_id}/stratify"): {"json": {}},
+        ("GET", "/api/uploads/{upload_id}/stratify/export"): {},
         ("GET", "/api/engagements/{engagement_id}/findings"): {},
         ("POST", "/api/engagements/{engagement_id}/findings"): {"json": {"detail": "x"}},
         ("POST", "/api/engagements/{engagement_id}/findings/bulk"):
