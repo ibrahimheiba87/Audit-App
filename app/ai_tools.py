@@ -15,6 +15,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -32,7 +33,7 @@ from .statements import LINE, LINES, SECTION
 
 router = APIRouter(prefix="/api")
 
-MAX_MAP_ACCOUNTS = 300   # accounts sent in one mapping request
+MAX_MAP_ACCOUNTS = 150   # accounts sent in one mapping request
 MAX_DOCUMENT_BYTES = 15 * 1024 * 1024  # the API takes up to 32 MB once base64-encoded
 DOCUMENT_TOKENS = 32000  # a long statement is a lot of lines to write out
 DOCUMENT_TIMEOUT = 240
@@ -135,12 +136,15 @@ def ask(session: Session, user: User, engagement_id: int, action: str, summary: 
 def _number(v) -> float | None:
     if isinstance(v, bool) or v is None:
         return None
-    if isinstance(v, int | float):
-        return float(v)
     try:
-        return float(str(v).replace(",", "").strip())
-    except ValueError:
+        x = float(v) if isinstance(v, int | float) else float(str(v).replace(",", "").strip())
+    except (ValueError, OverflowError):
         return None
+    return x if math.isfinite(x) else None
+
+
+def _list(v) -> list:
+    return v if isinstance(v, list) else []
 
 
 def _date(v) -> date | None:
@@ -190,11 +194,11 @@ def suggest_mapping(engagement_id: int, body: MappingSuggestIn,
                  max_tokens=16000, timeout=DOCUMENT_TIMEOUT)
     sent = {r["account"] for r in rows}
     out, seen = [], set()
-    for m in answer.get("mappings") or []:
+    for m in _list(answer.get("mappings")):
         if not isinstance(m, dict):
             continue
         account, line = str(m.get("account", "")), m.get("line")
-        if account not in sent or account in seen or line not in LINE:
+        if account not in sent or account in seen or not isinstance(line, str) or line not in LINE:
             continue  # only accounts we asked about, and real lines
         seen.add(account)
         conf = m.get("confidence") if m.get("confidence") in ("high", "medium", "low") else "low"
@@ -217,7 +221,7 @@ def document_block(content: bytes) -> dict:
 def bank_lines(answer: dict) -> tuple[list[dict], list[str]]:
     """The statement's lines, cleaned, and what doesn't add up."""
     lines, problems, skipped = [], [], 0
-    for x in answer.get("lines") or []:
+    for x in _list(answer.get("lines")):
         if not isinstance(x, dict):
             continue
         d = _date(x.get("date"))
@@ -228,6 +232,10 @@ def bank_lines(answer: dict) -> tuple[list[dict], list[str]]:
         lines.append({"date": d, "description": _text(x.get("description")),
                       "in": abs(money_in or 0.0), "out": abs(money_out or 0.0),
                       "balance": _number(x.get("balance"))})
+    # Some statements list the newest line first: put them in date order.
+    if len(lines) > 1 and lines[0]["date"] > lines[-1]["date"]:
+        lines.reverse()
+    lines.sort(key=lambda x: x["date"])  # stable, so a day's lines keep their order
     if skipped:
         problems.append(f"{skipped} lines without a readable date or amount were left out.")
     # Each balance should be the one before plus money in less money out.
@@ -254,7 +262,9 @@ def bank_lines(answer: dict) -> tuple[list[dict], list[str]]:
 def balance_at(lines: list[dict], answer: dict, day: date) -> float | None:
     """The statement balance at the end of `day`, when the statement shows it."""
     known = _number(answer.get("opening_balance"))
-    if lines and lines[0]["date"] > day:
+    if not lines or day > lines[-1]["date"]:
+        return None  # the statement may end before that day: its balance then isn't known
+    if lines[0]["date"] > day:
         return known
     for x in lines:
         if x["date"] > day:
@@ -326,7 +336,7 @@ def ledger_matches(gl: Upload | None, inv: dict) -> list[dict]:
 
 
 @router.post("/engagements/{engagement_id}/documents/read", status_code=201)
-async def read_document(
+def read_document(  # not async: FastAPI runs it in a thread, so waiting on the AI blocks nothing
     engagement_id: int,
     file: UploadFile = File(...),
     kind: Literal["bank", "invoice"] = Form(...),
@@ -347,7 +357,7 @@ async def read_document(
         else:
             gls = [u for u in e.uploads if u.kind == "gl"]
             gl = max(gls, key=lambda u: (u.uploaded_at, u.id)) if gls else None
-    content = await file.read()
+    content = file.file.read(MAX_DOCUMENT_BYTES + 1)
     if len(content) > MAX_DOCUMENT_BYTES:
         raise HTTPException(413, "The file is larger than 15 MB. Split the statement into "
                                  "smaller files.")
@@ -375,7 +385,7 @@ async def read_document(
                           "quantity": _number(x.get("quantity")),
                           "unit_price": _number(x.get("unit_price")),
                           "amount": _number(x.get("amount"))}
-                         for x in (answer.get("lines") or [])[:200] if isinstance(x, dict)]}
+                         for x in _list(answer.get("lines"))[:200] if isinstance(x, dict)]}
         checks, matches = invoice_checks(inv), ledger_matches(gl, inv)
         for k in ("invoice_date", "due_date"):
             inv[k] = inv[k].isoformat() if inv[k] else None
@@ -389,7 +399,10 @@ async def read_document(
     csv_bytes = bank_csv(lines)
     stem = Path(filename).stem
     name = f"{stem} (read from {Path(filename).suffix.lstrip('.').upper() or 'file'}).csv"
-    loaded = loader.load(name, csv_bytes)
+    try:
+        loaded = loader.load(name, csv_bytes)
+    except loader.LoadError as exc:
+        raise HTTPException(400, str(exc)) from exc
     report = loaded.report.to_dict()
     report["read_by_ai"] = {
         "source": filename, "sha256": sha, "model": assistant.model(),

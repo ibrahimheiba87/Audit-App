@@ -117,7 +117,7 @@ def create_reconciliation(engagement_id: int, body: BankRecIn,
     bank_balance, bank_source = body.bank_balance, "entered"
     read = (bank_upload.import_report or {}).get("read_by_ai") or {}
     if (bank_balance is None and read.get("period_end") == e.period_end.isoformat()
-            and read.get("balance_at_period_end") is not None):
+            and read.get("balance_at_period_end") is not None and not read.get("problems")):
         bank_balance, bank_source = read["balance_at_period_end"], "statement"
     settings = bankrec.Settings(e.period_end, accounts, body.window_days, bank_balance,
                                 book_balance, body.flip_bank, e.period_start)

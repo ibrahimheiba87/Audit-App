@@ -195,16 +195,14 @@ def test_bank_statement_becomes_an_upload_for_the_reconciliation(fake_api):
             {"date": "2026-12-31", "description": "CHQ 4101", "money_in": None,
              "money_out": "50.00", "balance": 1150},
             {"date": "2027-01-04", "description": "DEPOSIT", "money_in": 30, "money_out": None,
-             "balance": 1180},
-            {"date": "", "description": "Page total", "money_in": 230, "money_out": 50}]})
+             "balance": 1180}]})
     r = read(eid, "bank", name="December.pdf")
     assert r.status_code == 201, r.text
     out = r.json()
     assert out["lines"] == 3 and out["upload"]["kind"] == "bank"
     assert out["upload"]["filename"] == "December (read from PDF).csv"
     assert out["read"]["balance_at_period_end"] == 1150.0
-    assert out["read"]["problems"] == [
-        "1 lines without a readable date or amount were left out."]
+    assert out["read"]["problems"] == []
     [entry] = activity(eid, "upload.create")[:1]
     assert entry["summary"] == ("Uploaded December (read from PDF).csv (Bank statement) read by "
                                 "the AI assistant from December.pdf")
@@ -222,6 +220,40 @@ def test_bank_statement_becomes_an_upload_for_the_reconciliation(fake_api):
     assert r.json()["result"]["settings"]["bank_balance_source"] == "entered"
 
 
+def test_a_statement_with_problems_doesnt_fill_the_reconciliation(fake_api):
+    eid = engagement(with_prior=False)
+    gl = with_gl(eid)
+    fake_api["answers"].append({"opening_balance": 1200, "lines": [
+        {"date": "2027-01-04", "money_in": 30, "balance": 1180},
+        {"date": "2026-12-31", "money_out": 50, "balance": 1150},
+        {"date": "", "description": "Page total", "money_in": 230, "money_out": 50}]})
+    out = read(eid, "bank").json()
+    # Newest first on the statement: put back in date order.
+    assert out["read"]["first_date"] == "2026-12-31" and out["read"]["balance_at_period_end"] == 1150
+    assert out["read"]["problems"] == [
+        "1 lines without a readable date or amount were left out."]
+    r = client.post(f"/api/engagements/{eid}/bank-reconciliations", json={
+        "bank_upload_id": out["upload"]["id"], "gl_upload_id": gl, "accounts": ["1000 Cash"]})
+    assert r.json()["result"]["settings"]["bank_balance_source"] is None
+
+
+def test_odd_answers_dont_break_anything(fake_api):
+    eid = engagement(with_prior=False)
+    fake_api["answers"] += [
+        {"mappings": [{"account": "1000", "line": ["cash"]}, {"account": "1200", "line": {}}]},
+        {"mappings": 5},
+        {"total": "NaN", "net": "Infinity", "lines": {"a": 1}, "invoice_number": 7},
+        {"lines": True}]
+    for _ in range(2):
+        r = client.post(f"/api/engagements/{eid}/mapping/suggest", json={})
+        assert r.status_code == 200 and r.json()["suggestions"] == []
+    with_gl(eid)
+    r = read(eid, "invoice")
+    assert r.status_code == 201 and r.json()["invoice"]["total"] is None
+    assert r.json()["matches"] == []
+    assert read(eid, "bank").status_code == 400
+
+
 def test_bank_balances_that_dont_add_up():
     answer = {"opening_balance": 100, "closing_balance": 500, "lines": [
         {"date": "2026-01-02", "money_in": 50, "balance": 150},
@@ -236,6 +268,8 @@ def test_bank_balances_that_dont_add_up():
     from datetime import date  # noqa: PLC0415
     assert ai_tools.balance_at(lines, answer, date(2026, 1, 1)) == 100
     assert ai_tools.balance_at(lines, answer, date(2026, 1, 4)) == 1000.0
+    # After the statement's last line the balance isn't known.
+    assert ai_tools.balance_at(lines, answer, date(2026, 1, 5)) is None
     assert ai_tools.balance_at(lines, {"lines": []}, date(2026, 1, 1)) is None
 
 

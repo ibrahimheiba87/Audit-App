@@ -281,7 +281,9 @@ async function openEngagement(id) {
     $("bank-result").hidden = true;
     $("doc-out").hidden = true;
     $("doc-form").reset();
+    $("doc-wait").hidden = true;
     aiMapHints = {};
+    $("fs-ai-note").hidden = true;
   }
   currentEngagement = e;
   $("eng-empty").hidden = true;
@@ -689,6 +691,7 @@ function bankBalanceHint() {
   const u = bank.bank_uploads.find((x) => String(x.id) === $("bank-file").value);
   const read = u?.import?.read_by_ai;
   $("bank-balance").placeholder = read && read.period_end === bank.period_end && read.balance_at_period_end != null
+    && !(read.problems || []).length
     ? `${money(read.balance_at_period_end)} (from the statement)` : "";
 }
 $("bank-file").addEventListener("change", () => { if (bank) bankBalanceHint(); });
@@ -804,10 +807,13 @@ function showBankRec(r) {
 
 // Reading documents with AI
 
+let docReading = 0;  // reads still waiting on the AI, even for another engagement
+
 function renderDocPanel() {
   const off = !assistant.enabled;
   $("doc-off").hidden = !off;
   $("doc-form").querySelectorAll("select, input, button").forEach((el) => { el.disabled = off; });
+  if (docReading) $("doc-run").disabled = true;
 }
 
 $("doc-form").addEventListener("submit", (ev) => {
@@ -817,6 +823,7 @@ $("doc-form").addEventListener("submit", (ev) => {
   fd.append("kind", $("doc-kind").value);
   fd.append("file", $("doc-file").files[0]);
   guard(async () => {
+    docReading += 1;
     $("doc-run").disabled = true;
     $("doc-wait").hidden = false;
     try {
@@ -825,7 +832,8 @@ $("doc-form").addEventListener("submit", (ev) => {
       showDocument(r);
       if (r.kind === "bank") await openEngagement(id);  // the new file, ready to reconcile
     } finally {
-      $("doc-run").disabled = false;
+      docReading -= 1;
+      $("doc-run").disabled = docReading > 0 || !assistant.enabled;
       $("doc-wait").hidden = true;
       if (currentEngagement?.id === id) loadEngagementActivity();
     }
@@ -937,7 +945,10 @@ function renderStatementsPanel(error = null) {
   renderRatios();
 }
 
-["fs-tb", "fs-prior"].forEach((id) => $(id).addEventListener("change", () => guard(loadStatements)));
+["fs-tb", "fs-prior"].forEach((id) => $(id).addEventListener("change", () => {
+  $("fs-ai-note").hidden = true;
+  guard(loadStatements);
+}));
 
 $("fs-tabs").addEventListener("click", (ev) => {
   const tab = ev.target.closest("[data-tab]");
@@ -984,6 +995,10 @@ $("fs-map").addEventListener("change", (ev) => {
   const account = row.dataset.account;
   const saved = fs.accounts.find((a) => a.account === account).line || "";
   if (ev.target.value === saved) delete fsMapEdits[account]; else fsMapEdits[account] = ev.target.value;
+  if (aiMapHints[account]) {  // their own choice now, not the AI's
+    delete aiMapHints[account];
+    ev.target.parentElement.querySelector("div.tag")?.remove();
+  }
   row.classList.toggle("changed", account in fsMapEdits);
   $("fs-save-map").disabled = !canSaveMapping() || $("fs-save-map").busy > 0;
 });
