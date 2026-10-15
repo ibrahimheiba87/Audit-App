@@ -485,7 +485,7 @@ function renderUploads(uploads) {
       <td>${esc(u.kind_label)}</td>
       <td class="num">${u.import.rows_used.toLocaleString(LOCALE)}</td>
       <td class="nowrap">${esc(when(u.uploaded_at))}</td>
-      <td class="muted">${u.import.warnings.length ? esc(u.import.warnings.join(" ")) : "OK"}</td>
+      <td class="muted">${u.import.warnings.length ? u.import.warnings.map((w) => `<div>${esc(w)}</div>`).join("") : "OK"}</td>
       <td><div class="cell-actions">
         ${u.kind === "bank"
           ? `<button type="button" class="small" data-reconcile="${u.id}">Reconcile</button>`
@@ -852,7 +852,7 @@ function showDocument(r) {
     const x = r.read;
     $("doc-cards").innerHTML = [
       card(r.lines, "Lines read"),
-      card(data(`${x.first_date} – ${x.last_date}`), "Dates"),
+      card(data(`${x.statement_from} – ${x.statement_to}`), "Dates"),
       card(x.closing_balance == null ? "–" : money(x.closing_balance), "Closing balance"),
       card(x.balance_at_period_end == null ? "–" : money(x.balance_at_period_end), "Balance at the period end"),
     ].join("");
@@ -1013,17 +1013,21 @@ const CONFIDENCE = { high: "high confidence", medium: "medium confidence", low: 
 
 $("fs-ai-map").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
   const id = fsEngagementId;
-  const q = Object.fromEntries(new URLSearchParams(fsQuery()));
+  const query = fsQuery();
+  const q = Object.fromEntries(new URLSearchParams(query));
   try {
     const r = await sendJSON("POST", `/api/engagements/${id}/mapping/suggest`, {
       upload_id: q.upload_id ? Number(q.upload_id) : null,
       prior_upload_id: q.prior_upload_id ? Number(q.prior_upload_id) : null,
       language: I18N.lang,
     });
-    if (currentEngagement.id !== id) return;
+    // Drop the answer if they've opened other files, or are saving, while the AI was answering.
+    if (currentEngagement.id !== id || fsQuery() !== query || $("fs-save-map").busy > 0) return;
     let used = 0;
+    const accounts = new Map(fs.accounts.map((a) => [a.account, a]));
     for (const s of r.suggestions) {
-      if (s.account in fsMapEdits) continue;  // the user's own choice stays
+      const a = accounts.get(s.account);
+      if (!a || a.line || s.account in fsMapEdits) continue;  // mapped meanwhile, or their own choice
       fsMapEdits[s.account] = s.line;
       aiMapHints[s.account] = s;
       used++;

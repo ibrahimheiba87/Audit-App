@@ -1123,6 +1123,7 @@ I18N.add({
     "{n} lines without a readable date or amount were left out.": "استُبعدت {n} سطور بلا تاريخ أو مبلغ مقروء.",
     "{n} lines don't agree with the running balance; check them against the statement.": "{n} سطور لا تتفق مع الرصيد الجاري؛ راجعها مقابل الكشف.",
     "Opening balance plus the lines comes to {a}, not the closing balance of {b}; some lines may be missing or misread.": "الرصيد الافتتاحي مضافًا إليه السطور يساوي {a}، وليس الرصيد الختامي {b}؛ قد تكون بعض السطور ناقصة أو مقروءة بشكل خاطئ.",
+    "The last balance on the statement is {a}, not the closing balance of {b}; some lines may be missing or misread.": "آخر رصيد في الكشف {a}، وليس الرصيد الختامي {b}؛ قد تكون بعض السطور ناقصة أو مقروءة بشكل خاطئ.",
     "Asked the AI assistant to suggest the mapping of {n} accounts": "تم طلب اقتراح ربط {n} حسابات من المساعد الذكي",
     "Asked the AI assistant to suggest the mapping of {n} accounts (busy)": "تم طلب اقتراح ربط {n} حسابات من المساعد الذكي (مشغول)",
     "Asked the AI assistant to suggest the mapping of {n} accounts (failed)": "تم طلب اقتراح ربط {n} حسابات من المساعد الذكي (فشل)",

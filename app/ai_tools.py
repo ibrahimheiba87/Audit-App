@@ -58,9 +58,11 @@ BANK_SYSTEM = (
     "Copy what the statement says; never guess or fill in a figure that isn't there. "
     "Answer with JSON only, no other text, in exactly this shape: "
     '{"bank": "...", "account": "<account name or number>", "currency": "...", '
+    '"statement_from": "YYYY-MM-DD or null", "statement_to": "YYYY-MM-DD or null", '
     '"opening_balance": <number or null>, "closing_balance": <number or null>, '
     '"lines": [{"date": "YYYY-MM-DD", "description": "...", "money_in": <number or null>, '
     '"money_out": <number or null>, "balance": <number or null>}]}. '
+    "statement_from and statement_to are the dates the statement says it covers. "
     "List every transaction line in order, leaving out opening and closing balance lines and "
     "page totals. money_in is a deposit or credit to the account, money_out a payment, "
     "withdrawal or debit; both are positive numbers. Write dates as YYYY-MM-DD, reading them "
@@ -123,13 +125,17 @@ def ask(session: Session, user: User, engagement_id: int, action: str, summary: 
     finally:
         assistant._slots.release()
     e = session.get(Engagement, engagement_id)
-    if e is None:
-        raise HTTPException(404, "The engagement was deleted while the AI was answering.")
+    outcome = "ok" if error is None else error
+    if error is None and e is None:
+        outcome = "engagement deleted while waiting"
+    # Logged even when the engagement is gone, so the request stays in the audit trail.
     log(session, user, action, summary + ("" if error is None else " (failed)"), e,
-        details={**details, "outcome": "ok" if error is None else error})
+        details={**details, "engagement_id": engagement_id, "outcome": outcome})
     session.commit()
     if error is not None:
         raise HTTPException(502, error)
+    if e is None:
+        raise HTTPException(404, "The engagement was deleted while the AI was answering.")
     return answer
 
 
@@ -223,6 +229,7 @@ def bank_lines(answer: dict) -> tuple[list[dict], list[str]]:
     lines, problems, skipped = [], [], 0
     for x in _list(answer.get("lines")):
         if not isinstance(x, dict):
+            skipped += 1
             continue
         d = _date(x.get("date"))
         money_in, money_out = _number(x.get("money_in")), _number(x.get("money_out"))
@@ -256,16 +263,24 @@ def bank_lines(answer: dict) -> tuple[list[dict], list[str]]:
             problems.append(f"Opening balance plus the lines comes to {opening + moved:,.2f}, "
                             f"not the closing balance of {closing:,.2f}; some lines may be "
                             "missing or misread.")
+    elif closing is not None and previous is not None and abs(previous - closing) >= 0.01:
+        problems.append(f"The last balance on the statement is {previous:,.2f}, not the closing "
+                        f"balance of {closing:,.2f}; some lines may be missing or misread.")
     return lines, problems
 
 
 def balance_at(lines: list[dict], answer: dict, day: date) -> float | None:
-    """The statement balance at the end of `day`, when the statement shows it."""
+    """The statement balance at the end of `day`, when the statement covers that day: between
+    the dates it says it covers, or else between its first and last lines."""
+    if not lines:
+        return None
+    start = _date(answer.get("statement_from")) or lines[0]["date"]
+    end = _date(answer.get("statement_to")) or lines[-1]["date"]
+    if not start <= day <= end or start > lines[0]["date"] or end < lines[-1]["date"]:
+        return None  # outside what the statement covers (or its dates don't fit its lines)
     known = _number(answer.get("opening_balance"))
-    if not lines or day > lines[-1]["date"]:
-        return None  # the statement may end before that day: its balance then isn't known
     if lines[0]["date"] > day:
-        return known
+        return None if known is None else round(known, 2)
     for x in lines:
         if x["date"] > day:
             break
@@ -348,7 +363,7 @@ def read_document(  # not async: FastAPI runs it in a thread, so waiting on the 
     invoice (checked and looked up in the general ledger) from a PDF or photo."""
     e = get_or_404(session, Engagement, engagement_id, user)
     require_ai()
-    gl = None
+    gl, gl_id = None, None
     if kind == "invoice":
         if gl_upload_id is not None:
             gl = get_or_404(session, Upload, gl_upload_id, user)
@@ -357,6 +372,7 @@ def read_document(  # not async: FastAPI runs it in a thread, so waiting on the 
         else:
             gls = [u for u in e.uploads if u.kind == "gl"]
             gl = max(gls, key=lambda u: (u.uploaded_at, u.id)) if gls else None
+    gl_id = gl.id if gl is not None else None
     content = file.file.read(MAX_DOCUMENT_BYTES + 1)
     if len(content) > MAX_DOCUMENT_BYTES:
         raise HTTPException(413, "The file is larger than 15 MB. Split the statement into "
@@ -373,6 +389,7 @@ def read_document(  # not async: FastAPI runs it in a thread, so waiting on the 
                  max_tokens=DOCUMENT_TOKENS, timeout=DOCUMENT_TIMEOUT)
     e = get_or_404(session, Engagement, engagement_id, user)
     if kind == "invoice":
+        gl = session.get(Upload, gl_id) if gl_id is not None else None  # it may have been deleted
         inv = {"supplier": _text(answer.get("supplier"), 200),
                "customer": _text(answer.get("customer"), 200),
                "invoice_number": _text(answer.get("invoice_number"), 100),
@@ -385,8 +402,9 @@ def read_document(  # not async: FastAPI runs it in a thread, so waiting on the 
                           "quantity": _number(x.get("quantity")),
                           "unit_price": _number(x.get("unit_price")),
                           "amount": _number(x.get("amount"))}
-                         for x in _list(answer.get("lines"))[:200] if isinstance(x, dict)]}
+                         for x in _list(answer.get("lines")) if isinstance(x, dict)]}
         checks, matches = invoice_checks(inv), ledger_matches(gl, inv)
+        inv["lines"] = inv["lines"][:200]  # all of them are checked; the first 200 are shown
         for k in ("invoice_date", "due_date"):
             inv[k] = inv[k].isoformat() if inv[k] else None
         return {"kind": "invoice", "filename": filename, "sha256": sha, "invoice": inv,
@@ -412,9 +430,12 @@ def read_document(  # not async: FastAPI runs it in a thread, so waiting on the 
         "closing_balance": _number(answer.get("closing_balance")),
         "period_end": e.period_end.isoformat(),
         "balance_at_period_end": balance_at(lines, answer, e.period_end),
+        "statement_from": (_date(answer.get("statement_from")) or lines[0]["date"]).isoformat(),
+        "statement_to": (_date(answer.get("statement_to")) or lines[-1]["date"]).isoformat(),
         "first_date": lines[0]["date"].isoformat(), "last_date": lines[-1]["date"].isoformat(),
         "problems": problems,
     }
+    report["warnings"] = [*report.get("warnings", []), *problems]  # shown in Files too
     upload = Upload(engagement=e, kind="bank", filename=name, content=csv_bytes,
                     size=len(csv_bytes), sha256=hashlib.sha256(csv_bytes).hexdigest(),
                     mapping=loaded.report.mapping, import_report=report)

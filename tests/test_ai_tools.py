@@ -266,11 +266,69 @@ def test_bank_balances_that_dont_add_up():
         "Opening balance plus the lines comes to 131.00, not the closing balance of 500.00; "
         "some lines may be missing or misread."]
     from datetime import date  # noqa: PLC0415
-    assert ai_tools.balance_at(lines, answer, date(2026, 1, 1)) == 100
+    # Only within the dates the statement covers (or its lines, without them).
+    assert ai_tools.balance_at(lines, answer, date(2026, 1, 1)) is None
     assert ai_tools.balance_at(lines, answer, date(2026, 1, 4)) == 1000.0
-    # After the statement's last line the balance isn't known.
     assert ai_tools.balance_at(lines, answer, date(2026, 1, 5)) is None
+    covered = {**answer, "statement_from": "2026-01-01", "statement_to": "2026-01-31"}
+    assert ai_tools.balance_at(lines, covered, date(2026, 1, 1)) == 100
+    assert ai_tools.balance_at(lines, covered, date(2026, 1, 31)) == 1000.0
+    assert ai_tools.balance_at(lines, covered, date(2025, 12, 31)) is None
+    wrong = {**answer, "statement_from": "2026-01-03"}  # its dates don't fit its lines
+    assert ai_tools.balance_at(lines, wrong, date(2026, 1, 3)) is None
     assert ai_tools.balance_at(lines, {"lines": []}, date(2026, 1, 1)) is None
+
+
+def test_closing_balance_is_checked_without_an_opening_balance():
+    answer = {"closing_balance": 500, "lines": [
+        {"date": "2026-12-31", "money_in": 50, "balance": 150}, "junk"]}
+    lines, problems = ai_tools.bank_lines(answer)
+    assert problems == [
+        "1 lines without a readable date or amount were left out.",
+        "The last balance on the statement is 150.00, not the closing balance of 500.00; "
+        "some lines may be missing or misread."]
+
+
+def test_a_statement_from_another_period_gives_no_balance(fake_api):
+    eid = engagement(with_prior=False)
+    fake_api["answers"].append({
+        "statement_from": "2027-02-01", "statement_to": "2027-02-28", "opening_balance": 900,
+        "closing_balance": 950, "lines": [{"date": "2027-02-03", "money_in": 50, "balance": 950}]})
+    out = read(eid, "bank").json()
+    assert out["read"]["balance_at_period_end"] is None and out["read"]["problems"] == []
+
+
+def test_problems_show_in_files(fake_api):
+    eid = engagement(with_prior=False)
+    fake_api["answers"].append({"lines": [{"date": "2026-12-31", "money_in": 5}, {"date": "x"}]})
+    read(eid, "bank")
+    [bank] = [u for u in client.get(f"/api/engagements/{eid}").json()["uploads"]
+              if u["kind"] == "bank"]
+    assert "1 lines without a readable date or amount were left out." in bank["import"]["warnings"]
+
+
+def test_engagement_deleted_while_waiting_is_still_logged(fake_api, monkeypatch):
+    eid = engagement(with_prior=False)
+
+    def answer_after_delete(system, content, **kw):
+        client.delete(f"/api/engagements/{eid}")
+        return "{}"
+
+    monkeypatch.setattr(assistant, "request_claude", answer_after_delete)
+    r = read(eid, "invoice", name="late.pdf")
+    assert r.status_code == 404
+    log = client.get("/api/activity", params={"action": "document.read_invoice"}).json()
+    entry = next(x for x in log if x["details"].get("engagement_id") == eid)
+    assert entry["details"]["outcome"] == "engagement deleted while waiting"
+
+
+def test_long_invoices_are_checked_in_full(fake_api):
+    eid = engagement(with_prior=False)
+    fake_api["answers"].append({"net": 250, "total": 250,
+                                "lines": [{"description": "x", "amount": 1}] * 250})
+    out = read(eid, "invoice").json()
+    assert out["checks"][0] == {"ok": True, "text": "The lines add up to the invoice amount."}
+    assert len(out["invoice"]["lines"]) == 200
 
 
 def test_bank_statement_with_no_lines(fake_api):
@@ -320,6 +378,8 @@ def test_new_text_has_arabic():
              "2 lines don't agree with the running balance; check them against the statement.",
              "Opening balance plus the lines comes to 131.00, not the closing balance of "
              "500.00; some lines may be missing or misread.",
+             "The last balance on the statement is 150.00, not the closing balance of 500.00; "
+             "some lines may be missing or misread.",
              "Asked the AI assistant to suggest the mapping of 17 accounts",
              "Asked the AI assistant to suggest the mapping of 17 accounts (busy)",
              "Asked the AI assistant to suggest the mapping of 17 accounts (failed)",
