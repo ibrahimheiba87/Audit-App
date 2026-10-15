@@ -203,13 +203,19 @@ async function showEngagements(engagementId) {
 
 async function renderClients(activeId) {
   const clients = await getJSON("/api/clients");
+  // Archived engagements stay out of the list unless asked for, or open.
+  const showArchived = $("show-archived").checked;
+  const listed = (c) => c.engagements.filter((e) => showArchived || !e.archived || e.id === activeId);
+  const archivedCount = clients.reduce((n, c) => n + c.engagements.filter((e) => e.archived).length, 0);
+  $("show-archived").closest("label").hidden = !archivedCount;
   $("client-list").innerHTML = clients.length ? clients.map((c) => `
     <div class="client">
       <div class="client-name"><span>${data(c.name)}</span>
         <button type="button" data-new-eng="${c.id}" class="link min-2" data-client-name="${esc(c.name)}">+ engagement</button></div>
       ${c.industry ? `<div class="muted" style="font-size:13px">${data(c.industry)}</div>` : ""}
-      <ul>${c.engagements.map((e) => `<li><a href="#/engagements/${e.id}" class="${e.id === activeId ? "active" : ""}">
-        ${data(e.name)} <span class="muted">· ${esc(e.period_end)}</span></a></li>`).join("")}</ul>
+      <ul>${listed(c).map((e) => `<li><a href="#/engagements/${e.id}" class="${e.id === activeId ? "active" : ""}">
+        ${data(e.name)} <span class="muted">· ${esc(e.period_end)}</span>${e.archived ? ' <span class="tag">Archived</span>'
+          : e.locked ? ' <span class="tag">Locked</span>' : ""}</a></li>`).join("")}</ul>
     </div>`).join("") : `<p class="muted">No clients yet.</p>`;
   if (me.role !== "admin" && !clients.some((c) => c.engagements.length)) {
     $("client-list").insertAdjacentHTML("beforeend", `<p class="muted">You only see engagements
@@ -217,6 +223,7 @@ async function renderClients(activeId) {
   }
   $("new-client").open = !clients.length;
 }
+$("show-archived").addEventListener("change", () => guard(() => renderClients(currentEngagement?.id)));
 
 $("client-list").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-new-eng]");
@@ -285,6 +292,7 @@ async function openEngagement(id) {
     $("doc-out").hidden = true;
     $("doc-form").reset();
     $("doc-wait").hidden = true;
+    ac = null; renderAcceptance(); $("ac-check").open = false;
     showRisk(null);
     showLetter(null);
     aiMapHints = {};
@@ -296,6 +304,7 @@ async function openEngagement(id) {
   $("eng-title").textContent = `${e.client.name} · ${e.name}`;
   $("eng-meta").textContent = `${e.period_start ? e.period_start + " to " : "Period ending "}${e.period_end} · ${e.framework}`;
   renderTeam(e.team);
+  renderLock(e.lock);
   renderMateriality(e.materiality, e.materiality_carried);
   renderUploads(e.uploads);
   renderRuns(e.runs);
@@ -313,6 +322,7 @@ async function openEngagement(id) {
   guard(loadRequests);
   guard(loadAiDrafts);
   guard(loadRisks);
+  guard(loadAcceptance);
   await loadStatements();
   await loadRegister();
 }
@@ -402,6 +412,190 @@ $("eng-delete").addEventListener("click", () => {
   guard(async () => {
     await sendJSON("DELETE", `/api/engagements/${e.id}`);
     location.hash = "#/engagements";
+  });
+});
+
+// Locking and archiving: a partner locks the file once the report is signed; only an admin
+// unlocks it, with a reason. A locked engagement can be archived out of the list.
+
+function renderLock(lock) {
+  $("eng-lock").hidden = !!lock;
+  $("eng-unlock").hidden = !lock;
+  $("eng-archive").hidden = !lock;
+  $("eng-archive").textContent = lock?.archived ? "Bring back from the archive" : "Archive";
+  $("eng-delete").hidden = !!lock;
+  $("eng-locked").hidden = !lock;
+  if (!lock) { $("eng-locked").innerHTML = ""; return; }
+  $("eng-locked").innerHTML = `<strong>${lock.archived ? "Archived and locked." : "Locked."}</strong>
+    <span>This engagement's file can be read and downloaded but not changed.</span>
+    <span class="muted">${data(lock.locked_by)} · <span>${esc(when(lock.locked_at))}</span></span>
+    ${lock.note ? `<div>${data(lock.note)}</div>` : ""}`;
+}
+
+// After locking, unlocking or archiving: the engagement, the list and the log.
+async function lockChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await openEngagement(id);
+  await renderClients(id);
+  await loadEngagementActivity();
+}
+
+$("eng-lock").addEventListener("click", () => {
+  const e = currentEngagement;
+  const note = prompt(`Lock ${e.name}? Nothing in its file can be changed afterwards; an admin can unlock it. Add a note if you like (for example, the date the report was signed).`, "");
+  if (note === null) return;
+  busy($("eng-lock"), async () => {
+    await sendJSON("POST", `/api/engagements/${e.id}/lock`, { note });
+    await lockChanged(e.id);
+  });
+});
+
+$("eng-unlock").addEventListener("click", () => {
+  const e = currentEngagement;
+  const reason = prompt(`Why does ${e.name} need to be unlocked? The reason is kept in the activity log.`, "");
+  if (reason === null) return;
+  if (!reason.trim()) { showError("Give a reason for unlocking."); return; }
+  busy($("eng-unlock"), async () => {
+    await sendJSON("DELETE", `/api/engagements/${e.id}/lock`, { reason });
+    await lockChanged(e.id);
+  });
+});
+
+$("eng-archive").addEventListener("click", () => {
+  const e = currentEngagement;
+  const archived = !e.lock?.archived;
+  busy($("eng-archive"), async () => {
+    await sendJSON("POST", `/api/engagements/${e.id}/archive`, { archived });
+    await lockChanged(e.id);
+  });
+});
+
+// Acceptance and independence
+
+let ac = null;      // the checklist, decision and declarations shown
+let acLoads = 0;
+
+async function loadAcceptance() {
+  const id = currentEngagement.id;
+  const load = ++acLoads;
+  const a = await getJSON(`/api/engagements/${id}/acceptance`);
+  if (load !== acLoads || currentEngagement?.id !== id) return;
+  ac = { ...a, engagement_id: id };
+  renderAcceptance();
+}
+
+const ANSWER_LABELS = { yes: "Yes", no: "No", na: "Not applicable" };
+
+function renderAcceptance() {
+  if (!ac) {
+    $("ac-cards").innerHTML = $("ac-status").innerHTML = $("ac-questions").innerHTML = "";
+    $("ac-members").innerHTML = $("ind-mine").textContent = $("ac-saved").textContent = "";
+    $("ac-conclusion").value = $("ac-note").value = "";
+    $("ac-export").removeAttribute("href");
+    $("ac-pick").value = "accept";
+    $("ind-form").reset();
+    $("ind-threat").hidden = true;
+    return;
+  }
+  const ind = ac.independence;
+  $("ac-export").href = `/api/engagements/${ac.engagement_id}/acceptance/export`;
+  const decision = ac.decision ? ac.decision_label : "Not decided";
+  $("ac-cards").innerHTML = [
+    [`${ac.answered}/${ac.questions.length}`, "Questions answered", false],
+    [ac.flags.length, "Answers needing a second look", ac.flags.length > 0],
+    [decision, "Decision", ac.decision === "decline"],
+    [`${ind.declared}/${ind.expected}`, "Independence confirmed", ind.declared < ind.expected],
+    [ind.threats, "Threats declared", ind.threats > 0],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("ac-status").innerHTML = ac.decision
+    ? `<p><strong>${esc(ac.decision_label)}</strong> <span class="muted">${data(ac.decided_by)} · <span>${esc(when(ac.decided_at))}</span></span></p>
+       ${ac.decision_note ? `<p>${data(ac.decision_note)}</p>` : ""}
+       ${ac.changed_since_decision ? '<p class="warn-box">The checklist changed after the decision was recorded. The partner may want to look at it again.</p>' : ""}`
+    : "";
+  $("ac-questions").innerHTML = ac.questions.map((q, i) => {
+    const a = ac.answers[q.id];
+    const flagged = ac.flags.includes(q.id);
+    return `<div class="ac-q${flagged ? " flagged" : ""}" data-q="${esc(q.id)}">
+      <p><bdi>${i + 1}.</bdi> <span>${esc(q.text)}</span></p>
+      <fieldset class="checks-inline"><legend class="visually-hidden">Answer</legend>
+        ${Object.entries(ANSWER_LABELS).map(([v, label]) => `<label><input type="radio" name="ac-${esc(q.id)}" value="${v}" ${a.answer === v ? "checked" : ""}><span>${label}</span></label>`).join("")}
+      </fieldset>
+      <input data-comment maxlength="5000" value="${esc(a.comment)}" placeholder="Comment" aria-label="Comment">
+      ${flagged ? '<div class="tag flag-note">This answer needs a second look before accepting.</div>' : ""}
+    </div>`;
+  }).join("");
+  $("ac-conclusion").value = ac.conclusion;
+  $("ac-saved").innerHTML = ac.updated_by ? `<span>Last saved by</span> ${data(ac.updated_by)} · <span>${esc(when(ac.updated_at))}</span>` : "";
+  $("ac-pick").value = ac.decision || "accept";
+  $("ac-note").value = ac.decision_note;
+  $("ac-members").innerHTML = ind.members.length
+    ? `<thead><tr><th>Team member</th><th>Role</th><th>Declaration</th><th>Threats and safeguards</th><th>Declared</th></tr></thead><tbody>
+      ${ind.members.map((m) => {
+        const d = m.declaration;
+        const status = !d ? '<span class="muted">Not yet declared</span>'
+          : d.independent ? "<span>Independent</span>" : '<span class="level-significant">Threat declared</span>';
+        return `<tr><td>${data(m.name)}${m.active ? "" : " <span>(deactivated)</span>"}${m.on_team ? "" : ' <span class="muted">(not on the team)</span>'}</td>
+          <td>${esc(m.role_label)}</td><td>${status}</td>
+          <td>${d && !d.independent ? `${data(d.threats)}${d.safeguards ? `<br><span class="muted">Safeguards:</span> ${data(d.safeguards)}` : ""}` : ""}</td>
+          <td class="muted">${d ? esc(when(d.declared_at)) : ""}</td></tr>`;
+      }).join("")}</tbody>`
+    : '<tbody><tr><td class="muted">No one is on the team yet. An admin adds the team with "Change team".</td></tr></tbody>';
+  const mine = ind.mine;
+  $("ind-form").independent.value = mine && !mine.independent ? "no" : "yes";
+  $("ind-threats").value = mine?.threats || "";
+  $("ind-safeguards").value = mine?.safeguards || "";
+  $("ind-threat").hidden = $("ind-form").independent.value !== "no";
+  $("ind-mine").innerHTML = mine ? `<span>You declared on</span> <span>${esc(when(mine.declared_at))}</span>` : "";
+  $("ind-save").textContent = mine ? "Update my declaration" : "Confirm my declaration";
+}
+
+async function acceptanceChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await loadAcceptance();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+$("ac-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!ac) return;
+  const id = ac.engagement_id;
+  const answers = {};
+  for (const q of $("ac-questions").querySelectorAll("[data-q]")) {
+    const picked = q.querySelector("input[type=radio]:checked");
+    answers[q.dataset.q] = { answer: picked ? picked.value : null, comment: q.querySelector("[data-comment]").value };
+  }
+  busy($("ac-save"), async () => {
+    await sendJSON("PUT", `/api/engagements/${id}/acceptance`, { answers, conclusion: $("ac-conclusion").value });
+    await acceptanceChanged(id);
+  });
+});
+
+$("ac-decide").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!ac) return;
+  const id = ac.engagement_id;
+  busy($("ac-decide-btn"), async () => {
+    await sendJSON("POST", `/api/engagements/${id}/acceptance/decision`,
+      { decision: $("ac-pick").value, note: $("ac-note").value });
+    await acceptanceChanged(id);
+  });
+});
+
+$("ind-form").addEventListener("change", (ev) => {
+  if (ev.target.name === "independent") $("ind-threat").hidden = ev.target.value !== "no";
+});
+
+$("ind-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!ac) return;
+  const id = ac.engagement_id;
+  const independent = $("ind-form").independent.value === "yes";
+  busy($("ind-save"), async () => {
+    await sendJSON("POST", `/api/engagements/${id}/independence`, {
+      independent, threats: independent ? "" : $("ind-threats").value,
+      safeguards: independent ? "" : $("ind-safeguards").value });
+    await acceptanceChanged(id);
   });
 });
 
@@ -2151,8 +2345,9 @@ function restoreDrafts(root) {
   });
 }
 
-function requestCard(r, team) {
-  const open = r.status !== "accepted";
+// `locked`: the engagement is locked, so nothing can be sent, changed or removed.
+function requestCard(r, team, locked = false) {
+  const open = r.status !== "accepted" && !locked;
   const files = r.files.map((f) => {
     const canRemove = open && (f.uploaded_by_id === me.id || (team && me.rank >= 2));
     return `<li><button type="button" class="small secondary file" data-rq-file="${f.id}">${data(f.filename)}</button>
@@ -2165,10 +2360,10 @@ function requestCard(r, team) {
     team && m.from_client ? esc(m.author) + " (client)" : data(m.author)} · ${esc(when(m.at))}</div></div>`).join("");
   const actions = [];
   if (open) actions.push(`<label class="button small upload">${r.files.length ? "Add a file" : "Upload a file"}<input type="file" multiple data-rq-upload class="visually-hidden"></label>`);
-  if (team && r.status === "submitted") actions.push('<button type="button" class="small" data-rq-accept>Accept files</button>');
+  if (team && !locked && r.status === "submitted") actions.push('<button type="button" class="small" data-rq-accept>Accept files</button>');
   if (team && open && (!r.files.length || me.rank >= 2)) actions.push('<button type="button" class="small secondary danger" data-rq-delete>Delete request</button>');
   // Reopening accepted files is for reviewers; the server refuses preparers.
-  const returnable = team && (r.status === "submitted" || (r.status === "accepted" && me.rank >= 2));
+  const returnable = team && !locked && (r.status === "submitted" || (r.status === "accepted" && me.rank >= 2));
   return `<div class="rq ${r.status}" data-rq="${r.id}">
     <div class="head"><strong>${r.number}. ${data(r.title)}</strong>
       <span class="st rq-${r.status}">${esc(r.status_label)}</span>
@@ -2178,9 +2373,9 @@ function requestCard(r, team) {
     ${files ? `<ul class="rq-files">${files}</ul>` : `<p class="tag">${team ? "No files yet." : "Nothing sent yet."}</p>`}
     ${messages}
     ${actions.length ? `<div class="cell-actions">${actions.join("")}</div>` : ""}
-    <form data-rq-message><textarea name="text" rows="1" maxlength="5000" aria-label="Message" placeholder="${team ? "Message to the client" : "Message to your auditors"}"></textarea>
+    ${locked ? "" : `<form data-rq-message><textarea name="text" rows="1" maxlength="5000" aria-label="Message" placeholder="${team ? "Message to the client" : "Message to your auditors"}"></textarea>
       <button type="submit" class="small secondary">Send message</button>
-      ${returnable ? '<button type="button" class="small secondary" data-rq-return title="Send this request back to the client with the message">Send back with message</button>' : ""}</form>
+      ${returnable ? '<button type="button" class="small secondary" data-rq-return title="Send this request back to the client with the message">Send back with message</button>' : ""}</form>`}
   </div>`;
 }
 
@@ -2273,7 +2468,7 @@ function renderRequests() {
   keepDrafts($("rq-list"));
   const filter = $("rq-filter").value.split(",").filter(Boolean);
   const list = rq.requests.filter((r) => !filter.length || filter.includes(r.status));
-  $("rq-list").innerHTML = list.length ? list.map((r) => requestCard(r, true)).join("")
+  $("rq-list").innerHTML = list.length ? list.map((r) => requestCard(r, true, !!currentEngagement?.lock)).join("")
     : `<p class="muted">${rq.requests.length ? "No requests match." : "No requests yet."}</p>`;
   restoreDrafts($("rq-list"));
 }
@@ -2327,7 +2522,8 @@ function renderPortal() {
     return `<section class="panel">
       <h2>${data(e.name)} <span class="muted">· period ending ${esc(e.period_end)}</span></h2>
       <p class="tag" style="margin-top:-6px">${owed ? `${owed} still to send` : "Nothing left to send"}${e.summary.overdue ? ` · <span class="overdue">${e.summary.overdue} overdue</span>` : ""} · ${e.summary.accepted} of ${e.summary.total} accepted</p>
-      ${list.length ? list.map((r) => requestCard(r, false)).join("") : '<p class="muted">Nothing here right now.</p>'}
+      ${e.locked ? '<p class="warn-box">Your auditors have closed this audit file, so nothing more can be sent for it.</p>' : ""}
+      ${list.length ? list.map((r) => requestCard(r, false, e.locked)).join("") : '<p class="muted">Nothing here right now.</p>'}
     </section>`;
   }).join("");
   $("pt-list").innerHTML = html || '<section class="panel muted">Your auditors haven\'t asked for anything yet.</section>';

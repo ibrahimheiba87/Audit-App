@@ -147,6 +147,8 @@
           <option value="analysis.">Stratification and aging</option>
           <option value="risk.">Risk register</option>
           <option value="procedure.">Audit program</option>
+          <option value="acceptance.">Acceptance</option>
+          <option value="independence.">Independence</option>
           <option value="mapping.">Account mapping</option>
           <option value="entry.">Adjusting entries</option>
           <option value="statements.">Statements</option>
@@ -168,6 +170,7 @@
       <aside class="panel side">
         <h2>Clients</h2>
         <div id="client-list"></div>
+        <label class="check-label" style="margin-top:8px"><input type="checkbox" id="show-archived"><span>Show archived engagements</span></label>
         <details id="new-client" class="min-2">
           <summary>New client</summary>
           <form id="client-form" class="stack">
@@ -203,11 +206,15 @@
                 <p class="muted" id="eng-team"></p>
               </div>
               <div class="cell-actions">
+                <button type="button" class="secondary min-3" id="eng-lock">Lock engagement</button>
+                <button type="button" class="secondary min-4" id="eng-unlock" hidden>Unlock</button>
+                <button type="button" class="secondary min-3" id="eng-archive" hidden>Archive</button>
                 <button type="button" class="secondary min-2" id="eng-roll">Roll forward</button>
                 <button type="button" class="secondary min-4" id="eng-team-edit">Change team</button>
                 <button type="button" class="secondary danger min-3" id="eng-delete">Delete engagement</button>
               </div>
             </div>
+            <div class="warn-box" id="eng-locked" hidden></div>
           </section>
 
           <section class="panel" id="dash-panel">
@@ -215,6 +222,49 @@
             <div class="cards" id="dash-cards"></div>
             <h3>Next steps</h3>
             <ol class="next-steps" id="dash-steps"></ol>
+          </section>
+
+          <section class="panel" id="ac-panel">
+            <div class="row-between">
+              <h2>Acceptance and independence</h2>
+              <a class="button secondary" id="ac-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">Before taking on or continuing the audit, the team answers the checklist, a partner records the decision, and each member of the team confirms their independence from the client.</p>
+            <div class="cards" id="ac-cards"></div>
+            <div id="ac-status"></div>
+            <details id="ac-check">
+              <summary>Acceptance and continuance checklist</summary>
+              <form id="ac-form">
+                <div id="ac-questions"></div>
+                <label for="ac-conclusion">Conclusion</label>
+                <textarea id="ac-conclusion" rows="2" maxlength="5000"></textarea>
+                <div class="actions"><button type="submit" id="ac-save">Save checklist</button><span class="muted" id="ac-saved"></span></div>
+              </form>
+              <form id="ac-decide" class="min-3">
+                <h3>Partner's decision</h3>
+                <div class="grid">
+                  <div><label for="ac-pick">Decision</label><select id="ac-pick" class="map"><option value="accept">Accept</option><option value="decline">Decline</option></select></div>
+                </div>
+                <label for="ac-note">Note <span class="muted">(needed to accept when an answer needs a second look)</span></label>
+                <textarea id="ac-note" rows="2" maxlength="5000"></textarea>
+                <div class="actions"><button type="submit" id="ac-decide-btn">Record decision</button></div>
+              </form>
+            </details>
+            <h3>Independence</h3>
+            <div class="table-wrap"><table id="ac-members"></table></div>
+            <form id="ind-form">
+              <fieldset class="checks-inline"><legend>My declaration</legend>
+                <label><input type="radio" name="independent" value="yes" checked><span>I am independent of this client</span></label>
+                <label><input type="radio" name="independent" value="no"><span>I have a threat to declare</span></label>
+              </fieldset>
+              <div id="ind-threat" hidden>
+                <label for="ind-threats">Threat to independence</label>
+                <textarea id="ind-threats" rows="2" maxlength="5000"></textarea>
+                <label for="ind-safeguards">Safeguards</label>
+                <textarea id="ind-safeguards" rows="2" maxlength="5000"></textarea>
+              </div>
+              <div class="actions"><button type="submit" id="ind-save">Confirm my declaration</button><span class="muted" id="ind-mine"></span></div>
+            </form>
           </section>
 
           <section class="panel" id="mat-panel">

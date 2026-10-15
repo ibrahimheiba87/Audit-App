@@ -61,6 +61,10 @@ DETAIL_EFFECTS = ("upload.create", "upload.delete")
 
 
 SECTIONS = [
+    Section("acceptance", "Acceptance and independence",
+            "The acceptance and continuance checklist, its decision, and the team's "
+            "independence declarations.",
+            ("acceptance.update", "acceptance.decide", "independence.declare")),
     Section("planning", "Planning and materiality", "Engagement details and materiality.",
             ("engagement.update", "materiality.set")),
     Section("risks", "Risks and audit program",
@@ -89,8 +93,8 @@ SECTIONS = [
 SECTION = {s.id: s for s in SECTIONS}
 # Sections only some engagements have work in. Until one has (or is signed or noted), it
 # isn't needed for completion, so engagements without a bank statement (or that keep their
-# risk assessment outside the app) aren't held up.
-OPTIONAL = {"bank", "risks"}
+# risk assessment, acceptance or independence records outside the app) aren't held up.
+OPTIONAL = {"bank", "risks", "acceptance"}
 WORK = [s for s in SECTIONS if s.id != "completion"]
 SECTIONS_CHANGED: dict[str, set[str]] = {}  # action -> the sections it changes
 for _s in WORK:
@@ -99,8 +103,8 @@ for _s in WORK:
 for _a, _ids in SIDE_EFFECTS.items():
     SECTIONS_CHANGED.setdefault(_a, set()).update(_ids)
 
-SectionId = Literal["planning", "risks", "data", "comparison", "sampling", "bank", "findings",
-                    "statements", "completion"]
+SectionId = Literal["acceptance", "planning", "risks", "data", "comparison", "sampling", "bank",
+                    "findings", "statements", "completion"]
 Kind = Literal["prepared", "reviewed"]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
 
