@@ -546,13 +546,18 @@ def delete_upload(upload_id: int, user: User = Depends(require("review")),
     if worked:
         raise HTTPException(409, f"{len(worked)} findings from this file have been reviewed or "
                                  "have notes or evidence, so the file is kept as support.")
+    samples = list(session.scalars(select(Sample).where(Sample.upload_id == upload_id)))
+    tested = [x for x in samples if x.evaluation is not None]
+    if tested:
+        raise HTTPException(409, f"{len(tested)} samples from this file have test results "
+                                 "recorded, so the file is kept as support.")
     affects = set()  # review sections whose work goes with the file (review.detail_effects)
     for f in findings:
         session.delete(f)
         affects.add("findings")
     for run in session.scalars(select(Run).where(Run.upload_id == upload_id)):
         session.delete(run)
-    for x in session.scalars(select(Sample).where(Sample.upload_id == upload_id)):
+    for x in samples:
         session.delete(x)
         affects.add("sampling")
     for c in session.scalars(select(Comparison).where(

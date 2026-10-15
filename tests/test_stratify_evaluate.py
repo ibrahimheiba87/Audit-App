@@ -184,6 +184,19 @@ def test_evaluation_api_saves_logs_and_exports():
     with SessionLocal() as session:
         actions = [a.action for a in session.query(Activity)]
     assert actions.count("sample.evaluate") == 2
-    # The results go with the sample when its file is deleted.
-    assert client.delete(f"/api/uploads/{uid}").status_code == 204
-    assert client.get(f"/api/samples/{s['id']}").status_code == 404
+    # Recorded results are audit evidence, so their file can't be deleted.
+    r = client.delete(f"/api/uploads/{uid}")
+    assert r.status_code == 409 and "test results" in r.json()["detail"]
+    assert client.get(f"/api/samples/{s['id']}").status_code == 200
+
+
+def test_offsetting_errors_do_not_cancel_out():
+    df = ledger([1000.0, -1000.0, 500.0])
+    r = sampling.draw(df, P("random", sample_size=3, seed=1))
+    rows = {abs(i["amount"]) * (1 if i["amount"] > 0 else -1): i["row"] for i in r["items"]}
+    ev = sampling.evaluate(r, at_book(r, {rows[1000.0]: 0.0, rows[-1000.0]: 2000.0}), 1500)
+    assert ev["known_misstatement"] == 0 and ev["projected_misstatement"] == 0
+    assert ev["projected_overstatement"] == 1000.0 and ev["projected_understatement"] == 1000.0
+    assert ev["conclusion"]["status"] == "close"
+    assert sampling.evaluate(r, at_book(r, {rows[1000.0]: 0.0, rows[-1000.0]: 2000.0}),
+                             900)["conclusion"]["status"] == "exceeds"

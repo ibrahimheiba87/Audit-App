@@ -1347,7 +1347,11 @@ function renderSampleForm(e) {
     .join("") || '<option value="">Upload a file first</option>';
   const pm = e.materiality?.performance_materiality;
   $("smp-tm").placeholder = pm ? `${money(pm)} (performance materiality)` : "Amount";
-  $("smp-result").hidden = true;
+  // Keep the open sample (and any results typed but not saved) unless it has gone.
+  if (!currentSample || !e.samples.some((x) => x.id === currentSample.id)) {
+    $("smp-result").hidden = true;
+    currentSample = null;
+  }
   updateSampleMethod();
 }
 
@@ -1462,15 +1466,17 @@ function renderEvaluation(s) {
     ["Items tested", `${ev.tested} of ${ev.tested + ev.untested}`],
     ["Items with a misstatement", ev.exceptions],
     ["Known misstatement", money(ev.known_misstatement)],
-    ["Projected misstatement", money(ev.projected_misstatement)],
-  ];
+    ];
+  if (ev.basis === "ratio") cards.push(["Projected overstatement", money(ev.projected_overstatement)],
+    ["Projected understatement", money(ev.projected_understatement)]);
+  else cards.push(["Projected misstatement", money(ev.projected_misstatement)]);
   if (ev.basis === "mus") cards.push(["Upper misstatement limit", money(ev.upper_limit)]);
   if (ev.tolerable_misstatement) cards.push(["Tolerable misstatement", money(ev.tolerable_misstatement)]);
   $("smp-ev-cards").innerHTML = cards.map(([k, v]) =>
     `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
   const how = ev.basis === "mus"
     ? `Upper limit of overstatement at ${ev.confidence}% confidence: basic precision ${money(ev.basic_precision)} plus the projected errors and their allowance. Understatements count in the projected misstatement only.`
-    : "Projected by applying the misstatement found, as a share of the value tested, to the whole population. This is a non-statistical estimate.";
+    : "Overstatements and understatements are each projected by applying them, as a share of the value tested, to the whole population, so they can't cancel out. This is a non-statistical estimate.";
   $("smp-ev-conclusion").innerHTML = `<strong>${esc(ev.conclusion.label)}</strong><br><span class="muted">${esc(how)}</span><br><span class="muted">${esc(`Recorded by ${ev.updated_by}, ${when(ev.updated_at)}`)}</span>`;
   $("smp-ev-conclusion").className = ev.conclusion.status === "exceeds" ? "warn-box" : "";
 }
@@ -1489,10 +1495,13 @@ $("smp-ev-save").addEventListener("click", (ev) => busy(ev.currentTarget, async 
              notes: tr.querySelector(".ev-notes").value.trim() };
   });
   const tm = $("smp-ev-tm").value;
+  const engagementId = currentEngagement.id;
   const s = await sendJSON("PUT", `/api/samples/${currentSample.id}/evaluation`,
     { items, tolerable_misstatement: tm === "" ? null : Number(tm) });
-  await openEngagement(currentEngagement.id);
-  showSample(s, false);
+  if (currentEngagement?.id !== engagementId) return;  // they moved on to another engagement
+  currentSample = s;
+  await openEngagement(engagementId);
+  if (currentEngagement?.id === engagementId) showSample(s, false);
 }));
 
 // Stratification and summaries
@@ -1520,7 +1529,10 @@ $("str-form").addEventListener("submit", (ev) => {
     const bands = text ? text.split(",").map((b) => b.trim()).filter(Boolean).map(Number) : null;
     if (bands && bands.some((b) => !Number.isFinite(b))) throw new Error("Bands must be amounts separated by commas.");
     const id = Number($("str-upload").value);
-    strat = await sendJSON("POST", `/api/uploads/${id}/stratify`, { bands });
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/uploads/${id}/stratify`, { bands });
+    if (currentEngagement?.id !== engagementId) return;  // they moved on to another engagement
+    strat = out;
     $("str-export").href = `/api/uploads/${id}/stratify/export?bands=${encodeURIComponent(strat.bands.join(","))}`;
     $("str-export").hidden = false;
     renderStrat();

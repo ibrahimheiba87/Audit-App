@@ -325,11 +325,17 @@ def evaluate(result: dict, tested: list[dict], tolerable: float | None) -> dict:
         )
         measure = out["upper_limit"]
     else:
-        ratio = known / tested_book if tested_book else 0.0
+        # Over- and understatements are projected separately, so errors in opposite
+        # directions can't cancel out; the conclusion rests on the larger of the two.
+        scale = result["population"]["value"] / tested_book if tested_book else 0.0
+        over = sum(r["misstatement"] for r in exceptions if r["misstatement"] > 0)
+        under = sum(-r["misstatement"] for r in exceptions if r["misstatement"] < 0)
         out.update(basis="ratio",
-                   projected_misstatement=round(ratio * result["population"]["value"], 2),
+                   projected_misstatement=round(known * scale, 2),
+                   projected_overstatement=round(over * scale, 2),
+                   projected_understatement=round(under * scale, 2),
                    upper_limit=None)
-        measure = abs(out["projected_misstatement"])
+        measure = max(out["projected_overstatement"], out["projected_understatement"])
     if out["untested"]:
         status = "incomplete"
     elif not tolerable:
@@ -357,7 +363,9 @@ def evaluation_rows(ev: dict) -> list[tuple]:
     else:
         rows += [("Basis", "Ratio of misstatement to the value tested, applied to the "
                            "population (non-statistical)"),
-                 ("Projected misstatement", ev["projected_misstatement"])]
+                 ("Projected overstatement", ev["projected_overstatement"]),
+                 ("Projected understatement", ev["projected_understatement"]),
+                 ("Projected misstatement (net)", ev["projected_misstatement"])]
     rows += [("Tolerable misstatement", ev["tolerable_misstatement"]),
              ("Conclusion", ev["conclusion"]["label"])]
     return rows
