@@ -1470,12 +1470,13 @@ function renderEvaluation(s) {
   if (ev.basis === "ratio") cards.push(["Projected overstatement", money(ev.projected_overstatement)],
     ["Projected understatement", money(ev.projected_understatement)]);
   else cards.push(["Projected misstatement", money(ev.projected_misstatement)]);
-  if (ev.basis === "mus") cards.push(["Upper misstatement limit", money(ev.upper_limit)]);
+  if (ev.basis === "mus") cards.push(["Upper limit (overstatement)", money(ev.upper_limit)],
+    ["Upper limit (understatement)", money(ev.upper_limit_understatement)]);
   if (ev.tolerable_misstatement) cards.push(["Tolerable misstatement", money(ev.tolerable_misstatement)]);
   $("smp-ev-cards").innerHTML = cards.map(([k, v]) =>
     `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
   const how = ev.basis === "mus"
-    ? `Upper limit of overstatement at ${ev.confidence}% confidence: basic precision ${money(ev.basic_precision)} plus the projected errors and their allowance. Understatements count in the projected misstatement only.`
+    ? `Overstatements and understatements each get an upper limit at ${ev.confidence}% confidence: basic precision ${money(ev.basic_precision)} plus the projected errors and their allowance. The conclusion uses the larger.`
     : "Overstatements and understatements are each projected by applying them, as a share of the value tested, to the whole population, so they can't cancel out. This is a non-statistical estimate.";
   $("smp-ev-conclusion").innerHTML = `<strong>${esc(ev.conclusion.label)}</strong><br><span class="muted">${esc(how)}</span><br><span class="muted">${esc(`Recorded by ${ev.updated_by}, ${when(ev.updated_at)}`)}</span>`;
   $("smp-ev-conclusion").className = ev.conclusion.status === "exceeds" ? "warn-box" : "";
@@ -1495,13 +1496,13 @@ $("smp-ev-save").addEventListener("click", (ev) => busy(ev.currentTarget, async 
              notes: tr.querySelector(".ev-notes").value.trim() };
   });
   const tm = $("smp-ev-tm").value;
-  const engagementId = currentEngagement.id;
-  const s = await sendJSON("PUT", `/api/samples/${currentSample.id}/evaluation`,
+  const engagementId = currentEngagement.id, sampleId = currentSample.id;
+  const s = await sendJSON("PUT", `/api/samples/${sampleId}/evaluation`,
     { items, tolerable_misstatement: tm === "" ? null : Number(tm) });
   if (currentEngagement?.id !== engagementId) return;  // they moved on to another engagement
-  currentSample = s;
-  await openEngagement(engagementId);
-  if (currentEngagement?.id === engagementId) showSample(s, false);
+  await openEngagement(engagementId);  // refreshes the samples list
+  // Redraw only if this sample is still the one open, so edits to another aren't lost.
+  if (currentEngagement?.id === engagementId && currentSample?.id === sampleId) showSample(s, false);
 }));
 
 // Stratification and summaries

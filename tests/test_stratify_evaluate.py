@@ -200,3 +200,36 @@ def test_offsetting_errors_do_not_cancel_out():
     assert ev["conclusion"]["status"] == "close"
     assert sampling.evaluate(r, at_book(r, {rows[1000.0]: 0.0, rows[-1000.0]: 2000.0}),
                              900)["conclusion"]["status"] == "exceeds"
+
+
+def test_poisson_limits_for_many_errors_stay_accurate():
+    assert sampling.poisson_upper_limit(1000, 95) == pytest.approx(1053.60, abs=0.05)
+    assert sampling.poisson_upper_limit(800, 90) > sampling.poisson_upper_limit(700, 90) > 700
+    # The exact and approximate methods agree where they meet.
+    gap = sampling.poisson_upper_limit(201, 95) - sampling.poisson_upper_limit(200, 95)
+    assert 1.0 < gap < 1.12
+
+
+def test_mus_understatements_get_their_own_limit_and_tiny_taintings_count():
+    df = ledger([1000.0] * 50 + [100_000.0])
+    r = sampling.draw(df, P("mus", sample_size=10, seed=2))
+    interval = r["details"]["interval"]
+    big = next(i for i in r["items"] if abs(i["amount"]) >= interval)
+    small = next(i for i in r["items"] if abs(i["amount"]) < interval)
+    ev = sampling.evaluate(r, at_book(r, {big["row"]: 100_000.0 + 20_000}), 3.5 * interval)
+    assert ev["upper_limit"] == pytest.approx(3.0 * interval, rel=0.01)
+    assert ev["upper_limit_understatement"] == pytest.approx(3.0 * interval + 20_000, rel=0.01)
+    assert ev["conclusion"]["status"] == "exceeds"
+    # A tainting that rounds to 0.0000 still adds to the bound.
+    tiny = sampling.evaluate(r, at_book(r, {small["row"]: 1000.0 - 0.01}), 1e9)
+    clean = sampling.evaluate(r, at_book(r), 1e9)
+    assert tiny["upper_limit"] > clean["upper_limit"]
+    assert all("taint" not in i for i in tiny["items"])
+
+
+def test_twenty_bands_with_the_zero_band_round_trip():
+    bands = stratify.check_bands([float(i) for i in range(19)])  # includes zero: 19 bands
+    assert len(bands) == 19 and stratify.check_bands(bands) == bands
+    assert len(stratify.check_bands([float(i) for i in range(1, 20)])) == 20
+    with pytest.raises(stratify.StratifyError):
+        stratify.check_bands([float(i) for i in range(1, 21)])  # 20 floors plus zero

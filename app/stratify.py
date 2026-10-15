@@ -46,12 +46,13 @@ def default_bands(max_abs: float, materiality: dict | None = None) -> list[float
 def check_bands(bands: list[float]) -> list[float]:
     if not bands:
         raise StratifyError("Enter at least one band.")
-    if len(bands) > MAX_BANDS:
-        raise StratifyError(f"Use at most {MAX_BANDS} bands.")
     if any(not math.isfinite(b) or b < 0 for b in bands):
         raise StratifyError("Bands must be amounts of zero or more.")
     out = sorted(set(round(float(b), 2) for b in bands))
-    return out if out[0] == 0 else [0.0, *out]
+    out = out if out[0] == 0 else [0.0, *out]
+    if len(out) > MAX_BANDS:  # counted with the zero band, so the result can be sent back
+        raise StratifyError(f"Use at most {MAX_BANDS} bands.")
+    return out
 
 
 def _sides(amount: pd.Series) -> tuple[pd.Series, pd.Series]:

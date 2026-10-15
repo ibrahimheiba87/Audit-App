@@ -7,10 +7,12 @@ starting point; firms often have their own tables.
 
 from __future__ import annotations
 
+import functools
 import io
 import math
 import secrets
 from dataclasses import asdict, dataclass
+from statistics import NormalDist
 
 import numpy as np
 import pandas as pd
@@ -240,26 +242,47 @@ CONCLUSIONS = {
 }
 
 
+EXACT_LIMITS = 200  # above this many errors, the Wilson-Hilferty approximation is used
+
+
+@functools.lru_cache(maxsize=4096)
 def poisson_upper_limit(errors: int, confidence: int) -> float:
     """The upper limit on the expected number of errors (lambda) at `confidence` %, after
     finding `errors` errors: the lambda at which P(X <= errors) = 1 - confidence."""
     target = 1 - confidence / 100
+    if errors > EXACT_LIMITS:
+        # Half the chi-square quantile with 2(errors + 1) degrees of freedom, which
+        # Wilson-Hilferty gives to well within a cent of an interval at these sizes.
+        df = 2 * (errors + 1)
+        z = NormalDist().inv_cdf(confidence / 100)
+        c = 2 / (9 * df)
+        return round(df * (1 - c + z * math.sqrt(c)) ** 3 / 2, 4)
 
     def cdf(lam: float) -> float:
-        term = total = math.exp(-lam)
-        for i in range(1, errors + 1):
-            term *= lam / i
-            total += term
-        return total
+        # Summed in log space: exp(-lam) alone underflows to zero once lam passes ~745.
+        log_lam = math.log(lam)
+        return math.fsum(math.exp(-lam + i * log_lam - math.lgamma(i + 1))
+                         for i in range(errors + 1))
 
     low, high = 0.0, 10.0 + 5.0 * errors
-    for _ in range(200):
+    for _ in range(60):
         mid = (low + high) / 2
-        if cdf(mid) > target:
-            low = mid
-        else:
+        if mid > 0 and cdf(mid) <= target:
             high = mid
+        else:
+            low = mid
     return round((low + high) / 2, 4)
+
+
+def stringer_bound(taintings: list[float], top: float, interval: float,
+                   confidence: int) -> float:
+    """Upper misstatement limit for errors in one direction: basic precision, plus each
+    tainting (largest first) times its increment in the Poisson limit, plus top-stratum
+    errors, which are known in full."""
+    limits = [poisson_upper_limit(k, confidence) for k in range(len(taintings) + 1)]
+    allowance = sum((limits[k + 1] - limits[k]) * t
+                    for k, t in enumerate(sorted(taintings, reverse=True)))
+    return (limits[0] + allowance) * interval + top
 
 
 def evaluate(result: dict, tested: list[dict], tolerable: float | None) -> dict:
@@ -290,9 +313,10 @@ def evaluate(result: dict, tested: list[dict], tolerable: float | None) -> dict:
                 if book >= interval:  # top stratum: tested in full, nothing to project
                     row["top_stratum"] = True
                     row["projected"] = mis
-                else:
-                    row["tainting"] = round(mis / book, 4) if book else 0.0
-                    row["projected"] = round(mis / book * interval, 2) if book else 0.0
+                else:  # book > 0 here: a zero-value line can't be selected
+                    row["taint"] = mis / book  # kept unrounded for the bound
+                    row["tainting"] = round(mis / book, 4)
+                    row["projected"] = round(mis / book * interval, 2)
             done.append(row)
         items.append(row)
 
@@ -310,20 +334,23 @@ def evaluate(result: dict, tested: list[dict], tolerable: float | None) -> dict:
         confidence = result["params"].get("confidence") or 95
         if confidence not in CONFIDENCE:
             confidence = 95
-        limits = [poisson_upper_limit(k, confidence)
-                  for k in range(sum(1 for r in exceptions if "tainting" in r) + 1)]
-        over = sorted((r["tainting"] for r in exceptions
-                       if "tainting" in r and r["tainting"] > 0), reverse=True)
-        basic = round(limits[0] * interval, 2)
-        allowance = sum((limits[k + 1] - limits[k]) * t * interval for k, t in enumerate(over))
-        top = sum(r["misstatement"] for r in exceptions
-                  if r.get("top_stratum") and r["misstatement"] > 0)
+        # Overstatements and understatements each get their own bound, so neither can
+        # hide the other; the conclusion rests on the larger.
+        over = [r["taint"] for r in exceptions if r.get("taint", 0) > 0]
+        under = [-r["taint"] for r in exceptions if r.get("taint", 0) < 0]
+        top_over = sum(r["misstatement"] for r in exceptions
+                       if r.get("top_stratum") and r["misstatement"] > 0)
+        top_under = sum(-r["misstatement"] for r in exceptions
+                        if r.get("top_stratum") and r["misstatement"] < 0)
         out.update(
-            basis="mus", confidence=confidence, interval=interval, basic_precision=basic,
+            basis="mus", confidence=confidence, interval=interval,
+            basic_precision=round(poisson_upper_limit(0, confidence) * interval, 2),
             projected_misstatement=round(sum(r["projected"] for r in exceptions), 2),
-            upper_limit=round(basic + allowance + top, 2),
+            upper_limit=round(stringer_bound(over, top_over, interval, confidence), 2),
+            upper_limit_understatement=round(
+                stringer_bound(under, top_under, interval, confidence), 2),
         )
-        measure = out["upper_limit"]
+        measure = max(out["upper_limit"], out["upper_limit_understatement"])
     else:
         # Over- and understatements are projected separately, so errors in opposite
         # directions can't cancel out; the conclusion rests on the larger of the two.
@@ -347,6 +374,8 @@ def evaluate(result: dict, tested: list[dict], tolerable: float | None) -> dict:
     else:
         status = "acceptable"
     out["conclusion"] = {"status": status, "label": CONCLUSIONS[status]}
+    for r in items:
+        r.pop("taint", None)
     return out
 
 
@@ -359,7 +388,9 @@ def evaluation_rows(ev: dict) -> list[tuple]:
                  ("Confidence %", ev["confidence"]), ("Sampling interval", ev["interval"]),
                  ("Basic precision", ev["basic_precision"]),
                  ("Projected misstatement", ev["projected_misstatement"]),
-                 ("Upper misstatement limit (overstatement)", ev["upper_limit"])]
+                 ("Upper misstatement limit (overstatement)", ev["upper_limit"]),
+                 ("Upper misstatement limit (understatement)",
+                  ev["upper_limit_understatement"])]
     else:
         rows += [("Basis", "Ratio of misstatement to the value tested, applied to the "
                            "population (non-statistical)"),

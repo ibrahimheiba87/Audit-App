@@ -540,6 +540,10 @@ async def create_upload(
 @router.delete("/uploads/{upload_id}", status_code=204)
 def delete_upload(upload_id: int, user: User = Depends(require("review")),
                   session: Session = Depends(get_session)) -> Response:
+    get_or_404(session, Upload, upload_id, user)
+    # Taken in turn with saving sample results, so results can't land on a file being deleted.
+    auth.hold(session, f"upload:{upload_id}")
+    session.expire_all()
     upload = get_or_404(session, Upload, upload_id, user)
     findings = list(session.scalars(select(Finding).where(Finding.upload_id == upload_id)))
     worked = [f for f in findings if register.is_worked(f)]

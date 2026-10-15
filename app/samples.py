@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from . import loader, sampling
+from . import auth, loader, sampling
 from .auth import current_user, log, require
 from .db import Engagement, Sample, SampleEvaluation, Upload, User, get_session, utcnow
 from .engagements import get_or_404, load_upload, safe_stem, sample_brief
@@ -108,6 +108,10 @@ def get_sample(sample_id: int, user: User = Depends(current_user),
 def save_evaluation(sample_id: int, body: EvaluationIn, user: User = Depends(require("prepare")),
                     session: Session = Depends(get_session)) -> dict:
     """Record the audited amount of each tested item and project the misstatement."""
+    x = get_or_404(session, Sample, sample_id, user)
+    # One save at a time per file, in turn with deleting the file (see delete_upload).
+    auth.hold(session, f"upload:{x.upload_id}")
+    session.expire_all()
     x = get_or_404(session, Sample, sample_id, user)
     rows = [i.row for i in body.items]
     if len(rows) != len(set(rows)):
