@@ -208,9 +208,11 @@ def sheet_names(filename: str, content: bytes) -> list[str]:
 
 
 def read_file(filename: str, content: bytes, sheet: str | None = None,
-              header: int | None = None) -> pd.DataFrame:
+              header: int | None = None, as_text: bool = False) -> pd.DataFrame:
     """Read CSV or Excel bytes into a raw DataFrame with string column names. The header row
-    is found automatically unless given (0-based)."""
+    is found automatically unless given (0-based). With as_text, cells are kept as written
+    rather than read as numbers, so "0012345678" keeps its zeros."""
+    dtype = str if as_text else None
     lower = filename.lower()
     try:
         if lower.endswith((".xlsx", ".xlsm", ".xls")):
@@ -218,12 +220,13 @@ def read_file(filename: str, content: bytes, sheet: str | None = None,
                 top = pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=None,
                                     nrows=HEADER_SEARCH_ROWS)
                 header = _header_row(top)
-            raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=header)
+            raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=header,
+                                dtype=dtype)
         elif lower.endswith((".csv", ".txt")):
             if header is None:
                 header = _header_row(_csv_top(content))
             raw = pd.read_csv(io.BytesIO(content), sep=None, engine="python", skiprows=header,
-                              skip_blank_lines=False)  # keep row numbers
+                              skip_blank_lines=False, dtype=dtype)  # keep row numbers
         else:
             raise LoadError("Unsupported file type. Upload a .csv or .xlsx file.")
     except LoadError:

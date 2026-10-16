@@ -147,6 +147,8 @@
           <option value="analysis.">Stratification and aging</option>
           <option value="risk.">Risk register</option>
           <option value="procedure.">Audit program</option>
+          <option value="crossmatch.">File matching</option>
+          <option value="disclosure.">Disclosure checklist</option>
           <option value="acceptance.">Acceptance</option>
           <option value="independence.">Independence</option>
           <option value="mapping.">Account mapping</option>
@@ -365,6 +367,33 @@
             <div class="table-wrap"><table id="comparisons"></table></div>
           </section>
 
+          <section class="panel" id="xm-panel">
+            <h2>Match two files</h2>
+            <p class="muted">Look for rows two files have in common: vendors that share an employee's bank account, address or phone number, customers that are also vendors, or the same supplier entered twice (pick the same file twice). Upload the files under Files; a master file with no amounts goes in as "Other list".</p>
+            <form id="xm-form">
+              <div class="grid">
+                <div><label for="xm-left">First file</label><select id="xm-left" class="map" required></select></div>
+                <div><label for="xm-right">Second file</label><select id="xm-right" class="map" required></select></div>
+                <div><label for="xm-threshold">Name similarity needed (%)</label><input id="xm-threshold" type="number" min="70" max="100" value="90" required></div>
+                <div><label for="xm-name">Title <span class="muted">(optional)</span></label><input id="xm-name" maxlength="200" placeholder="e.g. Vendors against employees"></div>
+              </div>
+              <h3>Match on</h3>
+              <div id="xm-keys"></div>
+              <button type="button" class="small secondary" id="xm-add-key">Add a column pair</button>
+              <div class="actions"><button type="submit" id="xm-run">Find matches</button></div>
+            </form>
+            <div class="table-wrap"><table id="xm-list"></table></div>
+            <div id="xm-result" hidden>
+              <div class="row-between">
+                <h3 id="xm-heading"></h3>
+                <div class="cell-actions"><a class="button secondary" id="xm-export">Download Excel</a><button type="button" class="small secondary danger min-2" id="xm-delete">Delete</button></div>
+              </div>
+              <div class="cards" id="xm-cards"></div>
+              <p class="muted" id="xm-note"></p>
+              <div class="table-wrap"><table id="xm-table"></table></div>
+            </div>
+          </section>
+
           <section class="panel" id="cmp-result" hidden>
             <div class="row-between">
               <h2 id="cmp-title"></h2>
@@ -545,6 +574,29 @@
               <p class="muted" id="str-note"></p>
               <div class="table-wrap"><table id="str-table"></table></div>
             </div>
+          </section>
+
+          <section class="panel" id="dc-panel">
+            <div class="row-between">
+              <h2>Disclosure checklist</h2>
+              <a class="button secondary" id="dc-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">Check the draft financial statements give the disclosures IFRS requires. The AI assistant can read a PDF of the draft statements and suggest an answer for each item, with where it found it. Its suggestions only become answers when you accept them.</p>
+            <p class="warn-box" id="dc-framework" hidden>This checklist covers IFRS, and this engagement uses another framework. Mark the items that don't apply as not applicable.</p>
+            <p class="warn-box ai-off" hidden>The AI assistant is off. An administrator turns it on by setting ANTHROPIC_API_KEY on the server.</p>
+            <form id="dc-ai-form">
+              <div class="grid">
+                <div><label for="dc-file">Draft financial statements (PDF, up to 15 MB)</label><input id="dc-file" type="file" accept=".pdf,application/pdf" required></div>
+              </div>
+              <div class="actions"><button type="submit" id="dc-ai-run">Ask the AI to check them</button><span class="muted" id="dc-wait" hidden>Reading the statements… this can take a few minutes.</span></div>
+            </form>
+            <div id="dc-ai-note"></div>
+            <div class="cards" id="dc-cards"></div>
+            <label class="check-label"><input type="checkbox" id="dc-open-only"><span>Only items not answered yet, missing, or read differently by the AI</span></label>
+            <form id="dc-form">
+              <div id="dc-items"></div>
+              <div class="actions"><button type="submit" id="dc-save">Save checklist</button><span class="muted" id="dc-saved"></span></div>
+            </form>
           </section>
 
           <section class="panel" id="ag-panel">

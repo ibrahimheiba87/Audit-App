@@ -138,6 +138,12 @@ class Engagement(Base):
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="IndependenceDeclaration.id"
     )
+    cross_matches: Mapped[list[CrossMatch]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="CrossMatch.id"
+    )
+    disclosures: Mapped[DisclosureChecklist | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class Upload(Base):
@@ -204,6 +210,28 @@ class Comparison(Base):
     engagement: Mapped[Engagement] = relationship(back_populates="comparisons")
     current_upload: Mapped[Upload] = relationship(foreign_keys=[current_upload_id])
     prior_upload: Mapped[Upload] = relationship(foreign_keys=[prior_upload_id])
+
+
+class CrossMatch(Base):
+    """Two files matched on chosen columns, such as vendors against employees on bank
+    account and address, with the matching rows (crossmatch.py)."""
+
+    __tablename__ = "cross_matches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"))
+    left_upload_id: Mapped[int] = mapped_column(ForeignKey("uploads.id"))
+    right_upload_id: Mapped[int] = mapped_column(ForeignKey("uploads.id"))
+    title: Mapped[str] = mapped_column(String(200), default="")
+    settings: Mapped[dict] = mapped_column(JSON)
+    totals: Mapped[dict] = mapped_column(JSON)  # the counts, kept apart from the rows
+    result: Mapped[dict] = mapped_column(JSON, deferred=True)  # loaded when viewed
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="cross_matches")
+    left_upload: Mapped[Upload] = relationship(foreign_keys=[left_upload_id])
+    right_upload: Mapped[Upload] = relationship(foreign_keys=[right_upload_id])
 
 
 class BankReconciliation(Base):
@@ -277,6 +305,21 @@ class AcceptanceChecklist(Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     engagement: Mapped[Engagement] = relationship(back_populates="acceptance")
+
+
+class DisclosureChecklist(Base):
+    """The disclosure checklist for an engagement's financial statements, with the AI's
+    reading of the draft statements kept beside the team's answers (disclosures.py)."""
+
+    __tablename__ = "disclosure_checklists"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    answers: Mapped[dict] = mapped_column(JSON, default=dict)  # {item: {status, reference, comment}}
+    ai: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # the latest AI review
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="disclosures")
 
 
 class IndependenceDeclaration(Base):

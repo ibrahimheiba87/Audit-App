@@ -254,3 +254,14 @@ td.bad { color: var(--high); }
 .ac-q .flag-note { color: var(--medium); margin-top: 4px; }
 #ac-decide { margin-top: 16px; }
 #eng-locked { margin-top: 10px; }
+/* Matching two files */
+.xm-key { align-items: end; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px; }
+.xm-remove { display: flex; align-items: end; }
+#xm-add-key { margin-top: 4px; }
+#xm-table td { vertical-align: top; }
+/* Disclosure checklist */
+#dc-items h3 { margin: 18px 0 0; }
+.dc-item .grid { margin-top: 6px; }
+.dc-item.missing { border-inline-start: 3px solid var(--high); padding-inline-start: 10px; }
+.dc-ai { margin-top: 6px; }
+#dc-open-only { margin-top: 10px; }

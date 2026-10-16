@@ -102,9 +102,11 @@ function Mapper(root, onChange = () => {}) {
       <div class="grid" data-sheet-wrap hidden style="margin-top:14px">
         <div><label for="${uid}-sheet">Sheet</label><select class="map" id="${uid}-sheet" data-sheet></select></div>
       </div>
-      <h2 style="margin-top:18px">Column mapping</h2>
-      <p class="muted">Check which column in your file holds each field. Map either a signed Amount column, or Debit and Credit columns.</p>
-      <div class="mapping" data-mapping></div>
+      <div data-mapping-wrap>
+        <h2 style="margin-top:18px">Column mapping</h2>
+        <p class="muted">Check which column in your file holds each field. Map either a signed Amount column, or Debit and Credit columns.</p>
+        <div class="mapping" data-mapping></div>
+      </div>
       <p class="muted" data-note></p>
       <div class="table-wrap"><table class="preview-table" data-preview translate="no"></table></div>
     </div>`;
@@ -146,8 +148,14 @@ function Mapper(root, onChange = () => {}) {
   return {
     load: (f) => guard(() => load(f)),
     reset: () => { file = null; loads++; q(".mapper").hidden = true; },
+    // Files with nothing to map (lists) still need the sheet picked.
+    setMapping: (on) => { q("[data-mapping-wrap]").hidden = !on; },
     addTo(fd) {
       if (q(".mapper").hidden) return fd;
+      if (q("[data-mapping-wrap]").hidden) {
+        if (!q("[data-sheet-wrap]").hidden) fd.set("sheet", q("[data-sheet]").value);
+        return fd;
+      }
       const mapping = {};
       root.querySelectorAll("select[data-field]").forEach((s) => { if (s.value) mapping[s.dataset.field] = s.value; });
       fd.set("mapping", JSON.stringify(mapping));
@@ -293,6 +301,9 @@ async function openEngagement(id) {
     $("doc-form").reset();
     $("doc-wait").hidden = true;
     ac = null; renderAcceptance(); $("ac-check").open = false;
+    xm = null; xmColumns = {}; $("xm-result").hidden = true; $("xm-keys").innerHTML = "";
+    $("xm-name").value = ""; $("xm-threshold").value = "90";
+    dc = null; renderDisclosures(); $("dc-ai-form").reset();
     showRisk(null);
     showLetter(null);
     aiMapHints = {};
@@ -310,6 +321,8 @@ async function openEngagement(id) {
   renderRuns(e.runs);
   renderComparisonForm(e);
   renderComparisons(e.comparisons);
+  renderMatchForm(e);
+  renderMatches(e.cross_matches);
   renderStratifyForm(e);
   renderAgingForm(e);
   renderSampleForm(e);
@@ -323,6 +336,7 @@ async function openEngagement(id) {
   guard(loadAiDrafts);
   guard(loadRisks);
   guard(loadAcceptance);
+  guard(loadDisclosures);
   await loadStatements();
   await loadRegister();
 }
@@ -668,7 +682,14 @@ $("mat-form").addEventListener("submit", (e) => {
 // Uploads
 
 const uploadMapper = Mapper($("up-mapper"));
-$("up-file").addEventListener("change", () => uploadMapper.load($("up-file").files[0]));
+// Lists (vendor or employee master files) have no amounts, so there's nothing to map.
+const uploadIsList = () => $("up-kind").value === "list";
+function loadUploadMapper() {
+  uploadMapper.setMapping(!uploadIsList());
+  uploadMapper.load($("up-file").files[0]);
+}
+$("up-file").addEventListener("change", loadUploadMapper);
+$("up-kind").addEventListener("change", loadUploadMapper);
 
 $("upload-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -693,6 +714,7 @@ function renderUploads(uploads) {
       <td><div class="cell-actions">
         ${u.kind === "bank"
           ? `<button type="button" class="small" data-reconcile="${u.id}">Reconcile</button>`
+          : u.kind === "list" ? `<button type="button" class="small" data-match="${u.id}">Match</button>`
           : `<button type="button" class="small" data-run="${u.id}">Run audit</button>`}
         <button type="button" class="small secondary danger min-2" data-delete-upload="${u.id}">Delete</button>
       </div></td></tr>`).join("")
@@ -703,7 +725,12 @@ $("uploads").addEventListener("click", (e) => {
   const run = e.target.closest("[data-run]");
   const del = e.target.closest("[data-delete-upload]");
   const rec = e.target.closest("[data-reconcile]");
-  if (rec) {
+  const matchBtn = e.target.closest("[data-match]");
+  if (matchBtn) {
+    $("xm-left").value = matchBtn.dataset.match;
+    $("xm-left").dispatchEvent(new Event("change"));
+    $("xm-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (rec) {
     if ([...$("bank-file").options].some((o) => o.value === rec.dataset.reconcile)) {
       $("bank-file").value = rec.dataset.reconcile;
     }
@@ -763,6 +790,308 @@ function showRun(r) {
      <a class="button" href="/api/runs/${r.id}/report?format=csv">Download CSV</a>`);
   $("results").scrollIntoView({ behavior: "smooth" });
 }
+
+// Matching two files: rows they have in common, such as a vendor sharing an employee's bank
+// account, or the same supplier twice in one file.
+
+let xm = null;          // the match shown
+let xmColumns = {};     // upload id -> its columns, as the server read them
+let xmLoads = 0;        // only the latest column lists fill the pickers
+let xmWanted = false;   // the form has been used, so other files' columns are worth reading
+const XM_METHODS = { exact: "Same text", digits: "Same digits", name: "Similar names" };
+
+function renderMatchForm(e) {
+  const keep = [$("xm-left").value, $("xm-right").value];
+  const opts = e.uploads.map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`).join("");
+  // Lists come first: they're what's usually matched, and their columns are known already.
+  const lists = e.uploads.filter((u) => u.kind === "list");
+  for (const [i, id] of [[0, "xm-left"], [1, "xm-right"]]) {
+    $(id).innerHTML = opts || '<option value="">Upload a file first</option>';
+    if (e.uploads.some((u) => String(u.id) === keep[i])) $(id).value = keep[i];
+    else if (lists.length) $(id).value = lists[Math.min(i, lists.length - 1)].id;
+  }
+  if (!$("xm-keys").children.length && e.uploads.length) addMatchKey();
+  xmWanted = false;
+  const listIds = new Set(lists.map((u) => String(u.id)));
+  if (listIds.has($("xm-left").value) && listIds.has($("xm-right").value)) guard(refreshMatchColumns);
+}
+
+async function columnsOf(uploadId) {
+  if (!uploadId) return [];
+  if (!xmColumns[uploadId]) xmColumns[uploadId] = (await getJSON(`/api/uploads/${uploadId}/columns`)).columns;
+  return xmColumns[uploadId];
+}
+
+// Fill each column picker from the chosen files, keeping what was picked where it still exists.
+async function refreshMatchColumns() {
+  const id = currentEngagement?.id;
+  const load = ++xmLoads;
+  const [left, right] = await Promise.all([columnsOf($("xm-left").value), columnsOf($("xm-right").value)]);
+  if (load !== xmLoads || currentEngagement?.id !== id) return;
+  const fill = (select, cols) => {
+    const keep = select.value;
+    select.innerHTML = cols.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    if (cols.includes(keep)) select.value = keep;
+  };
+  for (const row of $("xm-keys").querySelectorAll(".xm-key")) {
+    fill(row.querySelector("[data-left]"), left);
+    fill(row.querySelector("[data-right]"), right);
+  }
+}
+
+function addMatchKey() {
+  const n = $("xm-keys").children.length;
+  if (n >= 5) return;
+  $("xm-keys").insertAdjacentHTML("beforeend", `<div class="xm-key grid">
+    <div><label>Column in the first file</label><select class="map" data-left translate="no"></select></div>
+    <div><label>Column in the second file</label><select class="map" data-right translate="no"></select></div>
+    <div><label>Match by</label><select class="map" data-method>${Object.entries(XM_METHODS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
+    <div class="xm-remove"><button type="button" class="small secondary" data-remove-key>Remove</button></div>
+  </div>`);
+}
+
+$("xm-add-key").addEventListener("click", () => { addMatchKey(); guard(refreshMatchColumns); });
+$("xm-keys").addEventListener("click", (ev) => {
+  if (!ev.target.closest("[data-remove-key]")) return;
+  if ($("xm-keys").children.length > 1) ev.target.closest(".xm-key").remove();
+});
+$("xm-left").addEventListener("change", () => guard(refreshMatchColumns));
+$("xm-right").addEventListener("change", () => guard(refreshMatchColumns));
+// Reading a large ledger's columns takes a moment, so it waits until the form is used.
+$("xm-form").addEventListener("focusin", () => {
+  if (xmWanted) return;
+  xmWanted = true;
+  guard(refreshMatchColumns);
+});
+
+$("xm-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const keys = [...$("xm-keys").querySelectorAll(".xm-key")].map((row) => ({
+    left: row.querySelector("[data-left]").value, right: row.querySelector("[data-right]").value,
+    method: row.querySelector("[data-method]").value }));
+  busy($("xm-run"), async () => {
+    const m = await sendJSON("POST", `/api/engagements/${id}/cross-matches`, {
+      left_upload_id: Number($("xm-left").value), right_upload_id: Number($("xm-right").value),
+      keys, threshold: Number($("xm-threshold").value || 90), title: $("xm-name").value });
+    if (currentEngagement?.id !== id) return;
+    await openEngagement(id);
+    showMatch(m);
+    refreshDashboard();
+    await loadEngagementActivity();
+  });
+});
+
+function matchTitle(m) {
+  return m.title || (m.left_upload_id === m.right_upload_id ? `Duplicates in ${m.left_filename}`
+    : `${m.left_filename} against ${m.right_filename}`);
+}
+
+function renderMatches(list) {
+  $("xm-list").innerHTML = list.length
+    ? "<tr><th>Match</th><th>When</th><th>Files</th><th>Pairs found</th><th></th></tr>" + list.map((m) => `<tr>
+      <td>#${m.id} ${m.title ? data(m.title) : ""}</td><td class="nowrap">${esc(when(m.created_at))}</td>
+      <td>${data(m.left_filename)}${m.left_upload_id === m.right_upload_id ? "" : ` · ${data(m.right_filename)}`}</td>
+      <td class="num">${m.totals.pairs.toLocaleString(LOCALE)}</td>
+      <td><button type="button" class="small secondary" data-view-match="${m.id}">View</button></td></tr>`).join("")
+    : "";
+  if (xm && !list.some((m) => m.id === xm.id)) { xm = null; $("xm-result").hidden = true; }
+}
+
+$("xm-list").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-view-match]");
+  if (b) guard(async () => showMatch(await getJSON(`/api/cross-matches/${b.dataset.viewMatch}`)));
+});
+
+function showMatch(m) {
+  xm = m;
+  const r = m.result, t = r.totals;
+  $("xm-result").hidden = false;
+  $("xm-heading").innerHTML = `<bdi>#${m.id}</bdi> ${m.title ? data(m.title)
+    : m.left_upload_id === m.right_upload_id ? `<span>Duplicates in</span> ${data(m.left_filename)}`
+    : `${data(m.left_filename)} <span>against</span> ${data(m.right_filename)}`}`;
+  $("xm-export").href = `/api/cross-matches/${m.id}/export`;
+  const rowCards = r.same_file ? [[`${t.left_matched}/${t.left_rows}`, "Rows with a duplicate", false]]
+    : [[`${t.left_matched}/${t.left_rows}`, "Rows matched in the first file", false],
+      [`${t.right_matched}/${t.right_rows}`, "Rows matched in the second file", false]];
+  $("xm-cards").innerHTML = [[t.pairs, "Matching pairs", t.pairs > 0], [t.all_keys, "Matching on every column", t.all_keys > 0], ...rowCards]
+    .map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(typeof v === "number" ? v.toLocaleString(LOCALE) : v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  const notes = [];
+  if (r.truncated) notes.push(`<span>Only the first ${r.hidden + r.matches.length} pairs were kept. Pick columns that tell the rows apart to see the rest.</span>`);
+  if (r.hidden) notes.push(`<span>Showing the first ${r.matches.length}. The Excel download has the rest.</span>`);
+  for (const k of r.keys) {
+    if (k.common_value_count) notes.push(`${data(k.left)}: <span>Values in more than 50 rows were skipped, as they don't tell rows apart:</span> ${k.common_values.map((x) => `${data(x.value)} (<bdi>${x.rows}</bdi>)`).join(", ")}`);
+    if (k.rows_not_compared) notes.push(`${data(k.left)}: <span>${k.rows_not_compared} rows had too many similar names to compare.</span>`);
+  }
+  $("xm-note").innerHTML = notes.map((n) => `<div>${n}</div>`).join("");
+  const keyLabel = (k) => `${data(k.left)} = ${data(k.right)} <span class="tag">(<span>${esc(k.method_label)}</span>)</span>`;
+  const side = (row, file, values, cols) => `<div class="tag"><span>Row</span> <bdi>${row}</bdi></div>` +
+    cols.filter((c) => c in values).map((c) => `<div><bdi class="muted" translate="no">${esc(c)}:</bdi> ${data(values[c])}</div>`).join("");
+  const leftCols = [...new Set([r.left_columns[0], ...r.keys.map((k) => k.left)])];
+  const rightCols = [...new Set([r.right_columns[0], ...r.keys.map((k) => k.right)])];
+  $("xm-table").innerHTML = r.matches.length
+    ? "<tr><th>Matched on</th><th>First file</th><th>Second file</th></tr>" + r.matches.map((x) => `<tr>
+      <td>${x.keys.map((k) => `<div>${keyLabel(r.keys[k.key])}${k.score < 100 ? ` <bdi>${k.score}%</bdi>` : ""}</div>`).join("")}</td>
+      <td>${side(x.left_row, 1, x.left, leftCols)}</td><td>${side(x.right_row, 2, x.right, rightCols)}</td></tr>`).join("")
+    : '<tr><td class="muted">No rows match. The files have nothing in common on these columns.</td></tr>';
+  $("xm-result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+$("xm-delete").addEventListener("click", () => {
+  if (!xm || !confirm(`Delete match #${xm.id}?`)) return;
+  const id = currentEngagement.id;
+  guard(async () => {
+    await sendJSON("DELETE", `/api/cross-matches/${xm.id}`);
+    xm = null;
+    $("xm-result").hidden = true;
+    await openEngagement(id);
+    await loadEngagementActivity();
+  });
+});
+
+// Disclosure checklist, with the AI's reading of the draft statements beside the answers
+
+let dc = null;
+let dcLoads = 0;
+const dcReading = {};  // engagement id -> AI reviews under way
+const DC_STATUSES = { yes: "Given", no: "Missing", na: "Not applicable" };
+
+async function loadDisclosures() {
+  const id = currentEngagement.id;
+  const load = ++dcLoads;
+  const d = await getJSON(`/api/engagements/${id}/disclosures`);
+  if (load !== dcLoads || currentEngagement?.id !== id) return;
+  showDisclosures(d, id);
+}
+
+// The answers on the page that differ from the last ones loaded: unsaved edits.
+function disclosureEdits() {
+  const edits = {};
+  if (!dc) return edits;
+  const before = Object.fromEntries(dc.items.map((x) => [x.id, x]));
+  for (const el of $("dc-items").querySelectorAll(".dc-item")) {
+    const x = before[el.dataset.item];
+    if (!x) continue;
+    const picked = el.querySelector("input[type=radio]:checked");
+    const now = { status: picked ? picked.value : null,
+      reference: el.querySelector("[data-reference]").value, comment: el.querySelector("[data-comment]").value };
+    if (now.status !== (x.status || null) || now.reference !== (x.reference || "") || now.comment !== (x.comment || "")) edits[x.id] = now;
+  }
+  return edits;
+}
+
+// Show fresh answers from the server, keeping anything typed but not saved yet (unless it's
+// for another engagement).
+function showDisclosures(d, id) {
+  const edits = dc && dc.engagement_id === id ? disclosureEdits() : {};
+  dc = { ...d, engagement_id: id };
+  renderDisclosures();
+  for (const [item, a] of Object.entries(edits)) {
+    const el = $("dc-items").querySelector(`.dc-item[data-item="${CSS.escape(item)}"]`);
+    if (!el) continue;
+    for (const r of el.querySelectorAll("input[type=radio]")) r.checked = r.value === a.status;
+    el.querySelector("[data-reference]").value = a.reference;
+    el.querySelector("[data-comment]").value = a.comment;
+  }
+}
+
+function renderDisclosures() {
+  if (!dc) {
+    $("dc-cards").innerHTML = $("dc-items").innerHTML = $("dc-ai-note").innerHTML = $("dc-saved").textContent = "";
+    $("dc-export").removeAttribute("href");
+    $("dc-framework").hidden = true;
+    return;
+  }
+  const n = dc.counts;
+  $("dc-framework").hidden = !currentEngagement || ["IFRS", "IFRS for SMEs"].includes(currentEngagement.framework);
+  $("dc-export").href = `/api/engagements/${dc.engagement_id}/disclosures/export`;
+  $("dc-cards").innerHTML = [[`${n.answered}/${n.items}`, "Items answered", false], [n.given, "Given", false],
+    [n.missing, "Missing", n.missing > 0], [n.na, "Not applicable", false],
+    [dc.differs, "Read differently by the AI", dc.differs > 0]]
+    .map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("dc-ai-note").innerHTML = dc.ai
+    ? `<p class="muted"><span>The AI assistant read</span> ${data(dc.ai.filename)} (${data(dc.ai.model)}). <span>Asked by</span> ${data(dc.ai.by)}, <span>${esc(when(dc.ai.at.replace(/\+00:00$/, "")))}</span></p>
+       ${dc.ai_pending ? `<div class="actions"><button type="button" class="small" id="dc-accept">Use the AI's answers for the ${dc.ai_pending} items not answered yet</button></div>` : ""}`
+    : "";
+  let standard = null;
+  $("dc-items").innerHTML = dc.items.map((x) => {
+    const head = x.standard !== standard ? `<h3 translate="no">${esc((standard = x.standard))}</h3>` : "";
+    const ai = x.ai ? `<div class="tag dc-ai${x.differs ? " flag-note" : ""}"><span>AI:</span> <span>${esc(x.ai.status_label)}</span>${x.ai.where ? ` · ${data(x.ai.where)}` : ""}${x.ai.evidence ? ` · ${data(x.ai.evidence)}` : ""}</div>` : "";
+    return `${head}<div class="ac-q dc-item${x.differs ? " flagged" : ""}${x.status === "no" ? " missing" : ""}" data-item="${esc(x.id)}" data-status="${esc(x.status || "")}" data-differs="${x.differs ? 1 : ""}">
+      <p><span>${esc(x.text)}</span></p>
+      <fieldset class="checks-inline"><legend class="visually-hidden">Answer</legend>
+        ${Object.entries(DC_STATUSES).map(([v, label]) => `<label><input type="radio" name="dc-${esc(x.id)}" value="${v}" ${x.status === v ? "checked" : ""}><span>${label}</span></label>`).join("")}
+      </fieldset>
+      <div class="grid"><div><input data-reference maxlength="2000" value="${esc(x.reference)}" placeholder="Where (note or page)" aria-label="Where (note or page)"></div>
+        <div><input data-comment maxlength="2000" value="${esc(x.comment)}" placeholder="Comment" aria-label="Comment"></div></div>
+      ${ai}
+    </div>`;
+  }).join("");
+  $("dc-saved").innerHTML = dc.updated_by ? `<span>Last saved by</span> ${data(dc.updated_by)} · <span>${esc(when(dc.updated_at))}</span>` : "";
+  filterDisclosures();
+}
+
+function filterDisclosures() {
+  const only = $("dc-open-only").checked;
+  for (const el of $("dc-items").querySelectorAll(".dc-item")) {
+    el.hidden = only && el.dataset.status && el.dataset.status !== "no" && !el.dataset.differs;
+  }
+}
+$("dc-open-only").addEventListener("change", filterDisclosures);
+
+async function disclosuresChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+$("dc-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!dc) return;
+  const id = dc.engagement_id;
+  // Only what was changed here, so answers someone else saved meanwhile aren't undone.
+  const answers = disclosureEdits();
+  busy($("dc-save"), async () => {
+    const d = await sendJSON("PUT", `/api/engagements/${id}/disclosures`, { answers });
+    if (currentEngagement?.id !== id) return;
+    dc = { ...d, engagement_id: id };
+    renderDisclosures();
+    await disclosuresChanged(id);
+  });
+});
+
+$("dc-ai-note").addEventListener("click", (ev) => {
+  const b = ev.target.closest("#dc-accept");
+  if (!b || !dc) return;
+  const id = dc.engagement_id;
+  busy(b, async () => {
+    const d = await sendJSON("POST", `/api/engagements/${id}/disclosures/accept-ai`);
+    if (currentEngagement?.id !== id) return;
+    showDisclosures(d, id);
+    await disclosuresChanged(id);
+  });
+});
+
+$("dc-ai-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const fd = new FormData();
+  fd.append("file", $("dc-file").files[0]);
+  fd.append("language", I18N.lang === "ar" ? "ar" : "en");
+  guard(async () => {
+    dcReading[id] = (dcReading[id] || 0) + 1;
+    renderAiPanels();
+    try {
+      const d = await (await postForm(`/api/engagements/${id}/disclosures/ai-review`, fd)).json();
+      if (currentEngagement?.id !== id) return;
+      showDisclosures(d, id);
+      $("dc-ai-form").reset();
+    } finally {
+      dcReading[id] -= 1;
+      if (currentEngagement?.id === id) { renderAiPanels(); loadEngagementActivity(); }
+    }
+  });
+});
 
 // Prior-year comparison
 
@@ -1106,6 +1435,9 @@ function renderAiPanels() {
     $(`${run}-wait`).hidden = !waiting;
   }
   $("ml-statuses").querySelectorAll("input").forEach((el) => { el.disabled = off; });
+  $("dc-file").disabled = off;
+  $("dc-ai-run").disabled = off || (dcReading[id] || 0) > 0;
+  $("dc-wait").hidden = !(dcReading[id] || 0);
 }
 
 function draftLabel(d) {
@@ -1718,7 +2050,7 @@ function renderUncorrected() {
 let samplingOptions = null;
 
 function renderSampleForm(e) {
-  $("smp-upload").innerHTML = e.uploads.filter((u) => u.kind !== "prior_tb")
+  $("smp-upload").innerHTML = e.uploads.filter((u) => !["prior_tb", "list"].includes(u.kind))
     .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
     .join("") || '<option value="">Upload a file first</option>';
   const pm = e.materiality?.performance_materiality;
@@ -1888,7 +2220,7 @@ let stratTab = "strata";
 
 function renderStratifyForm(e) {
   const keep = $("str-upload").value;
-  const files = e.uploads.filter((u) => u.kind !== "prior_tb");
+  const files = e.uploads.filter((u) => !["prior_tb", "list"].includes(u.kind));
   $("str-upload").innerHTML = files
     .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
     .join("") || '<option value="">Upload a file first</option>';
