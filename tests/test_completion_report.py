@@ -135,3 +135,13 @@ def test_saving_parts_keeps_the_rest_and_a_later_change_reopens_the_sign_off():
                         "going_concern_note": "Loan due in March"})
     assert "The completion procedures aren't signed off yet." in prep.get(report).json()[
         "warnings"]
+
+
+def test_partial_key_audit_matters_are_kept_and_long_names_refused():
+    a, prep, rev, partner, eid, _ = team()
+    url = f"/api/engagements/{eid}/report"
+    r = prep.put(url, json={"key_matters": [{"title": "", "why": "Large balance"}]})
+    assert r.json()["key_matters"][0]["why"] == "Large balance"
+    texts = [p["text"] for p in prep.get(f"{url}/preview").json()["paragraphs"]]
+    assert "[Name the key audit matter]" in texts
+    assert prep.put(url, json={"city": "x" * 201}).status_code == 422

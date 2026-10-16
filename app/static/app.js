@@ -290,6 +290,7 @@ async function openEngagement(id) {
     $("dash-cards").innerHTML = $("dash-steps").innerHTML = "";
     bank = null; bankChecked = null;
     strat = null; $("str-result").hidden = $("str-export").hidden = true; $("str-bands").value = "";
+    lx = null; $("lx-result").hidden = $("lx-export").hidden = true; $("lx-form").reset();
     aged = null; $("ag-result").hidden = $("ag-export").hidden = true; $("ag-terms").value = "30";
     rr = null; renderRisks(); resetRiskForm(); $("rr-add").open = false; $("ra-imported").textContent = "";
     ct = null; renderControls(); resetControlForm(); $("ct-add").open = false; $("ct-calc-out").textContent = "";
@@ -337,6 +338,7 @@ async function openEngagement(id) {
   renderMatchForm(e);
   renderMatches(e.cross_matches);
   renderStratifyForm(e);
+  renderExplorerForm(e);
   renderAgingForm(e);
   renderConfirmationListing(e);
   renderSampleForm(e);
@@ -699,6 +701,7 @@ $("mat-form").addEventListener("submit", (e) => {
     currentEngagement = eng;
     renderMateriality(eng.materiality);
     refreshDashboard();
+    refreshFinishing(eng.id);
   });
 });
 
@@ -2619,15 +2622,16 @@ $("cp-form").addEventListener("submit", (ev) => {
   const body = { answers, conclusion: $("cp-conclusion").value, going_concern: $("cp-gc").value || null,
     going_concern_note: $("cp-gc-note").value, reps_requested_on: $("cp-reps-asked").value || null,
     reps_dated: $("cp-reps-dated").value || null };
+  const rev = $("cp-form").dataset.rev;
   busy($("cp-save"), async () => {
     await sendJSON("PUT", `/api/engagements/${id}/completion`, body);
     if (currentEngagement?.id !== id) return;
-    delete $("cp-form").dataset.dirty;
+    if ($("cp-form").dataset.rev === rev) delete $("cp-form").dataset.dirty;
     await completionChanged(id);
   });
 });
 
-$("cp-form").addEventListener("input", () => { $("cp-form").dataset.dirty = "1"; });
+$("cp-form").addEventListener("input", () => formEdited($("cp-form")));
 
 $("cp-event-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
@@ -2686,6 +2690,14 @@ $("cp-letter").addEventListener("click", () => {  // in the language the page is
   if (cp) $("cp-letter").href = `/api/engagements/${cp.engagement_id}/completion/representation-letter?language=${I18N.lang === "ar" ? "ar" : "en"}`;
 });
 
+// The going concern signs and the suggested opinion follow the figures: reload both panels
+// (keeping unsaved edits) after the mapping, adjusting entries or materiality change.
+function refreshFinishing(id) {
+  if (currentEngagement?.id !== id) return;
+  if (cp?.engagement_id === id) guard(loadCompletion);
+  if (rp?.engagement_id === id) guard(loadReport);
+}
+
 // Auditor's report draft
 
 let rp = null;
@@ -2702,9 +2714,9 @@ async function loadReport() {
 
 function kamRow(k = { title: "", why: "", how: "" }) {
   return `<div class="rp-kam" data-kam>
-    <label>Matter</label><input data-kam-title maxlength="300" value="${esc(k.title)}">
-    <label>Why it mattered</label><textarea data-kam-why rows="2" maxlength="5000">${esc(k.why)}</textarea>
-    <label>How the audit dealt with it</label><textarea data-kam-how rows="2" maxlength="5000">${esc(k.how)}</textarea>
+    <label>Matter</label><input data-kam-title maxlength="300" value="${esc(k.title)}" aria-label="Matter">
+    <label>Why it mattered</label><textarea data-kam-why rows="2" maxlength="5000" aria-label="Why it mattered">${esc(k.why)}</textarea>
+    <label>How the audit dealt with it</label><textarea data-kam-how rows="2" maxlength="5000" aria-label="How the audit dealt with it">${esc(k.how)}</textarea>
     <div class="actions"><button type="button" class="small secondary danger" data-kam-remove>Remove</button></div></div>`;
 }
 
@@ -2753,22 +2765,29 @@ async function loadReportPreview() {
   const id = rp.engagement_id;
   const lang = I18N.lang === "ar" ? "ar" : "en";
   const p = await getJSON(`/api/engagements/${id}/report/preview?language=${lang}`);
-  if (rp?.engagement_id !== id) return;
+  if (rp?.engagement_id !== id || (I18N.lang === "ar" ? "ar" : "en") !== lang) return;
   const tag = { title: "h3", heading: "h4", subheading: "h5" };
   $("rp-preview").dir = lang === "ar" ? "rtl" : "ltr";
   $("rp-preview").innerHTML = p.paragraphs.map((x) => `<${tag[x.style] || "p"} class="rp-${esc(x.style)}" translate="no">${esc(x.text).replace(/\n/g, "<br>")}</${tag[x.style] || "p"}>`).join("");
 }
 
+document.addEventListener("languagechange", () => { if (rp && $("rp-preview-box").open) guard(loadReportPreview); });
 $("rp-preview-box").addEventListener("toggle", () => { if ($("rp-preview-box").open) guard(loadReportPreview); });
-$("rp-form").addEventListener("input", () => { $("rp-form").dataset.dirty = "1"; });
+// Edits not yet saved: `dirty` keeps them through a refresh, and `rev` counts them, so a save
+// only clears `dirty` when nothing was typed while it was on its way.
+function formEdited(form) {
+  form.dataset.dirty = "1";
+  form.dataset.rev = String(Number(form.dataset.rev || 0) + 1);
+}
+$("rp-form").addEventListener("input", () => formEdited($("rp-form")));
 $("rp-kam-add").addEventListener("click", () => {
   $("rp-kams").insertAdjacentHTML("beforeend", kamRow());
-  $("rp-form").dataset.dirty = "1";
+  formEdited($("rp-form"));
 });
 $("rp-kams").addEventListener("click", (ev) => {
   if (!ev.target.matches("[data-kam-remove]")) return;
   ev.target.closest("[data-kam]").remove();
-  $("rp-form").dataset.dirty = "1";
+  formEdited($("rp-form"));
 });
 
 $("rp-form").addEventListener("submit", (ev) => {
@@ -2783,20 +2802,36 @@ $("rp-form").addEventListener("submit", (ev) => {
     other_matter: $("rp-other").value,
     key_matters: [...$("rp-kams").querySelectorAll("[data-kam]")].map((k) => ({
       title: k.querySelector("[data-kam-title]").value.trim(), why: k.querySelector("[data-kam-why]").value,
-      how: k.querySelector("[data-kam-how]").value })).filter((k) => k.title),
+      how: k.querySelector("[data-kam-how]").value })).filter((k) => k.title || k.why.trim() || k.how.trim()),
   };
+  const rev = $("rp-form").dataset.rev;
   busy($("rp-save"), async () => {
-    const r = await sendJSON("PUT", `/api/engagements/${id}/report`, body);
+    await sendJSON("PUT", `/api/engagements/${id}/report`, body);
     if (currentEngagement?.id !== id) return;
-    rp = { ...r, engagement_id: id };
-    delete $("rp-form").dataset.dirty;
-    renderReport();
+    if ($("rp-form").dataset.rev === rev) delete $("rp-form").dataset.dirty;  // else keep newer edits
+    await loadReport();
     refreshDashboard();
     await loadEngagementActivity();
   });
 });
 
 // Related parties
+
+// Text someone is typing in a list that is about to be redrawn (another row's save reloads
+// it), to put back afterwards with the focus where it was.
+function keepDrafts(container, selector, key) {
+  const drafts = new Map();
+  let focused = null;
+  container.querySelectorAll(selector).forEach((el) => {
+    if (el.value !== el.defaultValue) drafts.set(key(el), el.value);
+    if (el === document.activeElement) focused = key(el);
+  });
+  return () => container.querySelectorAll(selector).forEach((el) => {
+    const k = key(el);
+    if (drafts.has(k)) el.value = drafts.get(k);
+    if (k === focused) el.focus();
+  });
+}
 
 let rpt = null;       // the register on show: {engagement_id, parties, summary, ...}
 let rptLoads = 0;
@@ -2817,6 +2852,7 @@ function renderRelated() {
     $("rpt-export").removeAttribute("href");
     return;
   }
+  const restore = keepDrafts($("rpt-table"), "[data-rpt-conclusion]", (el) => el.closest("[data-party]").dataset.party);
   const s = rpt.summary;
   $("rpt-export").href = `/api/engagements/${rpt.engagement_id}/related-parties/export`;
   $("rpt-cards").innerHTML = [
@@ -2841,6 +2877,7 @@ function renderRelated() {
         <td><select data-rpt-disclosed class="map" aria-label="Disclosure">${optionList(rpt.disclosed, p.disclosed)}</select></td>
         <td>${me.rank >= 2 || (!p.matches && !p.reviewed_at) ? '<button type="button" class="small secondary danger" data-rpt-delete>Remove</button>' : ""}</td></tr>`).join("")}</tbody>`
     : '<tbody><tr><td class="muted">No related parties yet.</td></tr></tbody>';
+  restore();
   renderRelatedFound();
 }
 
@@ -2951,6 +2988,7 @@ function renderSummaries() {
   }
   $("ds-export").href = `/api/engagements/${ds.engagement_id}/document-summaries/export`;
   if (!$("ds-kind").options.length) $("ds-kind").innerHTML = optionList(ds.kinds, "contract");
+  const restore = keepDrafts($("ds-list"), "[data-ds-note]", (el) => el.closest("[data-ds]").dataset.ds);
   const list = (title, items) => items.length ? `<h4>${esc(title)}</h4><ul>${items.join("")}</ul>` : "";
   $("ds-list").innerHTML = ds.summaries.length ? ds.summaries.map((s) => {
     const c = s.content;
@@ -2958,7 +2996,7 @@ function renderSummaries() {
       <h3>${data(c.title || s.filename)}</h3>
       <p class="muted"><span>${esc(s.kind_label)}</span> · ${data(s.filename)}${c.document_date ? ` · <bdi dir="ltr">${esc(c.document_date)}</bdi>` : ""} · <span>Summarised by</span> ${data(s.created_by)} · <span>${esc(when(s.created_at))}</span></p>
       <p>${data(c.summary)}</p>
-      ${s.after_period_end.length ? `<div class="warn-box"><p>Dated after the period end: look at these in the subsequent events review.</p><ul>${s.after_period_end.map((d) => `<li><bdi dir="ltr">${esc(d.date)}</bdi> ${data(d.what)}</li>`).join("")}</ul></div>` : ""}
+      ${s.after_period_end.length ? `<div class="warn-box"><p>Dated after the period end: look at these in the subsequent events review.</p><ul>${s.after_period_end.map((d) => `<li><bdi dir="ltr">${esc(d.date)}</bdi> ${d.own ? "<span>The date of the document itself</span>" : data(d.what)}</li>`).join("")}</ul></div>` : ""}
       ${s.related.length ? `<h4>Parties</h4><ul>${s.related.map((p) => `<li>${data(p.name)} ${p.party ? `<span class="pill warn"><span>In the related parties register:</span> ${data(p.party)}</span>` : `<button type="button" class="small secondary" data-ds-add-party="${esc(p.name)}">Add to related parties</button>`}</li>`).join("")}</ul>` : ""}
       ${list("Points for the audit", (c.audit_points || []).map((p) => `<li><span class="pill">${esc(ds.areas[p.area] || p.area)}</span> ${data(p.point)}</li>`))}
       <details><summary>Key terms, amounts, dates and decisions</summary>
@@ -2978,6 +3016,7 @@ function renderSummaries() {
       <p class="muted"><span>Written by the AI assistant</span> (${data(s.model)}).</p>
     </article>`;
   }).join("") : '<p class="muted">No documents summarised yet.</p>';
+  restore();
 }
 
 async function summariesChanged(id) {
@@ -3217,6 +3256,7 @@ $("fs-save-map").addEventListener("click", (ev) => busy(ev.currentTarget, async 
   aiMapHints = {};
   $("fs-ai-note").hidden = true;
   await loadStatements();
+  refreshFinishing(id);
   await loadEngagementActivity();
 }, canSaveMapping));
 
@@ -3294,6 +3334,7 @@ $("aje-form").addEventListener("submit", (ev) => {
     if (currentEngagement.id !== id) return;  // the user has opened another engagement
     resetEntryForm();
     await loadStatements();
+    refreshFinishing(id);
     await loadEngagementActivity();
   });
 });
@@ -3302,6 +3343,7 @@ $("aje-list").addEventListener("click", (ev) => {
   if (book) guard(async () => {
     await sendJSON("PATCH", `/api/adjusting-entries/${book.dataset.book}`, { kind: "adjusting" });
     await loadStatements();
+    refreshFinishing(currentEngagement?.id);
     await loadEngagementActivity();
   });
   if (del) {
@@ -3310,6 +3352,7 @@ $("aje-list").addEventListener("click", (ev) => {
     guard(async () => {
       await sendJSON("DELETE", `/api/adjusting-entries/${e.id}`);
       await loadStatements();
+      refreshFinishing(currentEngagement?.id);
       await loadEngagementActivity();
     });
   }
@@ -3631,6 +3674,105 @@ function renderStrat() {
   }
   $("str-note").textContent = note;
   $("str-table").innerHTML = html;
+}
+
+// Ledger explorer
+
+let lx = null;  // the look on show
+let lxTab = "pivot";
+const LX_GROUPS = { account: "Account", user: "User", month: "Month", entry_id: "Entry" };
+
+function renderExplorerForm(e) {
+  const keep = $("lx-upload").value;
+  const files = e.uploads.filter((u) => !["prior_tb", "list"].includes(u.kind));
+  $("lx-upload").innerHTML = files
+    .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
+    .join("") || '<option value="">Upload a file first</option>';
+  if (files.some((u) => String(u.id) === keep)) $("lx-upload").value = keep;
+  if (lx && !files.some((u) => u.id === lx.upload_id)) {
+    lx = null; $("lx-result").hidden = $("lx-export").hidden = true;
+  }
+}
+
+function explorerFilters() {
+  const f = {};
+  for (const el of $("lx-form").elements) {
+    if (!el.name) continue;
+    if (el.type === "checkbox") { if (el.checked) f[el.name] = true; continue; }
+    const v = el.value.trim();
+    if (v === "") continue;
+    f[el.name] = el.type === "number" ? Number(v) : v;
+  }
+  return f;
+}
+
+$("lx-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const button = ev.submitter || ev.currentTarget.querySelector("button[type=submit]");
+  busy(button, async () => {
+    const id = Number($("lx-upload").value);
+    if (!id) throw new Error("Upload a file first.");
+    const filters = explorerFilters();
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/uploads/${id}/explore`, filters);
+    if (currentEngagement?.id !== engagementId) return;  // they moved on to another engagement
+    lx = out;
+    $("lx-export").href = `/api/uploads/${id}/explore/export?${new URLSearchParams(filters)}`;
+    $("lx-export").hidden = false;
+    renderExplorer();
+  });
+});
+
+$("lx-clear").addEventListener("click", () => {
+  const file = $("lx-upload").value;
+  $("lx-form").reset();
+  $("lx-upload").value = file;
+});
+
+$("lx-tabs").addEventListener("click", (ev) => {
+  const tab = ev.target.closest("[data-lx]");
+  if (!tab) return;
+  lxTab = tab.dataset.lx;
+  renderExplorer();
+});
+
+function renderExplorer() {
+  $("lx-result").hidden = !lx;
+  if (!lx) return;
+  $("lx-tabs").querySelectorAll("[data-lx]").forEach((b) => b.setAttribute("aria-selected", b.dataset.lx === lxTab));
+  const cards = [["Lines matched", `${lx.matched.toLocaleString(LOCALE)} / ${lx.lines_in_file.toLocaleString(LOCALE)}`],
+    ["Debits", money(lx.debits)], ["Credits", money(lx.credits)], ["Net", money(lx.net)]];
+  $("lx-cards").innerHTML = cards.map(([k, v]) =>
+    `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  let note = [], html = "";
+  if (!lx.matched) {
+    note = "No lines match these filters.";
+  } else if (lxTab === "pivot") {
+    const p = lx.pivot;
+    const notes = [];
+    if (p.rows.length < p.rows_total) notes.push(`Showing the first ${p.rows.length} of ${p.rows_total} rows.`);
+    if (p.columns.length < p.columns_total) notes.push(`Showing the largest ${p.columns.length} of ${p.columns_total} columns.`);
+    if (notes.length) notes.push("The Excel download has them all.");
+    note = notes;
+    html = `<tr><th>${esc(LX_GROUPS[p.rows_by])}</th><th>Lines</th><th>Debits</th><th>Credits</th>` +
+      p.columns.map((c) => `<th class="num">${data(c)}</th>`).join("") + "<th>Net</th></tr>" +
+      p.rows.map((r) => `<tr><td>${data(r.key)}</td><td class="num">${r.lines.toLocaleString(LOCALE)}</td>
+        <td class="num">${money(r.debits)}</td><td class="num">${money(r.credits)}</td>` +
+        r.cells.map((v) => `<td class="num">${v ? money(v) : ""}</td>`).join("") +
+        `<td class="num">${money(r.net)}</td></tr>`).join("");
+  } else {
+    if (lx.lines.length < lx.matched) note = [`Showing the first ${lx.lines.length} of ${lx.matched} lines.`, "The Excel download has them all."];
+    const has = (c) => lx.has.includes(c);
+    const cols = [["row", "Row"], ["date", "Date"], ["account", "Account"], ["entry_id", "Entry"],
+      ["description", "Description"], ["user", "User"]].filter(([c]) => c === "row" || has(c));
+    html = "<tr>" + cols.map(([, label]) => `<th>${label}</th>`).join("") + "<th>Amount</th></tr>" +
+      lx.lines.map((l) => "<tr>" + cols.map(([c]) => c === "row"
+        ? `<td class="num">${l.row}</td>` : c === "date" ? `<td class="nowrap">${esc(l.date || "")}</td>` : `<td>${data(l[c])}</td>`).join("") +
+        `<td class="num">${money(l.amount)}</td></tr>`).join("");
+  }
+  // One sentence to a span, so each is translated on its own.
+  $("lx-note").innerHTML = [].concat(note || []).map((n) => `<span>${esc(n)}</span>`).join(" ");
+  $("lx-table").innerHTML = html;
 }
 
 // Receivables and payables aging

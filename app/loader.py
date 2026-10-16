@@ -129,6 +129,9 @@ class ImportReport:
 class Loaded:
     df: pd.DataFrame
     report: ImportReport
+    # The file's text columns that no field was mapped to (say Account Name beside Account
+    # Code), indexed by source row number like df["row"], for searches that read every name.
+    unmapped: pd.DataFrame | None = None
 
 
 def _row_list(rows: list[int], limit: int = 10) -> str:
@@ -364,6 +367,9 @@ def normalize(raw: pd.DataFrame, mapping: dict[str, str] | None = None) -> Loade
 
     df = pd.DataFrame({f: raw[c] for f, c in chosen.items()}, index=raw.index)
     df.insert(0, "row", raw.index.to_numpy() + header_row + 2)  # as numbered in the source
+    unmapped = raw[[c for c in columns if c not in chosen.values()]].select_dtypes(
+        include=["object", "string"])
+    unmapped.index = df["row"].to_numpy()
 
     for col in ("debit", "credit", "amount"):
         if col in df:
@@ -414,7 +420,7 @@ def normalize(raw: pd.DataFrame, mapping: dict[str, str] | None = None) -> Loade
     report.rows_used = len(df)
     report.total_debits = float(df.loc[df["amount"] > 0, "amount"].sum())
     report.total_credits = float(-df.loc[df["amount"] < 0, "amount"].sum())
-    return Loaded(df, report)
+    return Loaded(df, report, unmapped)
 
 
 def preview(filename: str, content: bytes, sheet: str | None = None, rows: int = 5) -> dict:

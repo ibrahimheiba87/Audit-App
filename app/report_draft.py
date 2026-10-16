@@ -31,6 +31,7 @@ OPINIONS = {"unmodified": "Unmodified", "qualified": "Qualified", "adverse": "Ad
 SEVERITY = {"unmodified": 0, "qualified": 1, "adverse": 2, "disclaimer": 2}
 MAX_ITEMS = 10
 Short = Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)]
+Name = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)]  # as the columns
 Text = Annotated[str, StringConstraints(strip_whitespace=True, max_length=5000)]
 
 
@@ -51,8 +52,8 @@ class ReportIn(BaseModel):
     key_matters: list[KeyMatter] | None = Field(default=None, max_length=MAX_ITEMS)
     other_matter: Text | None = None
     firm_name: Short | None = None
-    partner_name: Short | None = None
-    city: Short | None = None
+    partner_name: Name | None = None
+    city: Name | None = None
     report_date: date | None = None
 
 
@@ -150,6 +151,8 @@ def save_report(engagement_id: int, body: ReportIn, user: User = Depends(require
     e = held_engagement(session, user, engagement_id, f"report:{engagement_id}")
     r = e.audit_report or AuditReport()
     changes = body.model_dump(exclude_unset=True)
+    if body.key_matters is not None:  # every part of each matter, sent or not
+        changes["key_matters"] = [k.model_dump() for k in body.key_matters]
     changes = {k: v for k, v in changes.items() if v is not None or k == "report_date"}
     if "entity_name" in changes and changes["entity_name"] == e.client.name:
         changes["entity_name"] = ""  # the client's name, kept in step if it is renamed
@@ -193,7 +196,7 @@ def paragraphs(session: Session, e: Engagement, language: str) -> list[tuple[str
         if r["key_matters"]:
             out += [("heading", t["kam_heading"]), ("text", t["kam_intro"])]
             for k in r["key_matters"]:
-                out.append(("subheading", k["title"]))
+                out.append(("subheading", k["title"] or t["kam_title"]))
                 out += [("text", t[f"kam_{p}"].format(text=k[p])) for p in ("why", "how")
                         if k[p]]
     if r["other_matter"]:

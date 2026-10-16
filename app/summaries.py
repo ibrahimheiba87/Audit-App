@@ -119,9 +119,17 @@ def clean(answer: dict) -> dict:
     return out
 
 
+def later_dates(c: dict, e: Engagement) -> list[dict]:
+    """Dates after the period end, the document's own date among them (once)."""
+    dates = list(c.get("dates", []))
+    own = c.get("document_date")
+    if own and all(d["date"] != own for d in dates):
+        dates.insert(0, {"date": own, "what": "", "own": True})
+    return [d for d in dates if d["date"] > e.period_end.isoformat()]
+
+
 def summary_out(s: DocumentSummary, e: Engagement, known: dict[str, str]) -> dict:
     c = s.content or {}
-    end = e.period_end.isoformat()
     return {
         "id": s.id, "kind": s.kind, "kind_label": KINDS.get(s.kind, s.kind),
         "filename": s.filename, "size": s.size, "language": s.language, "model": s.model,
@@ -132,7 +140,7 @@ def summary_out(s: DocumentSummary, e: Engagement, known: dict[str, str]) -> dic
         # Names in the register, and names that may be related parties not yet in it.
         "related": [{"name": n, "party": related_parties.find_party(known, n)}
                     for n in c.get("parties", [])],
-        "after_period_end": [d for d in c.get("dates", []) if d["date"] > end],
+        "after_period_end": later_dates(c, e),
     }
 
 
@@ -178,7 +186,12 @@ def summarise(  # not async: FastAPI runs it in a thread, so waiting on the AI b
                  SYSTEM + LANGUAGE[language],
                  [block, {"type": "text", "text": f"Summarise this {label} for the audit."}],
                  check=clean, max_tokens=SUMMARY_TOKENS, timeout=DOCUMENT_TIMEOUT)
+    # Another summary may have been saved while the AI read this one: check the limit again.
+    auth.hold(session, f"summaries:{engagement_id}")
+    session.expire_all()
     e = get_or_404(session, Engagement, engagement_id, user)
+    if len(e.document_summaries) >= MAX_SUMMARIES:
+        raise HTTPException(400, f"An engagement can have at most {MAX_SUMMARIES} summaries.")
     s = DocumentSummary(engagement=e, kind=kind, filename=filename, sha256=sha,
                         size=len(content), language=language, content=answer,
                         model=assistant.model(), created_by=user.name, created_by_id=user.id)
@@ -290,6 +303,5 @@ def export_summaries(engagement_id: int, user: User = Depends(current_user),
 def summary(e: Engagement) -> dict:
     return {"documents": len(e.document_summaries),
             "to_review": sum(1 for s in e.document_summaries if not s.reviewed_at),
-            "after_period_end": sum(1 for s in e.document_summaries
-                                    for d in (s.content or {}).get("dates", [])
-                                    if d["date"] > e.period_end.isoformat())}
+            "after_period_end": sum(len(later_dates(s.content or {}, e))
+                                    for s in e.document_summaries)}

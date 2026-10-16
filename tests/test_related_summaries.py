@@ -73,7 +73,8 @@ def test_the_ledger_scan_finds_related_party_names_and_needs_a_conclusion():
 
     book = pd.read_excel(io.BytesIO(prep.get(f"{url}/export").content), sheet_name=None)
     assert list(book) == ["About", "Related parties", "Transactions"]
-    assert set(book["Transactions"]["Entry"]) == {"J1", "J2"}
+    # Sara's names changed since the scan, so her old lines no longer stand.
+    assert set(book["Transactions"]["Entry"]) == {"J1"}
     assert section(prep, eid, "related")["needed"]
 
     r = rev.post(f"/api/engagements/{eid}/roll-forward", json={"name": "FY2027"})
@@ -175,3 +176,69 @@ def test_a_short_name_in_a_document_isnt_taken_for_a_registered_party():
     known = {"ali hassan": "Ali Hassan", "national bank": "National Bank Ltd"}
     assert find_party(known, "Ali") is None and find_party(known, "Bank") is None
     assert find_party(known, "Mr Ali Hassan") == "Ali Hassan"
+
+
+def test_scans_stay_tied_to_their_ledger_and_lines():
+    a, prep, rev, partner, eid, _ = team()
+    url = f"/api/engagements/{eid}/related-parties"
+    prep.post(url, json={"name": "Sara Haddad", "relationship": "director"})
+    # The name is only in Account Name; the loader maps Account Code and Narration.
+    first = ("Date,Account Code,Account Name,Narration,Amount\n"
+             "2026-03-02,1400,Loan to Sara Haddad,Advance,1000\n"
+             "2026-03-03,6100,Rent,Paid,50\n")
+    r = prep.post(f"/api/engagements/{eid}/uploads", data={"kind": "gl"},
+                  files={"file": ("a.csv", first.encode(), "text/csv")})
+    gl_a = r.json()["id"]
+    party = prep.post(f"{url}/scan", json={"upload_id": gl_a}).json()["parties"][0]
+    assert party["matches"] == 1
+    r = prep.patch(f"/api/related-parties/{party['id']}",
+                   json={"reviewed": True, "conclusion": "Approved loan."})
+    assert r.json()["parties"][0]["reviewed_by"] == "Preparer"
+    # Clearing the conclusion takes the review with it.
+    r = prep.patch(f"/api/related-parties/{party['id']}", json={"conclusion": ""})
+    assert r.json()["parties"][0]["reviewed_at"] is None
+    prep.patch(f"/api/related-parties/{party['id']}",
+               json={"reviewed": True, "conclusion": "Approved loan."})
+    # The same ledger again: nothing new, so the review stands.
+    r = prep.post(f"{url}/scan", json={"upload_id": gl_a})
+    assert r.json()["parties"][0]["reviewed_by"] == "Preparer"
+
+    # A newer ledger, scanned or not, isn't what the workpaper shows until it is scanned.
+    other = ("date,account,description,amount\n2026-04-01,1400,Loan to Sara Haddad,9000\n")
+    r = prep.post(f"/api/engagements/{eid}/uploads", data={"kind": "gl"},
+                  files={"file": ("b.csv", other.encode(), "text/csv")})
+    gl_b = r.json()["id"]
+    book = pd.read_excel(io.BytesIO(prep.get(f"{url}/export").content), sheet_name=None)
+    assert book["Transactions"]["Amount"].tolist() == [1000]
+    assert "a.csv" in book["About"]["Value"].astype(str).tolist()
+    # As many lines, but different ones: a fresh review.
+    r = prep.post(f"{url}/scan", json={"upload_id": gl_b})
+    p = r.json()["parties"][0]
+    assert p["matches"] == 1 and p["reviewed_at"] is None
+    book = pd.read_excel(io.BytesIO(prep.get(f"{url}/export").content), sheet_name=None)
+    assert book["Transactions"]["Amount"].tolist() == [9000]
+
+    # A party added since the last scan hasn't been looked for yet.
+    assert "Scan the general ledger for related party names." not in steps(prep, eid)
+    prep.post(url, json={"name": "Nile Trading"})
+    assert "Scan the general ledger for related party names." in steps(prep, eid)
+
+    # A carried register is work for this year's review too.
+    r = rev.post(f"/api/engagements/{eid}/roll-forward", json={"name": "FY2027"})
+    assert section(rev, r.json()["id"], "related")["needed"]
+
+
+def test_a_document_dated_after_the_period_end_is_flagged(fake_api, monkeypatch):
+    a, prep, rev, partner, eid, _ = team()
+    answer = json.dumps({"title": "Board minutes", "document_date": "2027-02-01",
+                         "summary": "The board approved a dividend.", "dates": []})
+    monkeypatch.setattr(assistant, "request_claude", lambda *args, **kw: answer)
+    url = f"/api/engagements/{eid}/document-summaries"
+    r = prep.post(url, files={"file": PDF}, data={"kind": "minutes"})
+    assert r.status_code == 201, r.text
+    assert r.json()["summaries"][0]["after_period_end"] == [
+        {"date": "2027-02-01", "what": "", "own": True}]
+    from app import summaries
+    from app.db import Engagement, SessionLocal
+    with SessionLocal() as session:
+        assert summaries.summary(session.get(Engagement, eid))["after_period_end"] == 1
