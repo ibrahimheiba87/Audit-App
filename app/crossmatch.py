@@ -114,9 +114,14 @@ def _similar(m: SequenceMatcher, a: str, threshold: int) -> int:
 
 
 def key_matches(left: list[str], right: list[str], method: str, threshold: int,
-                same_file: bool) -> tuple[dict[tuple[int, int], int], dict]:
+                same_file: bool, symmetric: bool = True
+                ) -> tuple[dict[tuple[int, int], int], dict]:
     """{(left row, right row): score out of 100} for one pair of normalized columns, and what
-    was left out: values too common to mean anything, and rows with too many similar names."""
+    was left out: values too common to mean anything, and rows with too many similar names.
+
+    In one file, a row never matches itself. If both sides are the same column, each pair is
+    listed once (lower row first); if they're different columns (one row's phone is another's
+    alternate phone), the direction says which row's column matched which."""
     counts_left: dict[str, int] = defaultdict(int)
     for v in left:
         if v:
@@ -133,10 +138,11 @@ def key_matches(left: list[str], right: list[str], method: str, threshold: int,
     out: dict[tuple[int, int], int] = {}
 
     def add(i: int, j: int, score: int) -> None:
-        if same_file:  # each pair once, and never a row with itself
+        if same_file:
             if i == j:
                 return
-            i, j = min(i, j), max(i, j)
+            if symmetric:
+                i, j = min(i, j), max(i, j)
         if score > out.get((i, j), 0):
             out[(i, j)] = score
             if len(out) > MAX_PAIRS:
@@ -207,14 +213,24 @@ def match(left: pd.DataFrame, right: pd.DataFrame, keys: list[dict], threshold: 
         if k["right"] not in right.columns:
             raise MatchError(f"There's no column {k['right']!r} in the second file.")
     pairs: dict[tuple[int, int], dict[int, int]] = defaultdict(dict)
-    per_key = []
-    for n, k in enumerate(keys):
+    per_key: list[dict] = [{}] * len(keys)
+    # In one file, columns matched against a different column have a direction, so they go
+    # first; a column matched against itself holds either way round, and joins those pairs.
+    symmetric = [k["left"] == k["right"] for k in keys]
+    for n in sorted(range(len(keys)), key=lambda n: symmetric[n]):
+        k = keys[n]
         found, skipped = key_matches([normalize(v, k["method"]) for v in left[k["left"]]],
                                      [normalize(v, k["method"]) for v in right[k["right"]]],
-                                     k["method"], threshold, same_file)
-        per_key.append({"pairs": len(found), **skipped})
-        for pair, score in found.items():
-            pairs[pair][n] = score
+                                     k["method"], threshold, same_file, symmetric[n])
+        per_key[n] = {"pairs": len(found), **skipped}
+        for (i, j), score in found.items():
+            if same_file and symmetric[n]:
+                # Joins whichever directions already exist, or starts one pair if neither does.
+                both = [p for p in ((i, j), (j, i)) if p in pairs] or [(i, j)]
+                for p in both:
+                    pairs[p][n] = score
+            else:
+                pairs[(i, j)][n] = score
     order = sorted(pairs.items(), key=lambda p: (-len(p[1]), -min(p[1].values()), p[0]))
     left_first = int(left.attrs.get("header_row") or 0) + 2  # the row number in the file
     right_first = int(right.attrs.get("header_row") or 0) + 2

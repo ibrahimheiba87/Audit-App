@@ -280,3 +280,27 @@ def test_list_on_a_second_sheet():
     assert r.status_code == 201, r.text
     cols = client.get(f"/api/uploads/{r.json()['id']}/columns").json()
     assert cols["columns"] == ["Vendor"] and cols["rows"] == 2
+
+
+def test_one_file_with_different_columns_keeps_direction():
+    """Row 2's phone is row 1's alternate phone: the pair is shown that way round."""
+    raw = pd.DataFrame({"Name": ["A", "B", "C"], "Phone": ["11111111", "22222222", "33333333"],
+                        "Alternate": ["22222222", "99999999", "11111111"]})
+    keys = [{"left": "Phone", "right": "Alternate", "method": "digits"}]
+    r = crossmatch.match(raw, raw, keys, 90, same_file=True)
+    got = {(m["left"]["Name"], m["right"]["Name"]) for m in r["matches"]}
+    assert got == {("B", "A"), ("A", "C")}
+    for m in r["matches"]:
+        assert m["left"]["Phone"] == m["right"]["Alternate"]
+    # A column matched against itself joins the pair whichever way round it was found.
+    raw["City"] = ["Dubai", "Dubai", "Abu Dhabi"]
+    keys.append({"left": "City", "right": "City", "method": "exact"})
+    r = crossmatch.match(raw, raw, keys, 90, same_file=True)
+    both = [m for m in r["matches"] if len(m["keys"]) == 2]
+    assert [(m["left"]["Name"], m["right"]["Name"]) for m in both] == [("B", "A")]
+    assert r["totals"]["all_keys"] == 1 and r["totals"]["pairs"] == 2
+    # Two rows that each hold the other's phone match both ways, and both pairs get the city.
+    raw = pd.DataFrame({"Name": ["A", "B"], "Phone": ["11111111", "22222222"],
+                        "Alternate": ["22222222", "11111111"], "City": ["Dubai", "Dubai"]})
+    r = crossmatch.match(raw, raw, keys, 90, same_file=True)
+    assert r["totals"]["pairs"] == 2 and r["totals"]["all_keys"] == 2
