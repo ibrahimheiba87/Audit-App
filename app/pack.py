@@ -34,10 +34,12 @@ from . import (
     leadsheets,
     portal,
     reconciliations,
+    related_parties,
     report_draft,
     review,
     risks,
     samples,
+    summaries,
     workplan,
 )
 from . import completion as completion_module
@@ -149,6 +151,11 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
         pack.workpaper(testing, "External confirmations", lambda: confirmations.workbook(e))
     for m in e.cross_matches:
         pack.workpaper(testing, f"File match #{m.id}", lambda m=m: crossmatch.workbook(m), m)
+    if e.related_parties:
+        pack.workpaper(testing, "Related parties", lambda: related_parties.workbook(e))
+    if e.document_summaries:
+        pack.workpaper(testing, "AI summaries of contracts and minutes",
+                       lambda: summaries.workbook(e))
     if e.findings:
         pack.workpaper(testing, "Findings register", lambda: findings.workbook(session, e))
     if e.document_requests:

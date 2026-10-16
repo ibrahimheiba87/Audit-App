@@ -297,6 +297,8 @@ async function openEngagement(id) {
     $("cf-picked").textContent = ""; $("cf-filter").value = "";
     cp = null; renderCompletion(); $("cp-check").open = false; $("cp-event-form").reset(); $("cp-sign").reset();
     rp = null; renderReport(); $("rp-preview-box").open = false;
+    rpt = null; rptFound = null; renderRelated(); $("rpt-form").reset(); $("rpt-add").open = false;
+    ds = null; renderSummaries(); $("ds-form").reset(); $("ds-wait").hidden = dsReading === 0;
     wp = null; renderWorkplan(); $("wp-form").reset(); $("wp-time-form").reset(); $("wp-filter").value = "open";
     $("bank-file").innerHTML = $("bank-gl").innerHTML = $("bank-accounts").innerHTML = "";
     $("bank-recs").innerHTML = "";
@@ -352,6 +354,8 @@ async function openEngagement(id) {
   guard(loadWorkplan);
   guard(loadCompletion);
   guard(loadReport);
+  guard(loadRelated);
+  guard(loadSummaries);
   guard(loadAcceptance);
   guard(loadDisclosures);
   await loadStatements();
@@ -425,7 +429,7 @@ $("roll-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = $("roll-form");
   const body = { name: $("roll-name").value };
-  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "team"]) body[k] = f[k].checked;
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "team"]) body[k] = f[k].checked;
   $("roll-submit").disabled = true;
   try {
     const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
@@ -2790,6 +2794,253 @@ $("rp-form").addEventListener("submit", (ev) => {
     refreshDashboard();
     await loadEngagementActivity();
   });
+});
+
+// Related parties
+
+let rpt = null;       // the register on show: {engagement_id, parties, summary, ...}
+let rptLoads = 0;
+let rptFound = null;  // what the last scan found, for the engagement it ran on
+
+async function loadRelated() {
+  const id = currentEngagement.id;
+  const load = ++rptLoads;
+  const r = await getJSON(`/api/engagements/${id}/related-parties`);
+  if (load !== rptLoads || currentEngagement?.id !== id) return;
+  rpt = { ...r, engagement_id: id };
+  renderRelated();
+}
+
+function renderRelated() {
+  if (!rpt) {
+    for (const t of ["rpt-cards", "rpt-table", "rpt-found", "rpt-ledger"]) $(t).innerHTML = "";
+    $("rpt-export").removeAttribute("href");
+    return;
+  }
+  const s = rpt.summary;
+  $("rpt-export").href = `/api/engagements/${rpt.engagement_id}/related-parties/export`;
+  $("rpt-cards").innerHTML = [
+    [s.parties, "Related parties", false], [s.with_matches, "With transactions found", false],
+    [s.to_review, "Transactions to review", s.to_review > 0],
+    [s.missing_disclosure, "Not disclosed", s.missing_disclosure > 0],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v"><bdi dir="ltr">${esc(v)}</bdi></div><div class="k">${esc(k)}</div></div>`).join("");
+  if (!$("rpt-rel").options.length) $("rpt-rel").innerHTML = optionList(rpt.relationships, "other");
+  const keepLedger = $("rpt-ledger").value;
+  $("rpt-ledger").innerHTML = rpt.ledgers.map((u) => `<option value="${u.id}">${data(u.filename)}</option>`).join("");
+  if (rpt.ledgers.some((u) => String(u.id) === keepLedger)) $("rpt-ledger").value = keepLedger;
+  else if (rpt.ledgers.length) $("rpt-ledger").value = String(rpt.ledgers[rpt.ledgers.length - 1].id);
+  $("rpt-scan").disabled = !rpt.ledgers.length || !rpt.parties.length;
+  $("rpt-table").innerHTML = rpt.parties.length
+    ? `<thead><tr><th>Name</th><th>Relationship</th><th class="num">Found</th><th>Conclusion on the transactions</th><th>Reviewed</th><th>Disclosure</th><th></th></tr></thead><tbody>
+      ${rpt.parties.map((p) => `<tr data-party="${p.id}"${p.disclosed === "missing" || (p.matches && !p.reviewed_at) ? ' class="flagged"' : ""}>
+        <td>${data(p.name)}${p.aliases.length ? `<div class="tag"><span>Also:</span> ${p.aliases.map(data).join(", ")}</div>` : ""}${p.note ? `<div class="tag">${data(p.note)}</div>` : ""}${p.searchable ? "" : '<div class="tag">Too short to search for</div>'}</td>
+        <td>${esc(p.relationship_label)}</td>
+        <td class="num">${p.scanned_at ? `<bdi dir="ltr">${p.matches}</bdi>` : '<span class="muted">Not scanned</span>'}</td>
+        <td><textarea data-rpt-conclusion rows="2" maxlength="5000" aria-label="Conclusion">${esc(p.conclusion)}</textarea></td>
+        <td><label><input type="checkbox" data-rpt-reviewed ${p.reviewed_at ? "checked" : ""}> <span>Reviewed</span></label>${p.reviewed_by ? `<div class="tag">${data(p.reviewed_by)}</div>` : ""}</td>
+        <td><select data-rpt-disclosed class="map" aria-label="Disclosure">${optionList(rpt.disclosed, p.disclosed)}</select></td>
+        <td>${me.rank >= 2 || (!p.matches && !p.reviewed_at) ? '<button type="button" class="small secondary danger" data-rpt-delete>Remove</button>' : ""}</td></tr>`).join("")}</tbody>`
+    : '<tbody><tr><td class="muted">No related parties yet.</td></tr></tbody>';
+  renderRelatedFound();
+}
+
+function renderRelatedFound() {
+  const f = rptFound?.engagement_id === rpt?.engagement_id ? rptFound : null;
+  if (!f) { $("rpt-found").innerHTML = ""; return; }
+  const hits = f.parties.filter((p) => p.matches);
+  $("rpt-found").innerHTML = `<h3>Found in <bdi translate="no">${esc(f.filename)}</bdi></h3>` + (hits.length
+    ? hits.map((p) => `<details><summary>${data(p.name)} · <bdi dir="ltr">${p.matches}</bdi> <span>${p.matches === 1 ? "entry" : "entries"}</span>${p.flagged ? ` · <span class="pill warn"><bdi dir="ltr">${p.flagged}</bdi> <span>flagged</span></span>` : ""}</summary>
+      <div class="table-wrap"><table><thead><tr><th>Date</th><th>Entry</th><th>Account</th><th>Description</th><th class="num">Amount</th><th></th></tr></thead><tbody>
+      ${p.rows.map((r) => `<tr><td class="nowrap">${r.date ? `<bdi dir="ltr">${esc(r.date)}</bdi>` : ""}</td><td>${data(r.entry_id)}</td><td>${data(r.account)}</td>
+        <td>${data(r.description)}</td><td class="num">${money(r.amount)}</td><td>${r.flags.map((x) => `<span class="pill warn">${esc(x)}</span>`).join(" ")}</td></tr>`).join("")}
+      ${p.rows.length < p.matches ? `<tr><td colspan="6" class="muted"><span>Showing the largest</span> <bdi dir="ltr">${p.rows.length}</bdi>. <span>The Excel download has them all.</span></td></tr>` : ""}</tbody></table></div></details>`).join("")
+    : '<p class="muted">None of the names appear in the ledger.</p>');
+}
+
+async function relatedChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await loadRelated();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+$("rpt-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!rpt) return;
+  const id = rpt.engagement_id;
+  const body = { name: $("rpt-name").value, relationship: $("rpt-rel").value, note: $("rpt-note").value,
+    aliases: $("rpt-aliases").value.split("\n").map((x) => x.trim()).filter(Boolean) };
+  busy($("rpt-save"), async () => {
+    await sendJSON("POST", `/api/engagements/${id}/related-parties`, body);
+    if (currentEngagement?.id !== id) return;
+    $("rpt-name").value = $("rpt-aliases").value = $("rpt-note").value = "";
+    await relatedChanged(id);
+  });
+});
+
+$("rpt-table").addEventListener("change", (ev) => {
+  const row = ev.target.closest("[data-party]");
+  if (!row || !rpt) return;
+  const id = rpt.engagement_id;
+  let body = null;
+  if (ev.target.matches("[data-rpt-conclusion]")) body = { conclusion: ev.target.value };
+  if (ev.target.matches("[data-rpt-disclosed]")) body = { disclosed: ev.target.value };
+  if (ev.target.matches("[data-rpt-reviewed]")) {
+    body = { reviewed: ev.target.checked };
+    if (ev.target.checked) body.conclusion = row.querySelector("[data-rpt-conclusion]").value;
+  }
+  if (!body) return;
+  guard(async () => {
+    try {
+      await sendJSON("PATCH", `/api/related-parties/${row.dataset.party}`, body);
+      await relatedChanged(id);
+    } catch (err) {
+      if (rpt?.engagement_id === id && ev.target.matches("[data-rpt-reviewed]")) ev.target.checked = !ev.target.checked;
+      throw err;
+    }
+  });
+});
+
+$("rpt-table").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-party]");
+  if (!row || !rpt || !ev.target.matches("[data-rpt-delete]")) return;
+  if (!confirm("Remove this related party?")) return;
+  const id = rpt.engagement_id;
+  guard(async () => {
+    await sendJSON("DELETE", `/api/related-parties/${row.dataset.party}`);
+    await relatedChanged(id);
+  });
+});
+
+$("rpt-scan-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!rpt) return;
+  const id = rpt.engagement_id;
+  busy($("rpt-scan"), async () => {
+    const r = await sendJSON("POST", `/api/engagements/${id}/related-parties/scan`, { upload_id: intOrNull($("rpt-ledger").value) });
+    if (currentEngagement?.id !== id) return;
+    rptFound = { ...r.scan, engagement_id: id };
+    await relatedChanged(id);
+  });
+});
+
+// Contracts and minutes, summarised by the AI
+
+let ds = null;
+let dsLoads = 0;
+let dsReading = 0;  // summaries still waiting on the AI, even for another engagement
+
+async function loadSummaries() {
+  const id = currentEngagement.id;
+  const load = ++dsLoads;
+  const r = await getJSON(`/api/engagements/${id}/document-summaries`);
+  if (load !== dsLoads || currentEngagement?.id !== id) return;
+  ds = { ...r, engagement_id: id };
+  renderSummaries();
+}
+
+function renderSummaries() {
+  const off = !(ds ? ds.enabled : assistant.enabled);
+  $("ds-off").hidden = !off;
+  $("ds-form").querySelectorAll("select, input, button").forEach((el) => { el.disabled = off; });
+  if (dsReading) $("ds-run").disabled = true;
+  if (!ds) {
+    $("ds-list").innerHTML = "";
+    $("ds-export").removeAttribute("href");
+    return;
+  }
+  $("ds-export").href = `/api/engagements/${ds.engagement_id}/document-summaries/export`;
+  if (!$("ds-kind").options.length) $("ds-kind").innerHTML = optionList(ds.kinds, "contract");
+  const list = (title, items) => items.length ? `<h4>${esc(title)}</h4><ul>${items.join("")}</ul>` : "";
+  $("ds-list").innerHTML = ds.summaries.length ? ds.summaries.map((s) => {
+    const c = s.content;
+    return `<article class="ds-item${s.reviewed_at ? "" : " flagged"}" data-ds="${s.id}">
+      <h3>${data(c.title || s.filename)}</h3>
+      <p class="muted"><span>${esc(s.kind_label)}</span> · ${data(s.filename)}${c.document_date ? ` · <bdi dir="ltr">${esc(c.document_date)}</bdi>` : ""} · <span>Summarised by</span> ${data(s.created_by)} · <span>${esc(when(s.created_at))}</span></p>
+      <p>${data(c.summary)}</p>
+      ${s.after_period_end.length ? `<div class="warn-box"><p>Dated after the period end: look at these in the subsequent events review.</p><ul>${s.after_period_end.map((d) => `<li><bdi dir="ltr">${esc(d.date)}</bdi> ${data(d.what)}</li>`).join("")}</ul></div>` : ""}
+      ${s.related.length ? `<h4>Parties</h4><ul>${s.related.map((p) => `<li>${data(p.name)} ${p.party ? `<span class="pill warn"><span>In the related parties register:</span> ${data(p.party)}</span>` : `<button type="button" class="small secondary" data-ds-add-party="${esc(p.name)}">Add to related parties</button>`}</li>`).join("")}</ul>` : ""}
+      ${list("Points for the audit", (c.audit_points || []).map((p) => `<li><span class="pill">${esc(ds.areas[p.area] || p.area)}</span> ${data(p.point)}</li>`))}
+      <details><summary>Key terms, amounts, dates and decisions</summary>
+        ${list("Key terms", (c.key_terms || []).map((t) => `<li><strong>${data(t.term)}</strong> ${data(t.detail)}</li>`))}
+        ${list("Amounts", (c.amounts || []).map((a) => `<li>${data(a.what)}: <bdi dir="ltr">${a.amount == null ? "" : money(a.amount)} ${esc(a.currency)}</bdi></li>`))}
+        ${list("Dates", (c.dates || []).map((d) => `<li><bdi dir="ltr">${esc(d.date)}</bdi> ${data(d.what)}</li>`))}
+        ${list("Decisions", (c.decisions || []).map((d) => `<li>${data(d)}</li>`))}
+      </details>
+      <div class="grid">
+        <div><label for="ds-note-${s.id}">Your note</label><input id="ds-note-${s.id}" data-ds-note maxlength="5000" value="${esc(s.note)}"></div>
+        <div class="actions" style="align-self:end">
+          <label><input type="checkbox" data-ds-reviewed ${s.reviewed_at ? "checked" : ""}> <span>Checked against the document</span></label>
+          ${s.reviewed_by ? `<span class="muted">${data(s.reviewed_by)}</span>` : ""}
+          ${s.created_by_id === me.id || me.rank >= 2 ? '<button type="button" class="small secondary danger" data-ds-delete>Remove</button>' : ""}
+        </div>
+      </div>
+      <p class="muted"><span>Written by the AI assistant</span> (${data(s.model)}).</p>
+    </article>`;
+  }).join("") : '<p class="muted">No documents summarised yet.</p>';
+}
+
+async function summariesChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await loadSummaries();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+$("ds-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const fd = new FormData();
+  fd.append("kind", $("ds-kind").value);
+  fd.append("language", I18N.lang === "ar" ? "ar" : "en");
+  fd.append("file", $("ds-file").files[0]);
+  guard(async () => {
+    dsReading += 1;
+    $("ds-run").disabled = true;
+    $("ds-wait").hidden = false;
+    try {
+      await postForm(`/api/engagements/${id}/document-summaries`, fd);
+      if (currentEngagement?.id === id) $("ds-file").value = "";
+      await summariesChanged(id);
+    } finally {
+      dsReading -= 1;
+      $("ds-run").disabled = dsReading > 0 || !(ds ? ds.enabled : assistant.enabled);
+      $("ds-wait").hidden = dsReading === 0;
+    }
+  });
+});
+
+$("ds-list").addEventListener("change", (ev) => {
+  const item = ev.target.closest("[data-ds]");
+  if (!item || !ds) return;
+  const id = ds.engagement_id;
+  const body = ev.target.matches("[data-ds-note]") ? { note: ev.target.value }
+    : ev.target.matches("[data-ds-reviewed]") ? { reviewed: ev.target.checked } : null;
+  if (!body) return;
+  guard(async () => {
+    await sendJSON("PATCH", `/api/document-summaries/${item.dataset.ds}`, body);
+    await summariesChanged(id);
+  });
+});
+
+$("ds-list").addEventListener("click", (ev) => {
+  const item = ev.target.closest("[data-ds]");
+  if (!item || !ds) return;
+  const id = ds.engagement_id;
+  if (ev.target.matches("[data-ds-delete]")) {
+    if (!confirm("Remove this summary?")) return;
+    guard(async () => {
+      await sendJSON("DELETE", `/api/document-summaries/${item.dataset.ds}`);
+      await summariesChanged(id);
+    });
+  }
+  const name = ev.target.closest("[data-ds-add-party]")?.dataset.dsAddParty;
+  if (name) {
+    guard(async () => {
+      await sendJSON("POST", `/api/engagements/${id}/related-parties`, { name, source: `summary:${item.dataset.ds}` });
+      await Promise.all([relatedChanged(id), summariesChanged(id)]);
+    });
+  }
 });
 
 // Lead sheets and draft statements

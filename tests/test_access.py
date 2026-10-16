@@ -79,6 +79,14 @@ def full_engagement(a):
     event = a.post(f"/api/engagements/{eid}/completion/events",
                    json={"description": "Fire", "occurred_on": "2027-01-10"})
     assert event.status_code == 200, event.text
+    party = a.post(f"/api/engagements/{eid}/related-parties", json={"name": "Acme Holdings"})
+    assert party.status_code == 201, party.text
+    with db.SessionLocal() as s:
+        doc = db.DocumentSummary(engagement_id=eid, kind="contract", filename="lease.pdf",
+                                 sha256="0" * 64, size=1, content={"title": "Lease"})
+        s.add(doc)
+        s.commit()
+        summary_id = doc.id
     return {"engagement_id": eid, "upload_id": gl, "run_id": run, "finding_id": finding,
             "evidence_id": evidence, "comparison_id": comparison, "sample_id": sample,
             "entry_id": entry["id"], "note_id": note, "request_id": req, "file_id": file,
@@ -88,7 +96,8 @@ def full_engagement(a):
             "match_id": match.json()["id"], "confirmation_id": confirmation.json()["id"],
             "control_id": control.json()["id"], "task_id": task.json()["tasks"][0]["id"],
             "time_entry_id": hours.json()["entries"][0]["id"],
-            "event_id": event.json()["events"][0]["id"]}
+            "event_id": event.json()["events"][0]["id"],
+            "party_id": party.json()["parties"][0]["id"], "summary_id": summary_id}
 
 
 def bodies(ids):
@@ -165,6 +174,18 @@ def bodies(ids):
         ("GET", "/api/engagements/{engagement_id}/completion/representation-letter"): {},
         ("PATCH", "/api/subsequent-events/{event_id}"): {"json": {"treatment": "disclosed"}},
         ("DELETE", "/api/subsequent-events/{event_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/related-parties"): {},
+        ("POST", "/api/engagements/{engagement_id}/related-parties"): {"json": {"name": "Bo"}},
+        ("POST", "/api/engagements/{engagement_id}/related-parties/scan"): {"json": {}},
+        ("GET", "/api/engagements/{engagement_id}/related-parties/export"): {},
+        ("PATCH", "/api/related-parties/{party_id}"): {"json": {"note": "x"}},
+        ("DELETE", "/api/related-parties/{party_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/document-summaries"): {},
+        ("POST", "/api/engagements/{engagement_id}/document-summaries"):
+            {"files": {"file": PDF}, "data": {"kind": "contract"}},
+        ("GET", "/api/engagements/{engagement_id}/document-summaries/export"): {},
+        ("PATCH", "/api/document-summaries/{summary_id}"): {"json": {"note": "x"}},
+        ("DELETE", "/api/document-summaries/{summary_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/report"): {},
         ("PUT", "/api/engagements/{engagement_id}/report"): {"json": {"city": "Cairo"}},
         ("GET", "/api/engagements/{engagement_id}/report/preview"): {},

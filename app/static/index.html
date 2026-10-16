@@ -105,6 +105,7 @@
         <label><input type="checkbox" name="requests" checked> The client request list, open again with no due dates</label>
         <label><input type="checkbox" name="controls" checked> The internal controls register, to assess and test again</label>
         <label><input type="checkbox" name="workplan" checked> The task list and the time budget, without owners or dates</label>
+        <label><input type="checkbox" name="related_parties" checked> The related parties register, without last year's scan or conclusions</label>
         <label><input type="checkbox" name="team" checked> The team</label>
       </fieldset>
       <div class="actions"><button type="submit" id="roll-submit">Create next year's engagement</button><button type="button" class="secondary" id="roll-cancel">Cancel</button></div>
@@ -175,6 +176,8 @@
           <option value="time.">Time</option>
           <option value="completion.">Completion procedures</option>
           <option value="report.">Auditor's report</option>
+          <option value="related.">Related parties</option>
+          <option value="summary.">Contracts and minutes</option>
           <option value="crossmatch.">File matching</option>
           <option value="disclosure.">Disclosure checklist</option>
           <option value="pack.">Audit file downloads</option>
@@ -590,6 +593,23 @@
             </div>
           </section>
 
+          <section class="panel" id="ds-panel">
+            <div class="row-between">
+              <h2>Contracts and minutes</h2>
+              <a class="button secondary" id="ds-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">The AI reads a contract or the minutes of a meeting and lists the parties, key terms, amounts, dates and points to follow up. Names are checked against the related parties register. Check the summary against the document; the file itself isn't kept.</p>
+            <p class="warn-box" id="ds-off" hidden>The AI assistant is off. An administrator turns it on by setting ANTHROPIC_API_KEY on the server.</p>
+            <form id="ds-form">
+              <div class="grid">
+                <div><label for="ds-kind">Document</label><select id="ds-kind" class="map"></select></div>
+                <div><label for="ds-file">File (PDF, PNG or JPEG, up to 15 MB)</label><input id="ds-file" type="file" accept=".pdf,.png,.jpg,.jpeg" required></div>
+              </div>
+              <div class="actions"><button type="submit" id="ds-run">Summarise with AI</button><span class="muted" id="ds-wait" hidden>Reading… this can take a minute or two.</span></div>
+            </form>
+            <div id="ds-list"></div>
+          </section>
+
           <section class="panel" id="bank-result" hidden>
             <div class="row-between">
               <h2>Bank reconciliation <span id="bank-title" translate="no"></span></h2>
@@ -649,6 +669,35 @@
               <div><label for="cf-filter">Show</label><select id="cf-filter" class="map"><option value="">All requests</option><option value="open">Still open</option><option value="done">Done</option></select></div>
             </div>
             <div class="table-wrap"><table id="cf-table"></table></div>
+          </section>
+
+          <section class="panel" id="rpt-panel">
+            <div class="row-between">
+              <h2>Related parties</h2>
+              <a class="button secondary" id="rpt-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">List the client's related parties, with any other names they go by. The scan looks for those names in the general ledger and lists what it finds, so you can conclude on the transactions and check they are disclosed.</p>
+            <div class="cards" id="rpt-cards"></div>
+            <details id="rpt-add">
+              <summary>Add a related party</summary>
+              <form id="rpt-form">
+                <div class="grid">
+                  <div><label for="rpt-name">Name</label><input id="rpt-name" maxlength="300" required></div>
+                  <div><label for="rpt-rel">Relationship</label><select id="rpt-rel" class="map"></select></div>
+                </div>
+                <label for="rpt-aliases">Other names <span class="muted">(one a line, for example a short name or a name in Arabic)</span></label>
+                <textarea id="rpt-aliases" rows="2"></textarea>
+                <label for="rpt-note">Note</label>
+                <input id="rpt-note" maxlength="5000">
+                <div class="actions"><button type="submit" id="rpt-save">Add</button></div>
+              </form>
+            </details>
+            <form id="rpt-scan-form" class="grid" style="margin-top:12px">
+              <div><label for="rpt-ledger">General ledger</label><select id="rpt-ledger" class="map"></select></div>
+              <div class="actions" style="align-self:end"><button type="submit" id="rpt-scan">Scan the ledger</button></div>
+            </form>
+            <div class="table-wrap"><table id="rpt-table"></table></div>
+            <div id="rpt-found"></div>
           </section>
 
           <section class="panel" id="fs-panel">

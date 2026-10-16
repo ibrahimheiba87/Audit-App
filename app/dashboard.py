@@ -71,7 +71,8 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
                acceptance: dict | None = None,
                disclosures: dict | None = None, controls: dict | None = None,
                confirmations: dict | None = None, workplan: dict | None = None,
-               finishing: dict | None = None) -> list[dict]:
+               finishing: dict | None = None, related: dict | None = None,
+               documents: dict | None = None) -> list[dict]:
     """The to-do list, most pressing first. Each step names the panel (and tab) that deals
     with it."""
     steps: list[dict] = []
@@ -197,6 +198,19 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
             add("low", f"Give {_plural(workplan['unassigned'], 'task')} an owner.", "wp-panel")
         for area in workplan["over_areas"]:
             add("low", f"Hours on {area} are over budget.", "wp-panel")
+    if related:
+        parties = {k: _plural(related[k], "related party", "related parties")
+                   for k in ("missing_disclosure", "to_review")}
+        if related["missing_disclosure"]:
+            add("high", f"Disclose {parties['missing_disclosure']} the statements leave out.",
+                "rpt-panel")
+        if related["to_review"]:
+            add("medium", f"Review the transactions with {parties['to_review']}.", "rpt-panel")
+        if related["parties"] and related["has_ledger"] and not related["scanned"]:
+            add("low", "Scan the general ledger for related party names.", "rpt-panel")
+    if documents and documents["to_review"]:
+        n = _plural(documents["to_review"], "AI document summary", "AI document summaries")
+        add("low", f"Check {n} against the documents.", "ds-panel")
     if open_high:
         add("high", f"Work through {_plural(open_high, 'open high-severity finding')}.", "reg-panel")
     elif findings["open"]:
@@ -241,8 +255,10 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     from .confirmations import summary as confirmation_summary
     from .controls import summary as control_summary
     from .disclosures import summary as disclosure_summary
+    from .related_parties import summary as related_summary
     from .report_draft import state as report_state
     from .risks import summary
+    from .summaries import summary as documents_summary
     from .workplan import summary as workplan_summary
     # Teams may keep their risk assessment elsewhere: only suggest the register to those who
     # started one here, or asked the AI for a risk assessment.
@@ -251,6 +267,7 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     controls = control_summary(list(e.controls))
     confirmations = confirmation_summary(e)
     workplan = workplan_summary(e)
+    related, documents = related_summary(e), documents_summary(e)
     finishing = completion_summary(e)
     finishing = {**finishing, "reps_dated": None, "signed_at": None,
                  "report_warnings": report_state(session, e)["warnings"]
@@ -283,11 +300,14 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
         "controls": controls,
         "confirmations": confirmations,
         "workplan": workplan,
+        "related": related,
+        "documents": documents,
         "completion": {k: finishing[k] for k in ("started", "signed", "going_concern",
                                                  "pending_events")},
         "next_steps": next_steps(e, mat, kinds, gl_runs, findings,
                                  open_by_severity.get("high", 0), rv, rq, fs, bank,
                                  risk_summary, acceptance_summary(e), disclosure_summary(e),
-                                 controls, confirmations, workplan, finishing)
+                                 controls, confirmations, workplan, finishing, related,
+                                 documents)
         if e.lock is None else [],
     }
