@@ -15,7 +15,7 @@
     <nav id="nav" hidden>
       <a href="#/engagements" data-view="engagements">Engagements</a>
       <a href="#/quick" data-view="quick">Quick audit</a>
-      <a href="#/users" data-view="users" class="min-4">Users</a>
+      <a href="#/users" data-view="users" class="min-4">Users <span class="nav-count" id="signup-count" translate="no" title="Account requests waiting for approval" hidden></span></a>
       <a href="#/activity" data-view="activity" class="min-4">Activity</a>
     </nav>
     <div class="user-chip" id="user-chip" hidden>
@@ -35,7 +35,21 @@
         <div><label for="login-email">Email</label><input id="login-email" name="email" type="email" autocomplete="username" required></div>
         <div><label for="login-password">Password</label><input id="login-password" name="password" type="password" autocomplete="current-password" required></div>
         <div><button type="submit">Sign in</button></div>
+        <p class="muted" id="signup-open-row">No account yet? <button type="button" class="link" id="signup-open">Ask for one</button></p>
       </form>
+      <form id="signup-form" class="stack" hidden>
+        <h2>Ask for an account</h2>
+        <p class="muted">An admin needs to approve your account before you can sign in.</p>
+        <div><label for="signup-name">Your name</label><input id="signup-name" name="name" required maxlength="200"></div>
+        <div><label for="signup-email">Email</label><input id="signup-email" name="email" type="email" autocomplete="username" required></div>
+        <div><label for="signup-password">Password (at least 10 characters)</label><input id="signup-password" name="password" type="password" autocomplete="new-password" minlength="10" required></div>
+        <div class="actions"><button type="submit">Send request</button><button type="button" class="secondary" id="signup-back">Back to sign in</button></div>
+      </form>
+      <div id="signup-done" class="stack" hidden>
+        <h2>Request sent</h2>
+        <p>Thanks. An admin needs to approve your account. Once they do, sign in with the email and password you just chose.</p>
+        <div><button type="button" id="signup-done-back">Back to sign in</button></div>
+      </div>
       <form id="setup-form" class="stack" hidden>
         <h2>Set up the Audit App</h2>
         <p class="muted">Create the first account. It will be an admin, who can then add the rest of the team.</p>
@@ -109,6 +123,11 @@
 
   <!-- Users (admin) ------------------------------------------------------>
   <div id="view-users" class="view" hidden>
+    <section class="panel" id="signups-panel" hidden>
+      <h2>Waiting for approval</h2>
+      <p class="muted">These people asked for an account on the sign-in page. Pick a role and approve them, or turn them down. Like anyone you add, they only see the engagements you put them on.</p>
+      <div class="table-wrap"><table id="signups"></table></div>
+    </section>
     <section class="panel">
       <h2>Users</h2>
       <p class="muted">Preparers upload files, run checks, comparisons and samples, add findings, notes and evidence, map accounts, post proposed adjusting entries, sign off sections as prepared and reply to review notes. Reviewers can also clear and reopen findings, change severity, remove evidence and files, post booked entries, mark proposed ones booked, delete adjusting entries, raise and clear review notes, sign off sections as reviewed, and add or edit clients and engagements. Partners can also set materiality, sign off completion and delete clients and engagements. Admins can also manage users and see the whole activity log. Client users belong to one client and only see that client's document requests, where they upload files and message the team.</p>

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import os
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -21,9 +22,11 @@ from .db import (
     ClientUser,
     Engagement,
     EngagementMember,
+    SignupRequest,
     User,
     UserSetting,
     get_session,
+    utcnow,
 )
 
 router = APIRouter(prefix="/api")
@@ -42,6 +45,23 @@ def setup_code() -> str:
     """AUDIT_SETUP_CODE, if set: the first admin must enter it, so that on a server that's
     already online, a stranger can't set the app up before you do."""
     return os.environ.get("AUDIT_SETUP_CODE", "").strip()
+
+
+class SignupIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    name: str = Field(min_length=1, max_length=200)
+    password: str = Field(max_length=200)
+
+
+# Anyone can ask for an account, so cap how many can arrive and wait, to keep a flood of
+# requests from burying real ones. Counted for everyone: behind the proxy, IPs aren't reliable.
+SIGNUPS_PER_HOUR = 20
+MAX_PENDING_SIGNUPS = 50
+
+
+class ApproveIn(BaseModel):
+    role: Role = "preparer"
+    client_id: int | None = None  # required when approving them as a client user
 
 
 class LoginIn(BaseModel):
@@ -157,6 +177,12 @@ def login(body: LoginIn, request: Request, session: Session = Depends(get_sessio
         raise HTTPException(429, f"Too many failed sign-ins. Try again in "
                                  f"{auth.LOCKOUT_MINUTES} minutes.")
     user = session.scalar(select(User).where(User.email == email))
+    if user is None:
+        pending = session.scalar(select(SignupRequest).where(SignupRequest.email == email))
+        if pending and auth.verify_password(body.password, pending.password_hash):
+            session.rollback()
+            raise HTTPException(403, "Your account is waiting for an admin to approve it. "
+                                     "You can sign in once it's approved.")
     if user is None or not user.active or not auth.verify_password(body.password,
                                                                     user.password_hash):
         log(session, None, "auth.login_failed", f"Failed sign-in for {email}", request=request)
@@ -164,6 +190,38 @@ def login(body: LoginIn, request: Request, session: Session = Depends(get_sessio
         raise HTTPException(401, "Email or password is wrong.")
     log(session, user, "auth.login", "Signed in", request=request)
     return signed_in(request, session, user)
+
+
+@router.post("/auth/signup", status_code=202)
+def signup(body: SignupIn, request: Request, session: Session = Depends(get_session)) -> dict:
+    """Ask for an account. It can't be used until an admin approves it (approve_signup)."""
+    email = clean_email(body.email)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Enter your name.")
+    auth.check_password_strength(body.password)
+    password_hash = auth.hash_password(body.password)  # slow, so before taking the lock
+    auth.hold(session, "signups")
+    if not session.scalar(select(func.count(User.id))):
+        session.rollback()
+        raise HTTPException(409, "The app isn't set up yet.")
+    recent = session.scalar(select(func.count(Activity.id)).where(
+        Activity.action == "auth.signup", Activity.at >= utcnow() - timedelta(hours=1))) or 0
+    pending = session.scalar(select(func.count(SignupRequest.id))) or 0
+    if recent >= SIGNUPS_PER_HOUR or pending >= MAX_PENDING_SIGNUPS:
+        session.rollback()
+        raise HTTPException(429, "Too many account requests right now. Try again later.")
+    if session.scalar(select(User.id).where(User.email == email)) or session.scalar(
+            select(SignupRequest.id).where(SignupRequest.email == email)):
+        session.rollback()
+        raise HTTPException(409, f"There is already an account or a request waiting for "
+                                 f"{email}.")
+    session.add(SignupRequest(email=email, name=name, password_hash=password_hash,
+                              ip=(request.client.host if request.client else "")[:64]))
+    log(session, None, "auth.signup", f"{name} ({email}) asked for an account",
+        details={"email": email}, request=request)
+    session.commit()
+    return {"status": "pending"}
 
 
 @router.post("/auth/logout", status_code=204)
@@ -237,6 +295,9 @@ def create_user(body: UserIn, request: Request, admin: User = Depends(require("a
         session.flush()
     except IntegrityError as exc:
         raise HTTPException(409, f"There is already a user with email {user.email}.") from exc
+    for waiting in session.scalars(select(SignupRequest).where(
+            SignupRequest.email == user.email)):
+        session.delete(waiting)  # they have an account now; their own request is moot
     log(session, admin, "user.create", f"Added {user.name} ({user.email}) as {ROLES[user.role]}"
         + (f" of {client}" if client else ""),
         details={"user_id": user.id, "client_id": user.client_id}, request=request)
@@ -298,6 +359,63 @@ def update_user(user_id: int, body: UserPatch, request: Request,
             request=request)
     session.commit()
     return user_out(user)
+
+
+# --- Account requests (admin) ------------------------------------------------
+
+
+def signup_out(r: SignupRequest) -> dict:
+    return {"id": r.id, "email": r.email, "name": r.name, "created_at": r.created_at.isoformat()}
+
+
+@router.get("/signups")
+def list_signups(_: User = Depends(require("admin")),
+                 session: Session = Depends(get_session)) -> list[dict]:
+    """Account requests waiting for an admin, oldest first."""
+    return [signup_out(r) for r in session.scalars(
+        select(SignupRequest).order_by(SignupRequest.created_at, SignupRequest.id))]
+
+
+def waiting_request(session: Session, signup_id: int) -> SignupRequest:
+    auth.hold(session, "signups")  # two admins can't both handle one request
+    r = session.get(SignupRequest, signup_id)
+    if r is None:
+        raise HTTPException(404, "That account request is gone; someone may have handled it "
+                                 "already.")
+    return r
+
+
+@router.post("/signups/{signup_id}/approve", status_code=201)
+def approve_signup(signup_id: int, body: ApproveIn, request: Request,
+                   admin: User = Depends(require("admin")),
+                   session: Session = Depends(get_session)) -> dict:
+    """Turn an account request into a user with the role picked. Like any new user, they
+    see only the engagements they're added to."""
+    r = waiting_request(session, signup_id)
+    user = User(email=r.email, name=r.name, role=body.role, password_hash=r.password_hash)
+    client = link_client(session, user, body.role, body.client_id)
+    session.add(user)
+    session.delete(r)
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise HTTPException(409, f"There is already a user with email {user.email}.") from exc
+    log(session, admin, "user.approve", f"Approved {user.name} ({user.email}) as "
+        f"{ROLES[user.role]}" + (f" of {client}" if client else ""),
+        details={"user_id": user.id, "client_id": user.client_id}, request=request)
+    session.commit()
+    return user_out(user)
+
+
+@router.delete("/signups/{signup_id}", status_code=204)
+def reject_signup(signup_id: int, request: Request, admin: User = Depends(require("admin")),
+                  session: Session = Depends(get_session)) -> Response:
+    r = waiting_request(session, signup_id)
+    session.delete(r)
+    log(session, admin, "user.reject", f"Turned down the account request from {r.name} "
+        f"({r.email})", details={"email": r.email}, request=request)
+    session.commit()
+    return Response(status_code=204)
 
 
 # --- Activity -----------------------------------------------------------------
