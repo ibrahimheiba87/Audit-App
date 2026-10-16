@@ -62,13 +62,21 @@ def full_engagement(a):
         "left_upload_id": ar, "right_upload_id": ar,
         "keys": [{"left": "Customer", "right": "Customer"}]})
     assert match.status_code == 201, match.text
+    confirmation = a.post(f"/api/engagements/{eid}/confirmations", json={
+        "kind": "bank", "party": "First Bank", "balance": 100})
+    assert confirmation.status_code == 201, confirmation.text
+    control = a.post(f"/api/engagements/{eid}/controls", json={
+        "area": "revenue", "title": "Credit notes approved"})
+    assert control.status_code == 201, control.text
+    a.post(f"/api/controls/{control.json()['id']}/plan", json={"method": "frequency"})
     return {"engagement_id": eid, "upload_id": gl, "run_id": run, "finding_id": finding,
             "evidence_id": evidence, "comparison_id": comparison, "sample_id": sample,
             "entry_id": entry["id"], "note_id": note, "request_id": req, "file_id": file,
             "section": "data", "kind": "prepared", "bank_upload_id": bank, "rec_id": rec,
             "draft_id": draft_id, "risk_draft_id": risk_draft_id, "risk_id": risk["id"],
             "procedure_id": risk["procedures"][0]["id"], "ar_upload_id": ar,
-            "match_id": match.json()["id"]}
+            "match_id": match.json()["id"], "confirmation_id": confirmation.json()["id"],
+            "control_id": control.json()["id"]}
 
 
 def bodies(ids):
@@ -111,6 +119,22 @@ def bodies(ids):
         ("POST", "/api/risks/{risk_id}/procedures"): {"json": {"text": "x"}},
         ("PATCH", "/api/procedures/{procedure_id}"): {"json": {"status": "done"}},
         ("DELETE", "/api/procedures/{procedure_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/confirmations"): {},
+        ("POST", "/api/engagements/{engagement_id}/confirmations"):
+            {"json": {"kind": "other", "party": "x"}},
+        ("POST", "/api/engagements/{engagement_id}/confirmations/from-listing"):
+            {"json": {"upload_id": ids["ar_upload_id"], "largest": 2}},
+        ("GET", "/api/engagements/{engagement_id}/confirmations/export"): {},
+        ("PATCH", "/api/confirmations/{confirmation_id}"): {"json": {"status": "sent"}},
+        ("DELETE", "/api/confirmations/{confirmation_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/controls"): {},
+        ("POST", "/api/engagements/{engagement_id}/controls"):
+            {"json": {"area": "fraud", "title": "x"}},
+        ("GET", "/api/engagements/{engagement_id}/controls/export"): {},
+        ("PATCH", "/api/controls/{control_id}"): {"json": {"design": "effective"}},
+        ("POST", "/api/controls/{control_id}/plan"): {"json": {"method": "frequency"}},
+        ("POST", "/api/controls/{control_id}/result"): {"json": {"tested": 2, "deviations": 0}},
+        ("DELETE", "/api/controls/{control_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/findings"): {},
         ("POST", "/api/engagements/{engagement_id}/findings"): {"json": {"detail": "x"}},
         ("POST", "/api/engagements/{engagement_id}/findings/bulk"):

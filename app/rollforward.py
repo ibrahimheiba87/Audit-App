@@ -20,7 +20,16 @@ from sqlalchemy.orm import Session
 
 from . import auth, loader
 from .auth import log, require
-from .db import AccountMapping, DocumentRequest, Engagement, EngagementMember, Upload, User, get_session
+from .db import (
+    AccountMapping,
+    Control,
+    DocumentRequest,
+    Engagement,
+    EngagementMember,
+    Upload,
+    User,
+    get_session,
+)
 from .engagements import engagement_out, get_or_404
 from .leadsheets import compute
 
@@ -34,6 +43,7 @@ class RollForwardIn(BaseModel):
     materiality: bool = True
     requests: bool = True
     trial_balance: bool = True
+    controls: bool = True
 
 
 def next_year(d: date) -> date:
@@ -103,6 +113,15 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
                 number=number, title=r.title, details=r.details, status="open",
                 created_by=user.name))
         carried["requests"] = len(old.document_requests)
+    if body.controls and old.controls:
+        # What each control is, not this year's assessment: design and tests are done afresh,
+        # and the risks they addressed are last year's.
+        for c in old.controls:
+            new.controls.append(Control(
+                area=c.area, process=c.process, title=c.title, description=c.description,
+                kind=c.kind, nature=c.nature, frequency=c.frequency, key=c.key, owner=c.owner,
+                source=f"rolled:{c.id}", created_by=user.name))
+        carried["controls"] = len(old.controls)
     session.flush()
 
     upload = None
@@ -128,6 +147,10 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
     log(session, user, "engagement.create",
         f"Created engagement {new.name} (period end {period_end}) by rolling forward "
         f"{old.name}", new, details={"from_engagement_id": old.id, "carried": carried})
+    if carried.get("controls"):  # so the controls section needs a review this year too
+        log(session, user, "control.carry",
+            f"Carried {carried['controls']} controls from {old.name}", new,
+            details={"from_engagement_id": old.id, "controls": carried['controls']})
     if upload is not None:
         log(session, user, "upload.create",
             f"Uploaded {upload.filename} (Prior-year trial balance) from {old.name}", new,

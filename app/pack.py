@@ -26,6 +26,8 @@ from . import (
     acceptance,
     ai_writer,
     comparisons,
+    confirmations,
+    controls,
     crossmatch,
     disclosures,
     findings,
@@ -116,6 +118,9 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
                        lambda: acceptance.workbook(session, e, user))
     if e.risks:
         pack.workpaper(planning, "Risk register and audit program", lambda: risks.workbook(e))
+    if e.controls:
+        pack.workpaper(planning, "Internal controls and tests of controls",
+                       lambda: controls.workbook(e))
     for d in e.ai_drafts:
         pack.workpaper(planning, f"AI {ai_writer.KINDS[d.kind].lower()} #{d.id}",
                        lambda d=d: ai_writer.workbook(d))
@@ -134,6 +139,8 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
     for r in e.bank_reconciliations:
         pack.workpaper(testing, f"Bank reconciliation #{r.id}",
                        lambda r=r: reconciliations.workbook(r))
+    if e.confirmations:
+        pack.workpaper(testing, "External confirmations", lambda: confirmations.workbook(e))
     for m in e.cross_matches:
         pack.workpaper(testing, f"File match #{m.id}", lambda m=m: crossmatch.workbook(m), m)
     if e.findings:

@@ -89,6 +89,7 @@
         <label><input type="checkbox" name="mapping" checked> The account mapping to statement lines</label>
         <label><input type="checkbox" name="materiality" checked> The materiality benchmark and percentages (not the amounts)</label>
         <label><input type="checkbox" name="requests" checked> The client request list, open again with no due dates</label>
+        <label><input type="checkbox" name="controls" checked> The internal controls register, to assess and test again</label>
         <label><input type="checkbox" name="team" checked> The team</label>
       </fieldset>
       <div class="actions"><button type="submit" id="roll-submit">Create next year's engagement</button><button type="button" class="secondary" id="roll-cancel">Cancel</button></div>
@@ -148,6 +149,8 @@
           <option value="analysis.">Stratification and aging</option>
           <option value="risk.">Risk register</option>
           <option value="procedure.">Audit program</option>
+          <option value="control.">Internal controls</option>
+          <option value="confirmation.">Confirmations</option>
           <option value="crossmatch.">File matching</option>
           <option value="disclosure.">Disclosure checklist</option>
           <option value="pack.">Audit file downloads</option>
@@ -337,6 +340,47 @@
             <div id="rr-list"></div>
           </section>
 
+          <section class="panel" id="ct-panel">
+            <div class="row-between">
+              <h2>Internal controls</h2>
+              <a class="button secondary" id="ct-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">The controls that matter to the audit. Assess the design of each one (usually with a walkthrough), then test the key controls you plan to rely on. The sample size comes from how often the control runs, or from attribute sampling.</p>
+            <div class="cards" id="ct-cards"></div>
+            <details id="ct-add">
+              <summary id="ct-form-title">Add a control</summary>
+              <form id="ct-form">
+                <div class="grid">
+                  <div><label for="ct-area">Area</label><select id="ct-area" name="area" class="map" required></select></div>
+                  <div><label for="ct-process">Process</label><input id="ct-process" name="process" maxlength="200" placeholder="e.g. Sales and receivables"></div>
+                  <div><label for="ct-risk">Risk it addresses</label><select id="ct-risk" name="risk_id" class="map"></select></div>
+                  <div><label for="ct-kind">Type</label><select id="ct-kind" name="kind" class="map"></select></div>
+                  <div><label for="ct-nature">Nature</label><select id="ct-nature" name="nature" class="map"></select></div>
+                  <div><label for="ct-frequency">How often it runs</label><select id="ct-frequency" name="frequency" class="map"></select></div>
+                  <div><label for="ct-owner">Owner</label><input id="ct-owner" name="owner" maxlength="200" placeholder="e.g. Finance manager"></div>
+                </div>
+                <label for="ct-title">Control</label>
+                <input id="ct-title" name="title" maxlength="300" required placeholder="e.g. The finance manager approves every credit note">
+                <label for="ct-description">How it works</label>
+                <textarea id="ct-description" name="description" rows="2" maxlength="5000"></textarea>
+                <label class="check-label"><input type="checkbox" id="ct-key" name="key" checked><span>Key control (one the audit relies on)</span></label>
+                <div class="actions"><button type="submit" id="ct-save">Add control</button><button type="button" class="secondary" id="ct-cancel" hidden>Cancel</button></div>
+              </form>
+            </details>
+            <details id="ct-calc">
+              <summary>Attribute sample size calculator</summary>
+              <form id="ct-calc-form">
+                <div class="grid">
+                  <div><label for="ct-calc-conf">Confidence</label><select id="ct-calc-conf" class="map"><option value="95">95%</option><option value="90">90%</option></select></div>
+                  <div><label for="ct-calc-tol">Tolerable deviation rate %</label><input id="ct-calc-tol" type="number" step="any" min="0" max="50" value="5"></div>
+                  <div><label for="ct-calc-exp">Expected deviation rate %</label><input id="ct-calc-exp" type="number" step="any" min="0" max="50" value="0"></div>
+                </div>
+                <div class="actions"><button type="submit" class="secondary">Work out the sample size</button><span id="ct-calc-out"></span></div>
+              </form>
+            </details>
+            <div id="ct-list"></div>
+          </section>
+
           <section class="panel" id="files-panel">
             <h2>Files</h2>
             <form id="upload-form">
@@ -478,6 +522,46 @@
               <summary>Matched lines</summary>
               <div class="table-wrap"><table id="bank-matched"></table></div>
             </details>
+          </section>
+
+          <section class="panel" id="cf-panel">
+            <div class="row-between">
+              <h2>External confirmations</h2>
+              <a class="button secondary" id="cf-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">Requests to banks, customers, suppliers and lawyers, tracked from sending to the reply. A reply that differs from the books needs an explanation, and a positive request with no reply needs alternative procedures.</p>
+            <div class="cards" id="cf-cards"></div>
+            <div class="table-wrap"><table id="cf-coverage"></table></div>
+            <details id="cf-add">
+              <summary>Add a request</summary>
+              <form id="cf-form">
+                <div class="grid">
+                  <div><label for="cf-kind">Sent to</label><select id="cf-kind" name="kind" class="map" required></select></div>
+                  <div><label for="cf-party">Name</label><input id="cf-party" name="party" maxlength="300" required></div>
+                  <div><label for="cf-reference">Account or customer code</label><input id="cf-reference" name="reference" maxlength="200"></div>
+                  <div><label for="cf-form-type">Form</label><select id="cf-form-type" name="form" class="map"></select></div>
+                  <div><label for="cf-balance">Balance per books</label><input id="cf-balance" name="balance" type="number" step="any"></div>
+                </div>
+                <label for="cf-contact">Contact <span class="muted">(name, email or address)</span></label>
+                <textarea id="cf-contact" name="contact" rows="2" maxlength="5000"></textarea>
+                <div class="actions"><button type="submit" id="cf-save">Add request</button></div>
+              </form>
+            </details>
+            <details id="cf-pick">
+              <summary>Pick requests from a receivables or payables listing</summary>
+              <form id="cf-pick-form">
+                <div class="grid">
+                  <div><label for="cf-listing">Listing</label><select id="cf-listing" class="map" required></select></div>
+                  <div><label for="cf-min">Balances of at least</label><input id="cf-min" type="number" step="any" min="0"></div>
+                  <div><label for="cf-largest">Or the largest</label><input id="cf-largest" type="number" min="1" max="200" step="1" placeholder="e.g. 20"></div>
+                </div>
+                <div class="actions"><button type="submit" id="cf-pick-btn">Add requests</button><span class="muted" id="cf-picked"></span></div>
+              </form>
+            </details>
+            <div class="grid" style="margin-top:12px">
+              <div><label for="cf-filter">Show</label><select id="cf-filter" class="map"><option value="">All requests</option><option value="open">Still open</option><option value="done">Done</option></select></div>
+            </div>
+            <div class="table-wrap"><table id="cf-table"></table></div>
           </section>
 
           <section class="panel" id="fs-panel">
