@@ -290,6 +290,7 @@ async function openEngagement(id) {
     $("dash-cards").innerHTML = $("dash-steps").innerHTML = "";
     bank = null; bankChecked = null;
     strat = null; $("str-result").hidden = $("str-export").hidden = true; $("str-bands").value = "";
+    lx = null; $("lx-result").hidden = $("lx-export").hidden = true; $("lx-form").reset();
     aged = null; $("ag-result").hidden = $("ag-export").hidden = true; $("ag-terms").value = "30";
     rr = null; renderRisks(); resetRiskForm(); $("rr-add").open = false; $("ra-imported").textContent = "";
     ct = null; renderControls(); resetControlForm(); $("ct-add").open = false; $("ct-calc-out").textContent = "";
@@ -337,6 +338,7 @@ async function openEngagement(id) {
   renderMatchForm(e);
   renderMatches(e.cross_matches);
   renderStratifyForm(e);
+  renderExplorerForm(e);
   renderAgingForm(e);
   renderConfirmationListing(e);
   renderSampleForm(e);
@@ -3652,6 +3654,105 @@ function renderStrat() {
   }
   $("str-note").textContent = note;
   $("str-table").innerHTML = html;
+}
+
+// Ledger explorer
+
+let lx = null;  // the look on show
+let lxTab = "pivot";
+const LX_GROUPS = { account: "Account", user: "User", month: "Month", entry_id: "Entry" };
+
+function renderExplorerForm(e) {
+  const keep = $("lx-upload").value;
+  const files = e.uploads.filter((u) => !["prior_tb", "list"].includes(u.kind));
+  $("lx-upload").innerHTML = files
+    .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
+    .join("") || '<option value="">Upload a file first</option>';
+  if (files.some((u) => String(u.id) === keep)) $("lx-upload").value = keep;
+  if (lx && !files.some((u) => u.id === lx.upload_id)) {
+    lx = null; $("lx-result").hidden = $("lx-export").hidden = true;
+  }
+}
+
+function explorerFilters() {
+  const f = {};
+  for (const el of $("lx-form").elements) {
+    if (!el.name) continue;
+    if (el.type === "checkbox") { if (el.checked) f[el.name] = true; continue; }
+    const v = el.value.trim();
+    if (v === "") continue;
+    f[el.name] = el.type === "number" ? Number(v) : v;
+  }
+  return f;
+}
+
+$("lx-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const button = ev.submitter || ev.currentTarget.querySelector("button[type=submit]");
+  busy(button, async () => {
+    const id = Number($("lx-upload").value);
+    if (!id) throw new Error("Upload a file first.");
+    const filters = explorerFilters();
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/uploads/${id}/explore`, filters);
+    if (currentEngagement?.id !== engagementId) return;  // they moved on to another engagement
+    lx = out;
+    $("lx-export").href = `/api/uploads/${id}/explore/export?${new URLSearchParams(filters)}`;
+    $("lx-export").hidden = false;
+    renderExplorer();
+  });
+});
+
+$("lx-clear").addEventListener("click", () => {
+  const file = $("lx-upload").value;
+  $("lx-form").reset();
+  $("lx-upload").value = file;
+});
+
+$("lx-tabs").addEventListener("click", (ev) => {
+  const tab = ev.target.closest("[data-lx]");
+  if (!tab) return;
+  lxTab = tab.dataset.lx;
+  renderExplorer();
+});
+
+function renderExplorer() {
+  $("lx-result").hidden = !lx;
+  if (!lx) return;
+  $("lx-tabs").querySelectorAll("[data-lx]").forEach((b) => b.setAttribute("aria-selected", b.dataset.lx === lxTab));
+  const cards = [["Lines matched", `${lx.matched.toLocaleString(LOCALE)} / ${lx.lines_in_file.toLocaleString(LOCALE)}`],
+    ["Debits", money(lx.debits)], ["Credits", money(lx.credits)], ["Net", money(lx.net)]];
+  $("lx-cards").innerHTML = cards.map(([k, v]) =>
+    `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  let note = [], html = "";
+  if (!lx.matched) {
+    note = "No lines match these filters.";
+  } else if (lxTab === "pivot") {
+    const p = lx.pivot;
+    const notes = [];
+    if (p.rows.length < p.rows_total) notes.push(`Showing the first ${p.rows.length} of ${p.rows_total} rows.`);
+    if (p.columns.length < p.columns_total) notes.push(`Showing the largest ${p.columns.length} of ${p.columns_total} columns.`);
+    if (notes.length) notes.push("The Excel download has them all.");
+    note = notes;
+    html = `<tr><th>${esc(LX_GROUPS[p.rows_by])}</th><th>Lines</th><th>Debits</th><th>Credits</th>` +
+      p.columns.map((c) => `<th class="num">${data(c)}</th>`).join("") + "<th>Net</th></tr>" +
+      p.rows.map((r) => `<tr><td>${data(r.key)}</td><td class="num">${r.lines.toLocaleString(LOCALE)}</td>
+        <td class="num">${money(r.debits)}</td><td class="num">${money(r.credits)}</td>` +
+        r.cells.map((v) => `<td class="num">${v ? money(v) : ""}</td>`).join("") +
+        `<td class="num">${money(r.net)}</td></tr>`).join("");
+  } else {
+    if (lx.lines.length < lx.matched) note = [`Showing the first ${lx.lines.length} of ${lx.matched} lines.`, "The Excel download has them all."];
+    const has = (c) => lx.has.includes(c);
+    const cols = [["row", "Row"], ["date", "Date"], ["account", "Account"], ["entry_id", "Entry"],
+      ["description", "Description"], ["user", "User"]].filter(([c]) => c === "row" || has(c));
+    html = "<tr>" + cols.map(([, label]) => `<th>${label}</th>`).join("") + "<th>Amount</th></tr>" +
+      lx.lines.map((l) => "<tr>" + cols.map(([c]) => c === "row"
+        ? `<td class="num">${l.row}</td>` : c === "date" ? `<td class="nowrap">${esc(l.date || "")}</td>` : `<td>${data(l[c])}</td>`).join("") +
+        `<td class="num">${money(l.amount)}</td></tr>`).join("");
+  }
+  // One sentence to a span, so each is translated on its own.
+  $("lx-note").innerHTML = [].concat(note || []).map((n) => `<span>${esc(n)}</span>`).join(" ");
+  $("lx-table").innerHTML = html;
 }
 
 // Receivables and payables aging

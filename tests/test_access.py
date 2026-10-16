@@ -186,6 +186,8 @@ def bodies(ids):
         ("GET", "/api/engagements/{engagement_id}/document-summaries/export"): {},
         ("PATCH", "/api/document-summaries/{summary_id}"): {"json": {"note": "x"}},
         ("DELETE", "/api/document-summaries/{summary_id}"): {},
+        ("POST", "/api/uploads/{upload_id}/explore"): {"json": {}},
+        ("GET", "/api/uploads/{upload_id}/explore/export"): {},
         ("GET", "/api/engagements/{engagement_id}/report"): {},
         ("PUT", "/api/engagements/{engagement_id}/report"): {"json": {"city": "Cairo"}},
         ("GET", "/api/engagements/{engagement_id}/report/preview"): {},

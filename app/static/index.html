@@ -167,7 +167,7 @@
           <option value="template.">Test templates</option>
           <option value="comparison.">Comparisons</option>
           <option value="sample.">Samples</option>
-          <option value="analysis.">Stratification and aging</option>
+          <option value="analysis.">Stratification, aging and ledger explorer</option>
           <option value="risk.">Risk register</option>
           <option value="procedure.">Audit program</option>
           <option value="control.">Internal controls</option>
@@ -806,6 +806,43 @@
               </div>
               <p class="muted" id="str-note"></p>
               <div class="table-wrap"><table id="str-table"></table></div>
+            </div>
+          </section>
+
+          <section class="panel" id="lx-panel">
+            <h2>Ledger explorer</h2>
+            <p class="muted">Filter the lines of a file by date, account, description, user, entry, size or weekend posting, then turn what is left into a pivot. Nothing is changed or saved; each look is logged.</p>
+            <form id="lx-form">
+              <div class="grid">
+                <div><label for="lx-upload">File</label><select id="lx-upload" class="map" required></select></div>
+                <div><label for="lx-from">From</label><input id="lx-from" name="date_from" type="date"></div>
+                <div><label for="lx-to">To</label><input id="lx-to" name="date_to" type="date"></div>
+                <div><label for="lx-account">Account contains</label><input id="lx-account" name="account" maxlength="200"></div>
+                <div><label for="lx-text">Description contains</label><input id="lx-text" name="text" maxlength="200"></div>
+                <div><label for="lx-user">User contains</label><input id="lx-user" name="user" maxlength="200"></div>
+                <div><label for="lx-entry">Entry contains</label><input id="lx-entry" name="entry_id" maxlength="200"></div>
+                <div><label for="lx-min">Smallest amount</label><input id="lx-min" name="min_amount" type="number" min="0" step="any"></div>
+                <div><label for="lx-max">Largest amount</label><input id="lx-max" name="max_amount" type="number" min="0" step="any"></div>
+                <div><label for="lx-side">Side</label><select id="lx-side" class="map" name="side">
+                  <option value="any">Debits and credits</option><option value="debit">Debits only</option><option value="credit">Credits only</option></select></div>
+                <div><label for="lx-rows">Pivot rows by</label><select id="lx-rows" class="map" name="rows">
+                  <option value="account">Account</option><option value="user">User</option><option value="month">Month</option><option value="entry_id">Entry</option></select></div>
+                <div><label for="lx-columns">Pivot columns by</label><select id="lx-columns" class="map" name="columns">
+                  <option value="none">Nothing</option><option value="month">Month</option><option value="user">User</option><option value="account">Account</option></select></div>
+                <div><label for="lx-sort">Lines in order of</label><select id="lx-sort" class="map" name="sort">
+                  <option value="date">Date</option><option value="largest">Largest amount first</option></select></div>
+              </div>
+              <label class="check-label" style="margin-top:8px"><input type="checkbox" id="lx-weekend" name="weekend"><span>Only lines dated on a Saturday or Sunday</span></label>
+              <div class="actions"><button type="submit">Explore</button><button type="button" class="secondary" id="lx-clear">Clear filters</button><a class="button secondary" id="lx-export" hidden>Download Excel</a></div>
+            </form>
+            <div id="lx-result" hidden>
+              <div class="cards" id="lx-cards"></div>
+              <div class="tabs" role="tablist" id="lx-tabs">
+                <button type="button" role="tab" data-lx="pivot" aria-selected="true">Pivot</button>
+                <button type="button" role="tab" data-lx="lines" aria-selected="false">Lines</button>
+              </div>
+              <p class="muted" id="lx-note"></p>
+              <div class="table-wrap"><table id="lx-table"></table></div>
             </div>
           </section>
 

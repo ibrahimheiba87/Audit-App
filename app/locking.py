@@ -70,6 +70,7 @@ PARAM_MODELS = {
 ALLOWED_WHEN_LOCKED = {
     ("POST", "/api/uploads/{upload_id}/stratify"),
     ("POST", "/api/uploads/{upload_id}/aging"),
+    ("POST", "/api/uploads/{upload_id}/explore"),
     ("POST", "/api/findings/{finding_id}/assistant"),
     ("POST", "/api/engagements/{engagement_id}/mapping/suggest"),
     ("POST", "/api/engagements/{engagement_id}/roll-forward"),
