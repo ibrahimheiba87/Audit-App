@@ -142,6 +142,7 @@
           <option value="materiality.">Materiality</option>
           <option value="upload.">Files</option>
           <option value="run.">Audit runs</option>
+          <option value="template.">Test templates</option>
           <option value="comparison.">Comparisons</option>
           <option value="sample.">Samples</option>
           <option value="analysis.">Stratification and aging</option>
@@ -149,6 +150,7 @@
           <option value="procedure.">Audit program</option>
           <option value="crossmatch.">File matching</option>
           <option value="disclosure.">Disclosure checklist</option>
+          <option value="pack.">Audit file downloads</option>
           <option value="acceptance.">Acceptance</option>
           <option value="independence.">Independence</option>
           <option value="mapping.">Account mapping</option>
@@ -213,10 +215,13 @@
                 <button type="button" class="secondary min-3" id="eng-archive" hidden>Archive</button>
                 <button type="button" class="secondary min-2" id="eng-roll">Roll forward</button>
                 <button type="button" class="secondary min-4" id="eng-team-edit">Change team</button>
+                <a class="button secondary" id="eng-pack" href="#">Download audit file</a>
                 <button type="button" class="secondary danger min-3" id="eng-delete">Delete engagement</button>
               </div>
             </div>
             <div class="warn-box" id="eng-locked" hidden></div>
+            <p class="muted pack-note"><span>The audit file is one zip with every workpaper, an index, the sign-offs and the activity log.</span>
+              <label class="inline"><input type="checkbox" id="eng-pack-files"> <span>Include the uploaded files and evidence</span></label></p>
           </section>
 
           <section class="panel" id="dash-panel">
@@ -343,6 +348,14 @@
               <div class="actions"><button type="submit">Upload</button></div>
             </form>
             <div class="table-wrap"><table id="uploads"></table></div>
+            <div class="grid tpl-row" style="margin-top:12px">
+              <div><label for="run-template">Settings for the audit checks</label><select id="run-template" class="map"></select></div>
+              <div class="tpl-actions min-3">
+                <button type="button" class="small secondary" id="tpl-save">Save as a firm template</button>
+                <button type="button" class="small secondary" id="tpl-default">Make it the firm default</button>
+                <button type="button" class="small secondary danger" id="tpl-delete">Delete template</button>
+              </div>
+            </div>
             <div class="grid" style="margin-top:12px">
               <div><label for="run-cutoff">Cutoff window (days)</label><input id="run-cutoff" type="number" min="0" value="5"></div>
               <div><label for="run-round">Round amount threshold</label><input id="run-round" type="number" min="1" step="any" value="1000"></div>

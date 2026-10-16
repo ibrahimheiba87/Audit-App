@@ -359,9 +359,16 @@ def export_draft(draft_id: int, user: User = Depends(current_user),
     log(session, user, "ai_draft.download", f"Downloaded AI {label.lower()} #{d.id}", e,
         details={"draft_id": d.id, "kind": d.kind})
     session.commit()
+    name, content = workbook(d)
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(d: AiDraft) -> tuple[str, bytes]:
+    """An AI draft as an Excel file, and its name."""
+    e = d.engagement
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(),
                "Drafted": f"{d.created_at:%Y-%m-%d %H:%M} UTC by {d.created_by} with {d.model}",
                "Note": "Drafted by AI. Check it against the audit file before relying on it."}
-    stem = safe_stem(f"{e.client.name}-{e.name}-{label}-{d.id}")
-    return Response(to_excel(d, context), media_type=XLSX, headers=attachment(f"{stem}.xlsx"))
+    stem = safe_stem(f"{e.client.name}-{e.name}-{KINDS[d.kind]}-{d.id}")
+    return f"{stem}.xlsx", to_excel(d, context)

@@ -311,8 +311,16 @@ def export_requests(engagement_id: int, format: str = "xlsx",
     e = get_or_404(session, Engagement, engagement_id, user)
     log(session, user, "request.download", f"Downloaded the client request list ({format})", e)
     session.commit()
-    stem = safe_stem(f"{e.client.name}-{e.name}-requests")
-    rows = pd.DataFrame([{
+    if format == "csv":
+        stem = safe_stem(f"{e.client.name}-{e.name}-requests")
+        return Response(csv_safe_frame(request_rows(e)).to_csv(index=False),
+                        media_type="text/csv", headers=attachment(f"{stem}.csv"))
+    name, content = workbook(e)
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def request_rows(e: Engagement) -> pd.DataFrame:
+    return pd.DataFrame([{
         "No.": r.number, "Request": r.title, "Details": r.details,
         "Due": r.due_date.isoformat() if r.due_date else "", "Status": STATUSES[r.status],
         "Overdue": "Yes" if request_out(r)["overdue"] else "",
@@ -323,9 +331,11 @@ def export_requests(engagement_id: int, format: str = "xlsx",
         "No.", "Request", "Details", "Due", "Status", "Overdue", "Files", "Asked by",
         "Asked (UTC)", "Last updated (UTC)",
     ])
-    if format == "csv":
-        return Response(csv_safe_frame(rows).to_csv(index=False), media_type="text/csv",
-                        headers=attachment(f"{stem}.csv"))
+
+
+def workbook(e: Engagement) -> tuple[str, bytes]:
+    """The client request list as an Excel file, and its name."""
+    rows = request_rows(e)
     files = pd.DataFrame([{
         "Request": r.number, "File": f.filename, "Size (bytes)": f.size, "SHA-256": f.sha256,
         "Sent by": f.uploaded_by + (" (client)" if f.from_client else ""),
@@ -353,7 +363,7 @@ def export_requests(engagement_id: int, format: str = "xlsx",
         files.to_excel(xl, sheet_name="Files", index=False)
         messages.to_excel(xl, sheet_name="Messages", index=False)
         finish_workbook(xl.book)
-    return Response(buf.getvalue(), media_type=XLSX, headers=attachment(f"{stem}.xlsx"))
+    return f"{safe_stem(f'{e.client.name}-{e.name}-requests')}.xlsx", buf.getvalue()
 
 
 # --- Client portal ----------------------------------------------------------------

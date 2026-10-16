@@ -184,14 +184,18 @@ def bulk_update(engagement_id: int, body: BulkIn, user: User = Depends(require("
 def export_findings(engagement_id: int, user: User = Depends(current_user),
                     session: Session = Depends(get_session)) -> Response:
     e = get_or_404(session, Engagement, engagement_id, user)
-    findings = engagement_findings(session, e)
+    name, content = workbook(session, e)
     log(session, user, "finding.download", "Downloaded the findings register", e)
     session.commit()
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(session: Session, e: Engagement) -> tuple[str, bytes]:
+    """The findings register as an Excel file, and its name."""
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(), "Framework": e.framework}
     stem = safe_stem(f"{e.client.name}-{e.name}-findings")
-    return Response(register.to_excel(findings, context), media_type=XLSX,
-                    headers=attachment(f"{stem}.xlsx"))
+    return f"{stem}.xlsx", register.to_excel(engagement_findings(session, e), context)
 
 
 @router.get("/findings/{finding_id}")

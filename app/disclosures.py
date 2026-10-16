@@ -300,9 +300,15 @@ def accept_ai(engagement_id: int, user: User = Depends(require("prepare")),
 def export_disclosures(engagement_id: int, user: User = Depends(current_user),
                        session: Session = Depends(get_session)) -> Response:
     e = get_or_404(session, Engagement, engagement_id, user)
-    s = state(e)
+    name, content = workbook(e)
     log(session, user, "disclosure.download", "Downloaded the disclosure checklist", e)
     session.commit()
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(e: Engagement) -> tuple[str, bytes]:
+    """The disclosure checklist as an Excel file, and its name."""
+    s = state(e)
     n = s["counts"]
     about = [("Client", e.client.name), ("Engagement", e.name),
              ("Period end", e.period_end.isoformat()), ("Framework", e.framework),
@@ -325,4 +331,4 @@ def export_disclosures(engagement_id: int, user: User = Depends(current_user),
         pd.DataFrame(rows).to_excel(xl, sheet_name="Disclosure checklist", index=False)
         finish_workbook(xl.book)
     stem = safe_stem(f"{e.client.name}-{e.name}-disclosures")
-    return Response(buf.getvalue(), media_type=XLSX, headers=attachment(f"{stem}.xlsx"))
+    return f"{stem}.xlsx", buf.getvalue()

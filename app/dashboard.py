@@ -196,7 +196,8 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
         "upload_kinds": sorted(kinds),
         "last_run": {"id": last.id, "created_at": last.created_at.isoformat(),
                      "filename": last.upload.filename,
-                     "findings_by_severity": last.result["summary"]["findings_by_severity"]}
+                     "findings_by_severity": (last.summary.findings_by_severity if last.summary
+                                              else last.result["summary"]["findings_by_severity"])}
                     if last else None,
         "findings": {**findings,
                      "open_by_severity": {s: open_by_severity.get(s, 0)

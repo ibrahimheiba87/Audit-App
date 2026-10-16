@@ -186,6 +186,7 @@ def bodies(ids):
             {"files": {"file": PDF}},
         ("POST", "/api/engagements/{engagement_id}/disclosures/accept-ai"): {},
         ("GET", "/api/engagements/{engagement_id}/disclosures/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/pack"): {"params": {"files": "true"}},
     }
 
 
@@ -196,6 +197,8 @@ NOT_ENGAGEMENT_ROUTES = {
     ("PATCH", "/api/users/{user_id}"),
     ("PUT", "/api/engagements/{engagement_id}/team"),  # admins only
     ("DELETE", "/api/engagements/{engagement_id}/lock"),  # admins only
+    ("PUT", "/api/test-templates/{template_id}"),  # firm-wide, not an engagement's
+    ("DELETE", "/api/test-templates/{template_id}"),
 }
 
 
