@@ -73,8 +73,9 @@ SECTIONS = [
              "procedure.update", "procedure.delete")),
     Section("data", "Files and checks", "Uploaded files and the audit check runs.",
             ("upload.create", "upload.delete", "run.create")),
-    Section("comparison", "Prior-year comparison", "Comparisons with last year's balances.",
-            ("comparison.create",)),
+    Section("comparison", "Comparisons", "Comparisons with last year's balances, and files "
+            "matched against each other.",
+            ("comparison.create", "crossmatch.create", "crossmatch.delete")),
     Section("sampling", "Sampling", "Samples drawn for testing and their results.",
             ("sample.create", "sample.evaluate")),
     Section("bank", "Bank reconciliation",
@@ -86,6 +87,9 @@ SECTIONS = [
     Section("statements", "Lead sheets and statements",
             "Account mapping, adjusting entries and the draft statements.",
             ("mapping.update", "entry.create", "entry.update", "entry.delete")),
+    Section("disclosures", "Disclosure checklist",
+            "The disclosures in the draft financial statements, checked item by item.",
+            ("disclosure.update", "disclosure.accept_ai")),
     Section("completion", "Completion",
             "The overall sign-off, once every other section is reviewed with no open notes.",
             ()),
@@ -93,8 +97,9 @@ SECTIONS = [
 SECTION = {s.id: s for s in SECTIONS}
 # Sections only some engagements have work in. Until one has (or is signed or noted), it
 # isn't needed for completion, so engagements without a bank statement (or that keep their
-# risk assessment, acceptance or independence records outside the app) aren't held up.
-OPTIONAL = {"bank", "risks", "acceptance"}
+# risk assessment, acceptance, independence or disclosure records outside the app) aren't
+# held up.
+OPTIONAL = {"bank", "risks", "acceptance", "disclosures"}
 WORK = [s for s in SECTIONS if s.id != "completion"]
 SECTIONS_CHANGED: dict[str, set[str]] = {}  # action -> the sections it changes
 for _s in WORK:
@@ -104,7 +109,7 @@ for _a, _ids in SIDE_EFFECTS.items():
     SECTIONS_CHANGED.setdefault(_a, set()).update(_ids)
 
 SectionId = Literal["acceptance", "planning", "risks", "data", "comparison", "sampling", "bank",
-                    "findings", "statements", "completion"]
+                    "findings", "statements", "disclosures", "completion"]
 Kind = Literal["prepared", "reviewed"]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
 

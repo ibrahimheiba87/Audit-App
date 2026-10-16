@@ -58,12 +58,17 @@ def full_engagement(a):
         "procedures": ["Test cut-off"]}).json()
     ar = a.post(f"/api/engagements/{eid}/uploads", data={"kind": "ar"},
                 files={"file": AR}).json()["id"]
+    match = a.post(f"/api/engagements/{eid}/cross-matches", json={
+        "left_upload_id": ar, "right_upload_id": ar,
+        "keys": [{"left": "Customer", "right": "Customer"}]})
+    assert match.status_code == 201, match.text
     return {"engagement_id": eid, "upload_id": gl, "run_id": run, "finding_id": finding,
             "evidence_id": evidence, "comparison_id": comparison, "sample_id": sample,
             "entry_id": entry["id"], "note_id": note, "request_id": req, "file_id": file,
             "section": "data", "kind": "prepared", "bank_upload_id": bank, "rec_id": rec,
             "draft_id": draft_id, "risk_draft_id": risk_draft_id, "risk_id": risk["id"],
-            "procedure_id": risk["procedures"][0]["id"], "ar_upload_id": ar}
+            "procedure_id": risk["procedures"][0]["id"], "ar_upload_id": ar,
+            "match_id": match.json()["id"]}
 
 
 def bodies(ids):
@@ -168,6 +173,19 @@ def bodies(ids):
             {"json": {"decision": "decline"}},
         ("GET", "/api/engagements/{engagement_id}/acceptance/export"): {},
         ("POST", "/api/engagements/{engagement_id}/independence"): {"json": {"independent": True}},
+        ("GET", "/api/uploads/{upload_id}/columns"): {},
+        ("POST", "/api/engagements/{engagement_id}/cross-matches"): {"json": {
+            "left_upload_id": ids["ar_upload_id"], "right_upload_id": ids["ar_upload_id"],
+            "keys": [{"left": "Customer", "right": "Customer"}]}},
+        ("GET", "/api/cross-matches/{match_id}"): {},
+        ("GET", "/api/cross-matches/{match_id}/export"): {},
+        ("DELETE", "/api/cross-matches/{match_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/disclosures"): {},
+        ("PUT", "/api/engagements/{engagement_id}/disclosures"): {"json": {}},
+        ("POST", "/api/engagements/{engagement_id}/disclosures/ai-review"):
+            {"files": {"file": PDF}},
+        ("POST", "/api/engagements/{engagement_id}/disclosures/accept-ai"): {},
+        ("GET", "/api/engagements/{engagement_id}/disclosures/export"): {},
     }
 
 

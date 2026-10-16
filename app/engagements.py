@@ -20,6 +20,7 @@ from .db import (
     BankReconciliation,
     Client,
     Comparison,
+    CrossMatch,
     Engagement,
     EngagementLock,
     EngagementMember,
@@ -38,7 +39,10 @@ from .uploads import parse_mapping, read_upload
 router = APIRouter(prefix="/api")
 
 UPLOAD_KINDS = {"gl": "General ledger", "tb": "Trial balance", "prior_tb": "Prior-year trial balance",
-                "bank": "Bank statement", "ar": "Receivables listing", "ap": "Payables listing"}
+                "bank": "Bank statement", "ar": "Receivables listing", "ap": "Payables listing",
+                "list": "Other list (such as a vendor or employee master file)"}
+# Lists have no amounts to map: they're kept as they are, to be matched against other files.
+LISTS = ("list",)
 FRAMEWORKS = ["IFRS", "US GAAP", "IFRS for SMEs", "Local GAAP", "Other"]
 
 
@@ -175,6 +179,7 @@ def engagement_out(e: Engagement) -> dict:
         "uploads": [upload_out(u) for u in e.uploads],
         "runs": [run_brief(r) for r in reversed(e.runs)],
         "comparisons": [comparison_brief(c) for c in reversed(e.comparisons)],
+        "cross_matches": [cross_match_brief(m) for m in reversed(e.cross_matches)],
         "samples": [sample_brief(x) for x in reversed(e.samples)],
         "findings_summary": findings_summary(e),
         "team": team_out(e),
@@ -203,6 +208,16 @@ def sample_brief(x: Sample) -> dict:
         "seed": x.seed, "population": r["population"], "sample_size": r["sample_size"],
         "sample_value": r["sample_value"],
         "evaluation": x.evaluation and x.evaluation.result["conclusion"],
+    }
+
+
+def cross_match_brief(m: CrossMatch) -> dict:
+    return {
+        "id": m.id, "title": m.title, "created_at": m.created_at.isoformat(),
+        "created_by": m.created_by, "settings": m.settings,
+        "left_upload_id": m.left_upload_id, "right_upload_id": m.right_upload_id,
+        "left_filename": m.left_upload.filename, "right_filename": m.right_upload.filename,
+        "totals": m.totals,
     }
 
 
@@ -540,20 +555,24 @@ async def create_upload(
     content = await read_upload(file)
     filename = file.filename or "upload"
     try:
-        loaded = loader.load(filename, content, parse_mapping(mapping), sheet or None)
+        if kind in LISTS:
+            report, mapping_used = list_report(filename, content, sheet or None), None
+        else:
+            loaded = loader.load(filename, content, parse_mapping(mapping), sheet or None)
+            report, mapping_used = loaded.report.to_dict(), loaded.report.mapping
     except loader.LoadError as exc:
         raise HTTPException(400, str(exc)) from exc
     upload = Upload(
         engagement=e, kind=kind, filename=filename, content=content, size=len(content),
         sha256=hashlib.sha256(content).hexdigest(), sheet=sheet or None,
-        mapping=loaded.report.mapping, import_report=loaded.report.to_dict(),
+        mapping=mapping_used, import_report=report,
     )
     session.add(upload)
     session.flush()
     log(session, user, "upload.create", f"Uploaded {filename} ({UPLOAD_KINDS[kind]})", e,
         details={"upload_id": upload.id, "filename": filename, "kind": kind,
                  "sha256": upload.sha256, "size": upload.size, "sheet": upload.sheet,
-                 "mapping": upload.mapping, "rows_used": loaded.report.rows_used})
+                 "mapping": upload.mapping, "rows_used": report["rows_used"]})
     session.commit()
     return upload_out(upload)
 
@@ -594,6 +613,10 @@ def delete_upload(upload_id: int, user: User = Depends(require("review")),
             | (BankReconciliation.gl_upload_id == upload_id))):
         session.delete(r)
         affects.add("bank")
+    for m in session.scalars(select(CrossMatch).where(
+            (CrossMatch.left_upload_id == upload_id) | (CrossMatch.right_upload_id == upload_id))):
+        session.delete(m)
+        affects.add("comparison")
     if upload.kind in ("tb", "prior_tb"):
         affects.add("statements")
     log(session, user, "upload.delete", f"Deleted {upload.filename}", upload.engagement,
@@ -604,7 +627,18 @@ def delete_upload(upload_id: int, user: User = Depends(require("review")),
     return Response(status_code=204)
 
 
+def list_report(filename: str, content: bytes, sheet: str | None) -> dict:
+    """What a list file holds: its columns and how many rows."""
+    raw = loader.read_file(filename, content, sheet).dropna(how="all")
+    if raw.empty:
+        raise loader.LoadError("The file has no rows.")
+    return {"rows_used": len(raw), "columns": list(raw.columns), "warnings": []}
+
+
 def load_upload(upload: Upload) -> loader.Loaded:
+    if upload.kind in LISTS:
+        raise HTTPException(400, f"{upload.filename} is a list with no amounts. Match it "
+                                 "against another file under Match two files.")
     try:
         return loader.load(upload.filename, upload.content, upload.mapping, upload.sheet)
     except loader.LoadError as exc:
