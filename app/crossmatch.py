@@ -224,9 +224,13 @@ def match(left: pd.DataFrame, right: pd.DataFrame, keys: list[dict], threshold: 
                                      k["method"], threshold, same_file, symmetric[n])
         per_key[n] = {"pairs": len(found), **skipped}
         for (i, j), score in found.items():
-            if same_file and symmetric[n] and (i, j) not in pairs and (j, i) in pairs:
-                i, j = j, i
-            pairs[(i, j)][n] = score
+            if same_file and symmetric[n]:
+                # Joins whichever directions already exist, or starts one pair if neither does.
+                both = [p for p in ((i, j), (j, i)) if p in pairs] or [(i, j)]
+                for p in both:
+                    pairs[p][n] = score
+            else:
+                pairs[(i, j)][n] = score
     order = sorted(pairs.items(), key=lambda p: (-len(p[1]), -min(p[1].values()), p[0]))
     left_first = int(left.attrs.get("header_row") or 0) + 2  # the row number in the file
     right_first = int(right.attrs.get("header_row") or 0) + 2

@@ -299,3 +299,8 @@ def test_one_file_with_different_columns_keeps_direction():
     both = [m for m in r["matches"] if len(m["keys"]) == 2]
     assert [(m["left"]["Name"], m["right"]["Name"]) for m in both] == [("B", "A")]
     assert r["totals"]["all_keys"] == 1 and r["totals"]["pairs"] == 2
+    # Two rows that each hold the other's phone match both ways, and both pairs get the city.
+    raw = pd.DataFrame({"Name": ["A", "B"], "Phone": ["11111111", "22222222"],
+                        "Alternate": ["22222222", "11111111"], "City": ["Dubai", "Dubai"]})
+    r = crossmatch.match(raw, raw, keys, 90, same_file=True)
+    assert r["totals"]["pairs"] == 2 and r["totals"]["all_keys"] == 2
