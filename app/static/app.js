@@ -206,6 +206,7 @@ async function showEngagements(engagementId) {
     currentEngagement = null;
     $("eng-detail").hidden = true;
     $("eng-empty").hidden = false;
+    guard(loadMyTasks);
   }
 }
 
@@ -239,7 +240,7 @@ $("client-list").addEventListener("click", (e) => {
   newEngagementClient = Number(btn.dataset.newEng);
   $("eng-new-client").textContent = btn.dataset.clientName;
   $("eng-form").reset();
-  $("eng-empty").hidden = $("eng-detail").hidden = true;
+  $("eng-empty").hidden = $("eng-detail").hidden = $("my-tasks").hidden = true;
   $("eng-new").hidden = false;
   $("eng-name").focus();
 });
@@ -294,6 +295,7 @@ async function openEngagement(id) {
     ct = null; renderControls(); resetControlForm(); $("ct-add").open = false; $("ct-calc-out").textContent = "";
     cf = null; cfEditing = null; renderConfirmations(); $("cf-form").reset(); $("cf-pick-form").reset();
     $("cf-picked").textContent = ""; $("cf-filter").value = "";
+    wp = null; renderWorkplan(); $("wp-form").reset(); $("wp-time-form").reset(); $("wp-filter").value = "open";
     $("bank-file").innerHTML = $("bank-gl").innerHTML = $("bank-accounts").innerHTML = "";
     $("bank-recs").innerHTML = "";
     $("bank-balance").value = $("bank-book").value = "";
@@ -315,6 +317,7 @@ async function openEngagement(id) {
   const switched = currentEngagement?.id !== e.id;
   currentEngagement = e;
   $("eng-empty").hidden = true;
+  $("my-tasks").hidden = true;
   $("eng-detail").hidden = false;
   $("eng-title").textContent = `${e.client.name} · ${e.name}`;
   $("eng-meta").textContent = `${e.period_start ? e.period_start + " to " : "Period ending "}${e.period_end} · ${e.framework}`;
@@ -344,6 +347,7 @@ async function openEngagement(id) {
   guard(loadRisks);
   guard(loadControls);
   guard(loadConfirmations);
+  guard(loadWorkplan);
   guard(loadAcceptance);
   guard(loadDisclosures);
   await loadStatements();
@@ -415,7 +419,7 @@ $("roll-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = $("roll-form");
   const body = { name: $("roll-name").value };
-  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "team"]) body[k] = f[k].checked;
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "team"]) body[k] = f[k].checked;
   $("roll-submit").disabled = true;
   try {
     const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
@@ -2284,6 +2288,200 @@ $("cf-table").addEventListener("submit", (ev) => {
   });
 });
 
+// Tasks and time
+
+let wp = null;       // the work plan shown
+let wpLoads = 0;
+const WP_PILL = { open: "", in_progress: "warn", done: "good" };
+const hours = (n) => n == null ? "" : `<bdi dir="ltr">${Number(n).toLocaleString(LOCALE, { maximumFractionDigits: 2 })}</bdi>`;
+
+async function loadWorkplan() {
+  const id = currentEngagement.id;
+  const load = ++wpLoads;
+  const w = await getJSON(`/api/engagements/${id}/workplan`);
+  if (load !== wpLoads || currentEngagement?.id !== id) return;
+  wp = { ...w, engagement_id: id };
+  renderWorkplan();
+}
+
+function renderWorkplan() {
+  if (!wp) {
+    for (const t of ["wp-cards", "wp-tasks", "wp-budget", "wp-people", "wp-entries", "wp-budget-fields"]) $(t).innerHTML = "";
+    $("wp-mine").textContent = "";
+    $("wp-export").removeAttribute("href");
+    delete $("wp-budget-fields").dataset.engagement;
+    delete $("wp-budget-fields").dataset.dirty;
+    return;
+  }
+  const s = wp.summary;
+  $("wp-export").href = `/api/engagements/${wp.engagement_id}/workplan/export`;
+  const used = s.budget ? `${Math.round(s.actual / s.budget * 100)}%` : "–";
+  $("wp-cards").innerHTML = [
+    [s.open, "Tasks not done", false], [s.overdue, "Overdue", s.overdue > 0],
+    [s.unassigned, "No owner", false],
+    [s.budget == null ? "–" : s.budget, "Hours budgeted", false],
+    [s.actual, "Hours worked", s.over_areas.length > 0],
+    [used, "Budget used", s.budget != null && s.actual > s.budget],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v"><bdi dir="ltr">${esc(v)}</bdi></div><div class="k">${esc(k)}</div></div>`).join("");
+  const keepArea = $("wp-area").value;
+  $("wp-area").innerHTML = $("wp-time-area").innerHTML = optionList(wp.areas, "other");
+  if (keepArea) $("wp-area").value = keepArea;
+  const owners = [{ id: "", label: "No owner" }, ...wp.people.map((p) => ({ id: String(p.id), label: p.name }))];
+  const keepOwner = $("wp-owner").value;
+  $("wp-owner").innerHTML = owners.map((o) => `<option value="${esc(o.id)}">${o.id ? data(o.label) : esc(o.label)}</option>`).join("");
+  $("wp-owner").value = owners.some((o) => o.id === keepOwner) ? keepOwner : "";
+  $("wp-time-task").innerHTML = '<option value="">None</option>' + wp.tasks.filter((t) => t.status !== "done")
+    .map((t) => `<option value="${t.id}">${data(t.title)}</option>`).join("");
+  if (!$("wp-time-day").value) $("wp-time-day").value = today();
+  renderWorkplanTasks();
+  $("wp-budget").innerHTML = wp.budget.length
+    ? `<thead><tr><th>Area</th><th class="num">Budget</th><th class="num">Worked</th><th class="num">Remaining</th><th class="num">Used</th></tr></thead><tbody>
+      ${wp.budget.map((r) => `<tr${r.over ? ' class="flagged"' : ""}><td>${esc(r.label)}</td><td class="num">${hours(r.budget)}</td>
+        <td class="num">${hours(r.actual)}</td><td class="num">${r.over ? '<span class="pill bad">' : ""}${hours(r.remaining)}${r.over ? "</span>" : ""}</td>
+        <td class="num">${r.used_pct == null ? "" : `<bdi dir="ltr">${r.used_pct}%</bdi>`}</td></tr>`).join("")}
+      <tr class="total"><td>Total</td><td class="num">${hours(wp.budget_total)}</td><td class="num">${hours(wp.actual_total)}</td><td></td><td></td></tr></tbody>`
+    : '<tbody><tr><td class="muted">No budget or hours yet.</td></tr></tbody>';
+  const budget = Object.fromEntries(wp.budget.map((r) => [r.area, r.budget]));
+  // Keep numbers typed but not yet saved while something else on the panel changes.
+  const fields = $("wp-budget-fields");
+  if (fields.dataset.engagement !== String(wp.engagement_id) || !fields.dataset.dirty) {
+    fields.dataset.engagement = wp.engagement_id;
+    fields.innerHTML = wp.areas.map((a) => `<div><label for="wp-b-${esc(a.id)}">${esc(a.label)}</label>
+    <input id="wp-b-${esc(a.id)}" data-area="${esc(a.id)}" type="number" min="0" step="0.5" value="${budget[a.id] ?? ""}"></div>`).join("");
+  }
+  $("wp-people").innerHTML = wp.by_person.length
+    ? `<thead><tr><th>Who</th><th class="num">Hours</th></tr></thead><tbody>${wp.by_person.map((p) =>
+      `<tr><td>${data(p.name)}</td><td class="num">${hours(p.hours)}</td></tr>`).join("")}</tbody>` : "";
+  $("wp-mine").innerHTML = wp.my_hours ? `<span>You have logged</span> ${hours(wp.my_hours)} <span>hours here.</span>` : "";
+  $("wp-entries").innerHTML = wp.entries.length
+    ? `<thead><tr><th>Day</th><th>Who</th><th>Area</th><th class="num">Hours</th><th>What</th><th></th></tr></thead><tbody>
+      ${wp.entries.map((x) => `<tr data-time="${x.id}"><td class="nowrap"><bdi dir="ltr">${esc(x.worked_on)}</bdi></td><td>${data(x.user_name)}</td>
+        <td>${esc(x.area_label)}</td><td class="num">${hours(x.hours)}</td><td>${data(x.note)}</td>
+        <td>${x.user_id === me.id || me.rank >= 2 ? '<button type="button" class="small secondary danger" data-time-delete>Remove</button>' : ""}</td></tr>`).join("")}
+      ${wp.entries_total > wp.entries.length ? `<tr><td colspan="6" class="muted"><span>Showing the latest</span> <bdi dir="ltr">${wp.entries.length}</bdi>. <span>The Excel download has them all.</span></td></tr>` : ""}</tbody>`
+    : '<tbody><tr><td class="muted">No hours logged yet.</td></tr></tbody>';
+}
+
+function renderWorkplanTasks() {
+  const filter = $("wp-filter").value;
+  const tasks = wp.tasks.filter((t) => filter === "" || (filter === "open" ? t.status !== "done" : t.assignee_id === me.id && t.status !== "done"));
+  if (!tasks.length) {
+    $("wp-tasks").innerHTML = `<tbody><tr><td class="muted">${esc(wp.tasks.length ? "Nothing to show here." : "No tasks yet.")}</td></tr></tbody>`;
+    return;
+  }
+  const owners = [{ id: "", name: "No owner" }, ...wp.people];
+  $("wp-tasks").innerHTML = `<thead><tr><th>Task</th><th>Area</th><th>Owner</th><th>Due</th><th>Status</th><th></th></tr></thead><tbody>
+    ${tasks.map((t) => `<tr data-task="${t.id}"${t.overdue ? ' class="flagged"' : ""}>
+      <td>${data(t.title)}${t.note ? `<div class="tag">${data(t.note)}</div>` : ""}${t.done_by ? `<div class="tag"><span>Done by</span> ${data(t.done_by)}</div>` : ""}</td>
+      <td>${esc(t.area_label)}</td>
+      <td><select data-task-owner class="map" aria-label="Owner">${owners.map((o) => `<option value="${o.id}"${String(o.id) === String(t.assignee_id ?? "") ? " selected" : ""}>${o.id ? data(o.name) : esc(o.name)}</option>`).join("")}
+        ${t.assignee_id && !wp.people.some((p) => p.id === t.assignee_id) ? `<option value="${t.assignee_id}" selected>${data(t.assignee_name)}</option>` : ""}</select></td>
+      <td><input type="date" data-task-due value="${esc(t.due_on || "")}" aria-label="Due">${t.overdue ? '<div><span class="pill bad">Overdue</span></div>' : ""}</td>
+      <td><select data-task-status class="map" aria-label="Status">${optionList(wp.statuses, t.status)}</select></td>
+      <td>${t.created_by_id === me.id || me.rank >= 2 ? '<button type="button" class="small secondary danger" data-task-delete>Remove</button>' : ""}</td></tr>`).join("")}</tbody>`;
+}
+
+async function workplanChanged(id, w) {
+  if (currentEngagement?.id !== id) return;
+  wp = { ...w, engagement_id: id };
+  renderWorkplan();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+$("wp-filter").addEventListener("change", () => { if (wp) renderWorkplanTasks(); });
+$("wp-budget-fields").addEventListener("input", () => { $("wp-budget-fields").dataset.dirty = "1"; });
+
+$("wp-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!wp) return;
+  const id = wp.engagement_id;
+  const body = { title: $("wp-title").value, area: $("wp-area").value, note: $("wp-note").value,
+    assignee_id: intOrNull($("wp-owner").value), due_on: $("wp-due").value || null };
+  busy($("wp-save"), async () => {
+    const w = await sendJSON("POST", `/api/engagements/${id}/tasks`, body);
+    $("wp-title").value = $("wp-note").value = $("wp-due").value = "";
+    await workplanChanged(id, w);
+  });
+});
+
+$("wp-tasks").addEventListener("change", (ev) => {
+  const row = ev.target.closest("[data-task]");
+  if (!row || !wp) return;
+  const id = wp.engagement_id;
+  let body = null;
+  if (ev.target.matches("[data-task-owner]")) body = { assignee_id: intOrNull(ev.target.value) };
+  if (ev.target.matches("[data-task-due]")) body = { due_on: ev.target.value || null };
+  if (ev.target.matches("[data-task-status]")) body = { status: ev.target.value };
+  if (!body) return;
+  guard(async () => {
+    try {
+      await workplanChanged(id, await sendJSON("PATCH", `/api/tasks/${row.dataset.task}`, body));
+    } catch (err) {
+      if (wp?.engagement_id === id) renderWorkplanTasks();  // put the control back as it was
+      throw err;
+    }
+  });
+});
+
+$("wp-tasks").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-task]");
+  if (!row || !wp || !ev.target.matches("[data-task-delete]")) return;
+  if (!confirm("Remove this task?")) return;
+  const id = wp.engagement_id;
+  guard(async () => workplanChanged(id, await sendJSON("DELETE", `/api/tasks/${row.dataset.task}`)));
+});
+
+$("wp-budget-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!wp) return;
+  const id = wp.engagement_id;
+  const hoursBy = {};
+  for (const input of $("wp-budget-fields").querySelectorAll("[data-area]")) hoursBy[input.dataset.area] = Number(input.value || 0);
+  busy($("wp-budget-save"), async () => {
+    const w = await sendJSON("PUT", `/api/engagements/${id}/budget`, { hours: hoursBy });
+    delete $("wp-budget-fields").dataset.dirty;
+    await workplanChanged(id, w);
+  });
+});
+
+$("wp-time-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!wp) return;
+  const id = wp.engagement_id;
+  const body = { worked_on: $("wp-time-day").value, area: $("wp-time-area").value,
+    hours: Number($("wp-time-hours").value), note: $("wp-time-note").value,
+    task_id: intOrNull($("wp-time-task").value) };
+  busy($("wp-time-save"), async () => {
+    const w = await sendJSON("POST", `/api/engagements/${id}/time`, body);
+    $("wp-time-hours").value = $("wp-time-note").value = "";
+    await workplanChanged(id, w);
+  });
+});
+
+$("wp-entries").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-time]");
+  if (!row || !wp || !ev.target.matches("[data-time-delete]")) return;
+  if (!confirm("Remove these hours?")) return;
+  const id = wp.engagement_id;
+  guard(async () => workplanChanged(id, await sendJSON("DELETE", `/api/time-entries/${row.dataset.time}`)));
+});
+
+// The signed-in user's tasks on every engagement, shown when no engagement is open.
+async function loadMyTasks() {
+  const m = await getJSON("/api/my-tasks");
+  if (currentEngagement || !$("eng-new").hidden) return;
+  $("my-tasks").hidden = !m.tasks.length;
+  if (!m.tasks.length) return;
+  $("my-tasks-sum").innerHTML = `<bdi dir="ltr">${m.tasks.length}</bdi> <span>${m.tasks.length === 1 ? "task to do" : "tasks to do"}</span>`
+    + (m.overdue ? ` · <span class="pill bad"><bdi dir="ltr">${m.overdue}</bdi> <span>overdue</span></span>` : "");
+  $("my-tasks-table").innerHTML = `<thead><tr><th>Task</th><th>Engagement</th><th>Area</th><th>Due</th><th>Status</th></tr></thead><tbody>
+    ${m.tasks.map((t) => `<tr${t.overdue ? ' class="flagged"' : ""}><td><a href="#/engagements/${t.engagement_id}">${data(t.title)}</a></td>
+      <td>${data(t.client_name)} · ${data(t.engagement_name)}</td><td>${esc(t.area_label)}</td>
+      <td class="nowrap">${t.due_on ? `<bdi dir="ltr">${esc(t.due_on)}</bdi>` : ""}${t.overdue ? ' <span class="pill bad">Overdue</span>' : ""}</td>
+      <td><span class="pill ${WP_PILL[t.status]}">${esc(t.status_label)}</span></td></tr>`).join("")}</tbody>`;
+}
+
 // Lead sheets and draft statements
 
 let fs = null;          // latest /statements response
@@ -3036,6 +3234,8 @@ async function loadDashboard() {
   if (d.risks?.risks) cards.push([`${d.risks.done}/${d.risks.procedures}`, "Audit procedures done"]);
   if (d.controls?.controls) cards.push([d.controls.deficient, "Control deficiencies"]);
   if (d.confirmations?.requests) cards.push([`${d.confirmations.replied}/${d.confirmations.sent}`, "Confirmation replies"]);
+  if (d.workplan?.open) cards.push([d.workplan.overdue, "Tasks overdue"]);
+  if (d.workplan?.budget) cards.push([`${Math.round(d.workplan.actual / d.workplan.budget * 100)}%`, "Hours budget used"]);
   if (d.days_since_period_end) cards.push([d.days_since_period_end, "Days since period end"]);
   $("dash-cards").innerHTML = cards.map(([v, k]) =>
     `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");

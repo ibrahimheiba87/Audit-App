@@ -90,6 +90,7 @@
         <label><input type="checkbox" name="materiality" checked> The materiality benchmark and percentages (not the amounts)</label>
         <label><input type="checkbox" name="requests" checked> The client request list, open again with no due dates</label>
         <label><input type="checkbox" name="controls" checked> The internal controls register, to assess and test again</label>
+        <label><input type="checkbox" name="workplan" checked> The task list and the time budget, without owners or dates</label>
         <label><input type="checkbox" name="team" checked> The team</label>
       </fieldset>
       <div class="actions"><button type="submit" id="roll-submit">Create next year's engagement</button><button type="button" class="secondary" id="roll-cancel">Cancel</button></div>
@@ -151,6 +152,8 @@
           <option value="procedure.">Audit program</option>
           <option value="control.">Internal controls</option>
           <option value="confirmation.">Confirmations</option>
+          <option value="task.">Tasks</option>
+          <option value="time.">Time</option>
           <option value="crossmatch.">File matching</option>
           <option value="disclosure.">Disclosure checklist</option>
           <option value="pack.">Audit file downloads</option>
@@ -190,6 +193,11 @@
 
       <section class="content">
         <div id="eng-empty" class="panel muted">Pick an engagement on the left, or add a client and an engagement to start.</div>
+        <section class="panel" id="my-tasks" hidden>
+          <h2>My tasks</h2>
+          <p class="muted" id="my-tasks-sum"></p>
+          <div class="table-wrap"><table id="my-tasks-table"></table></div>
+        </section>
 
         <section class="panel" id="eng-new" hidden>
           <h2>New engagement for <span id="eng-new-client"></span></h2>
@@ -232,6 +240,64 @@
             <div class="cards" id="dash-cards"></div>
             <h3>Next steps</h3>
             <ol class="next-steps" id="dash-steps"></ol>
+          </section>
+
+          <section class="panel" id="wp-panel">
+            <div class="row-between">
+              <h2>Tasks and time</h2>
+              <a class="button secondary" id="wp-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">Who does what by when, the hours budgeted for each area of the audit, and the hours the team worked.</p>
+            <div class="cards" id="wp-cards"></div>
+            <h3>Tasks</h3>
+            <details id="wp-add">
+              <summary>Add a task</summary>
+              <form id="wp-form">
+                <div class="grid">
+                  <div><label for="wp-area">Area</label><select id="wp-area" name="area" class="map"></select></div>
+                  <div><label for="wp-owner">Owner</label><select id="wp-owner" name="assignee_id" class="map"></select></div>
+                  <div><label for="wp-due">Due</label><input id="wp-due" name="due_on" type="date"></div>
+                </div>
+                <label for="wp-title">Task</label>
+                <input id="wp-title" name="title" maxlength="300" required placeholder="e.g. Test revenue cut-off">
+                <label for="wp-note">Note</label>
+                <input id="wp-note" name="note" maxlength="5000">
+                <div class="actions"><button type="submit" id="wp-save">Add task</button></div>
+              </form>
+            </details>
+            <div class="actions">
+              <label for="wp-filter" class="inline">Show</label>
+              <select id="wp-filter" class="map"><option value="open">Not done</option><option value="mine">Mine</option><option value="">All</option></select>
+            </div>
+            <div class="table-wrap"><table id="wp-tasks"></table></div>
+            <h3>Budget and hours</h3>
+            <div class="table-wrap"><table id="wp-budget"></table></div>
+            <details id="wp-budget-edit" class="min-2">
+              <summary>Change the budget</summary>
+              <form id="wp-budget-form">
+                <div class="grid" id="wp-budget-fields"></div>
+                <div class="actions"><button type="submit" id="wp-budget-save">Save budget</button></div>
+              </form>
+            </details>
+            <details id="wp-log">
+              <summary>Log my hours</summary>
+              <form id="wp-time-form">
+                <div class="grid">
+                  <div><label for="wp-time-day">Day</label><input id="wp-time-day" name="worked_on" type="date" required></div>
+                  <div><label for="wp-time-area">Area</label><select id="wp-time-area" name="area" class="map"></select></div>
+                  <div><label for="wp-time-hours">Hours</label><input id="wp-time-hours" name="hours" type="number" step="0.25" min="0.25" max="24" required></div>
+                  <div><label for="wp-time-task">Task</label><select id="wp-time-task" name="task_id" class="map"></select></div>
+                </div>
+                <label for="wp-time-note">What you did</label>
+                <input id="wp-time-note" name="note" maxlength="5000">
+                <div class="actions"><button type="submit" id="wp-time-save">Log hours</button><span class="muted" id="wp-mine"></span></div>
+              </form>
+            </details>
+            <div class="table-wrap"><table id="wp-people"></table></div>
+            <details id="wp-entries-box">
+              <summary>Time log</summary>
+              <div class="table-wrap"><table id="wp-entries"></table></div>
+            </details>
           </section>
 
           <section class="panel" id="ac-panel">

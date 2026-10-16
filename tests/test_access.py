@@ -1,5 +1,7 @@
 """Per-engagement access: only admins see engagements they aren't assigned to."""
 
+from datetime import date
+
 import pytest
 
 from app import assistant, auth, db
@@ -69,6 +71,11 @@ def full_engagement(a):
         "area": "revenue", "title": "Credit notes approved"})
     assert control.status_code == 201, control.text
     a.post(f"/api/controls/{control.json()['id']}/plan", json={"method": "frequency"})
+    task = a.post(f"/api/engagements/{eid}/tasks", json={"title": "Test cut-off"})
+    assert task.status_code == 200, task.text
+    hours = a.post(f"/api/engagements/{eid}/time",
+                   json={"worked_on": date.today().isoformat(), "hours": 2})
+    assert hours.status_code == 200, hours.text
     return {"engagement_id": eid, "upload_id": gl, "run_id": run, "finding_id": finding,
             "evidence_id": evidence, "comparison_id": comparison, "sample_id": sample,
             "entry_id": entry["id"], "note_id": note, "request_id": req, "file_id": file,
@@ -76,7 +83,8 @@ def full_engagement(a):
             "draft_id": draft_id, "risk_draft_id": risk_draft_id, "risk_id": risk["id"],
             "procedure_id": risk["procedures"][0]["id"], "ar_upload_id": ar,
             "match_id": match.json()["id"], "confirmation_id": confirmation.json()["id"],
-            "control_id": control.json()["id"]}
+            "control_id": control.json()["id"], "task_id": task.json()["tasks"][0]["id"],
+            "time_entry_id": hours.json()["entries"][0]["id"]}
 
 
 def bodies(ids):
@@ -135,6 +143,15 @@ def bodies(ids):
         ("POST", "/api/controls/{control_id}/plan"): {"json": {"method": "frequency"}},
         ("POST", "/api/controls/{control_id}/result"): {"json": {"tested": 2, "deviations": 0}},
         ("DELETE", "/api/controls/{control_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/workplan"): {},
+        ("GET", "/api/engagements/{engagement_id}/workplan/export"): {},
+        ("POST", "/api/engagements/{engagement_id}/tasks"): {"json": {"title": "x"}},
+        ("PATCH", "/api/tasks/{task_id}"): {"json": {"status": "done"}},
+        ("DELETE", "/api/tasks/{task_id}"): {},
+        ("PUT", "/api/engagements/{engagement_id}/budget"): {"json": {"hours": {"data": 10}}},
+        ("POST", "/api/engagements/{engagement_id}/time"):
+            {"json": {"worked_on": date.today().isoformat(), "hours": 1}},
+        ("DELETE", "/api/time-entries/{time_entry_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/findings"): {},
         ("POST", "/api/engagements/{engagement_id}/findings"): {"json": {"detail": "x"}},
         ("POST", "/api/engagements/{engagement_id}/findings/bulk"):

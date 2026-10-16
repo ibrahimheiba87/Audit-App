@@ -37,6 +37,7 @@ from . import (
     review,
     risks,
     samples,
+    workplan,
 )
 from .auth import current_user, log
 from .db import Activity, Engagement, Evidence, RequestFile, Upload, User, get_session
@@ -121,6 +122,9 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
     if e.controls:
         pack.workpaper(planning, "Internal controls and tests of controls",
                        lambda: controls.workbook(e))
+    if e.tasks or e.time_budgets or e.time_entries:
+        pack.workpaper(planning, "Work plan, budget and time",
+                       lambda: workplan.workbook(session, e, user))
     for d in e.ai_drafts:
         pack.workpaper(planning, f"AI {ai_writer.KINDS[d.kind].lower()} #{d.id}",
                        lambda d=d: ai_writer.workbook(d))
