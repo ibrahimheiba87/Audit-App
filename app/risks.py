@@ -236,6 +236,13 @@ def delete_risk(risk_id: int, user: User = Depends(require("review")),
     log(session, user, "risk.delete", f"Removed risk #{r.id}: {r.title}", r.engagement,
         details={"risk_id": r.id, "procedures": len(r.procedures),
                  "done": sum(1 for p in r.procedures if p.status == "done")})
+    unlinked = [c for c in r.engagement.controls if c.risk_id == r.id]
+    for c in unlinked:  # controls that addressed it no longer point at it
+        c.risk_id = None
+    if unlinked:  # a change to the controls section too
+        log(session, user, "control.update",
+            f"Unlinked {len(unlinked)} controls from removed risk #{r.id}", r.engagement,
+            details={"control_ids": [c.id for c in unlinked], "risk_id": r.id})
     session.delete(r)
     session.commit()
     return Response(status_code=204)

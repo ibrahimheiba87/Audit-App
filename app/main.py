@@ -24,6 +24,8 @@ from .analysis import router as analysis_router
 from .assistant import router as assistant_router
 from .auth import current_user, log
 from .comparisons import router as comparisons_router
+from .confirmations import router as confirmations_router
+from .controls import router as controls_router
 from .crossmatch import router as crossmatch_router
 from .dashboard import router as dashboard_router
 from .disclosures import router as disclosures_router
@@ -64,7 +66,7 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                reconciliations_router, rollforward_router, ai_tools_router,
                ai_writer_router, analysis_router, risks_router, locking_router,
                acceptance_router, crossmatch_router, disclosures_router, pack_router,
-               templates_router):
+               templates_router, confirmations_router, controls_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

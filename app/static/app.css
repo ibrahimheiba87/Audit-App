@@ -269,3 +269,13 @@ td.bad { color: var(--high); }
 .dc-item.missing { border-inline-start: 3px solid var(--high); padding-inline-start: 10px; }
 .dc-ai { margin-top: 6px; }
 #dc-open-only { margin-top: 10px; }
+/* Internal controls and external confirmations */
+.pill.good { color: var(--ok, #1e8449); }
+.pill.warn { color: var(--medium); background: var(--medium-bg); }
+.pill.bad { color: var(--high); background: var(--high-bg); }
+.ct-item details { margin-top: 10px; }
+.ct-item details .grid { margin-top: 6px; }
+.ct-picked { font-size: 13px; word-break: break-word; }
+#cf-table td { vertical-align: top; }
+#cf-table tr.cf-edit > td { background: var(--bg); }
+#cf-coverage:not(:empty) { margin-bottom: 8px; }

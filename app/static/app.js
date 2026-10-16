@@ -291,6 +291,9 @@ async function openEngagement(id) {
     strat = null; $("str-result").hidden = $("str-export").hidden = true; $("str-bands").value = "";
     aged = null; $("ag-result").hidden = $("ag-export").hidden = true; $("ag-terms").value = "30";
     rr = null; renderRisks(); resetRiskForm(); $("rr-add").open = false; $("ra-imported").textContent = "";
+    ct = null; renderControls(); resetControlForm(); $("ct-add").open = false; $("ct-calc-out").textContent = "";
+    cf = null; cfEditing = null; renderConfirmations(); $("cf-form").reset(); $("cf-pick-form").reset();
+    $("cf-picked").textContent = ""; $("cf-filter").value = "";
     $("bank-file").innerHTML = $("bank-gl").innerHTML = $("bank-accounts").innerHTML = "";
     $("bank-recs").innerHTML = "";
     $("bank-balance").value = $("bank-book").value = "";
@@ -328,6 +331,7 @@ async function openEngagement(id) {
   renderMatches(e.cross_matches);
   renderStratifyForm(e);
   renderAgingForm(e);
+  renderConfirmationListing(e);
   renderSampleForm(e);
   renderSamples(e.samples);
   guard(loadBank);
@@ -338,6 +342,8 @@ async function openEngagement(id) {
   guard(loadRequests);
   guard(loadAiDrafts);
   guard(loadRisks);
+  guard(loadControls);
+  guard(loadConfirmations);
   guard(loadAcceptance);
   guard(loadDisclosures);
   await loadStatements();
@@ -409,7 +415,7 @@ $("roll-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = $("roll-form");
   const body = { name: $("roll-name").value };
-  for (const k of ["trial_balance", "mapping", "materiality", "requests", "team"]) body[k] = f[k].checked;
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "team"]) body[k] = f[k].checked;
   $("roll-submit").disabled = true;
   try {
     const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
@@ -1707,6 +1713,7 @@ function resetRiskForm() {
 }
 
 function renderRisks() {
+  if (ctOptions) fillControlRisks();
   if (!rr) { $("rr-cards").innerHTML = $("rr-list").innerHTML = ""; return; }
   const s = rr.summary;
   $("rr-export").href = `/api/engagements/${rr.engagement_id}/risks/export`;
@@ -1750,6 +1757,7 @@ function renderRisks() {
 async function risksChanged(id) {
   if (currentEngagement?.id !== id) return;
   await loadRisks();
+  guard(loadControls);  // a control may name a risk that was changed or removed
   refreshDashboard();
   await loadEngagementActivity();
 }
@@ -1846,6 +1854,435 @@ $("ra-import").addEventListener("click", () => busy($("ra-import"), async () => 
     : `Added ${out.added} risks to the register.`;
   await risksChanged(id);
 }));
+
+// Internal controls and tests of controls
+
+let ct = null;          // the register on show: {engagement_id, summary, controls}
+let ctOptions = null;   // areas, types, natures, frequencies, designs and methods, loaded once
+let ctEditing = null;   // the control being changed in the form, or null when adding one
+let ctLoads = 0;
+const CT_RESULT_PILL = { effective: "good", not_effective: "bad", not_tested: "" };
+const CT_DESIGN_PILL = { effective: "good", deficient: "bad", not_assessed: "" };
+const optionList = (list, pick) => list.map((o) =>
+  `<option value="${esc(o.id)}"${o.id === pick ? " selected" : ""}>${esc(o.label)}</option>`).join("");
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const intOrNull = (v) => v === "" || v == null ? null : Math.round(Number(v));
+const numOrNull = (v) => v === "" || v == null ? null : Number(v);
+
+async function loadControlOptions() {
+  if (ctOptions) return;
+  const o = await getJSON("/api/controls/options");
+  $("ct-area").innerHTML = optionList(o.areas);
+  $("ct-kind").innerHTML = optionList(o.kinds);
+  $("ct-nature").innerHTML = optionList(o.natures);
+  $("ct-frequency").innerHTML = optionList(o.frequencies, "monthly");
+  ctOptions = o;
+}
+
+// The risks a control can address: this engagement's risk register.
+function fillControlRisks(pick) {
+  const keep = pick !== undefined ? String(pick ?? "") : $("ct-risk").value;
+  const risks = rr && rr.engagement_id === currentEngagement?.id ? rr.risks : [];
+  $("ct-risk").innerHTML = '<option value="">None</option>' + risks.map((r, i) =>
+    `<option value="${r.id}" translate="no">R${i + 1}. ${esc(r.title)}</option>`).join("");
+  $("ct-risk").value = risks.some((r) => String(r.id) === keep) ? keep : "";
+}
+
+async function loadControls() {
+  const id = currentEngagement.id;
+  const load = ++ctLoads;
+  await loadControlOptions();
+  const c = await getJSON(`/api/engagements/${id}/controls`);
+  if (load !== ctLoads || currentEngagement?.id !== id) return;
+  ct = { ...c, engagement_id: id };
+  renderControls();
+}
+
+function resetControlForm() {
+  ctEditing = null;
+  $("ct-form").reset();
+  $("ct-form-title").textContent = "Add a control";
+  $("ct-save").textContent = "Add control";
+  $("ct-cancel").hidden = true;
+  fillControlRisks("");
+}
+
+function controlHtml(c, i) {
+  const o = ctOptions;
+  const statistical = c.method === "statistical";
+  const freq = o.frequencies.find((f) => f.id === c.frequency);
+  const suggested = c.nature === "automated" ? 1 : freq.sample_size;
+  const methods = o.methods.filter((m) => c.nature !== "automated" || m.id === "frequency");
+  const plan = c.method ? `<p><span>Sample size:</span> <bdi>${esc(c.sample_size)}</bdi> · <span>${esc(c.method_label)}</span>${statistical
+      ? ` · <span>Confidence:</span> <bdi dir="ltr">${esc(c.confidence)}%</bdi> · <span>Tolerable rate:</span> <bdi dir="ltr">${esc(c.tolerable_rate)}%</bdi> · <span>Expected rate:</span> <bdi dir="ltr">${esc(c.expected_rate)}%</bdi>` : ""}${c.population
+      ? ` · <span>Population:</span> <bdi>${esc(c.population)}</bdi>` : ""}</p>
+    ${c.selected.length ? `<p class="ct-picked"><span>Items to test, by their number in the population:</span> <bdi dir="ltr" translate="no">${esc(c.selected.join(", "))}</bdi>
+      <span class="muted"><span>Seed:</span> <bdi translate="no">${esc(c.seed)}</bdi></span></p>` : ""}` : "";
+  const result = c.result !== "not_tested" ? `<p><span class="pill ${CT_RESULT_PILL[c.result]}">${esc(c.result_label)}</span>
+      <span>Items tested:</span> <bdi>${esc(c.tested)}</bdi> · <span>Deviations:</span> <bdi>${esc(c.deviations)}</bdi>${c.upper_limit != null
+      ? ` · <span>Upper deviation limit:</span> <bdi dir="ltr">${esc(c.upper_limit)}%</bdi>` : ""}
+      <span class="muted">${data(c.tested_by)} · <span>${esc(when(c.tested_at))}</span></span></p>
+    ${c.deviation_note ? `<p><strong>Deviations found</strong><br>${data(c.deviation_note)}</p>` : ""}
+    ${c.test_conclusion ? `<p><strong>Conclusion</strong><br>${data(c.test_conclusion)}</p>` : ""}` : "";
+  return `<div class="risk-item ct-item" data-control="${c.id}">
+    <div class="row-between"><h3><bdi>C${i + 1}.</bdi> ${data(c.title)}</h3>
+      <span class="nowrap"><span class="pill ${CT_DESIGN_PILL[c.design]}">${esc(c.design_label)}</span> <span class="pill ${CT_RESULT_PILL[c.result]}">${esc(c.result_label)}</span></span></div>
+    <div class="tag">${c.key ? "<span>Key control</span> · " : ""}<span>${esc(c.area_label)}</span>${c.process ? ` · ${data(c.process)}` : ""}
+      · <span>${esc(c.kind_label)}</span> · <span>${esc(c.nature_label)}</span> · <span>${esc(c.frequency_label)}</span>${c.owner ? ` · ${data(c.owner)}` : ""}${c.source ? " · <span>Carried from last year</span>" : ""}</div>
+    ${c.description ? `<p>${data(c.description)}</p>` : ""}
+    ${c.risk_title ? `<p><span class="muted">Risk addressed:</span> ${data(c.risk_title)}</p>` : ""}
+    ${c.design_note || c.walkthrough ? `<p><span class="muted">Design:</span> ${data(c.design_note)}${c.walkthrough ? ` <span class="muted">(${data(c.walkthrough)})</span>` : ""}</p>` : ""}
+    ${result}
+    <details data-box="${c.id}:design"><summary>Design and implementation</summary>
+      <form data-design>
+        <div class="grid">
+          <div><label>Assessment</label><select name="design" class="map">${optionList(o.designs, c.design)}</select></div>
+          <div><label>Walkthrough workpaper</label><input name="walkthrough" maxlength="200" value="${esc(c.walkthrough)}"></div>
+        </div>
+        <label>How the design was assessed</label>
+        <textarea name="design_note" rows="2" maxlength="5000">${esc(c.design_note)}</textarea>
+        <div class="actions"><button type="submit" class="small">Save the design assessment</button></div>
+      </form>
+    </details>
+    <details data-box="${c.id}:test"><summary>Test of operating effectiveness</summary>
+      ${plan}
+      <form data-plan>
+        <div class="grid">
+          <div><label>Sample size from</label><select name="method" class="map">${optionList(methods, c.method || "frequency")}</select></div>
+          <div data-stat ${statistical ? "" : "hidden"}><label>Confidence</label><select name="confidence" class="map">${o.confidences.map((v) =>
+            `<option value="${v}"${(c.confidence || 95) === v ? " selected" : ""}>${v}%</option>`).join("")}</select></div>
+          <div data-stat ${statistical ? "" : "hidden"}><label>Tolerable deviation rate %</label><input name="tolerable_rate" type="number" step="any" min="0" max="50" value="${esc(c.tolerable_rate ?? 5)}"></div>
+          <div data-stat ${statistical ? "" : "hidden"}><label>Expected deviation rate %</label><input name="expected_rate" type="number" step="any" min="0" max="50" value="${esc(c.expected_rate ?? 0)}"></div>
+          <div><label>Population <span class="muted">(times it ran in the period)</span></label><input name="population" type="number" min="1" step="1" value="${esc(c.population ?? "")}"></div>
+          <div><label>Sample size <span class="muted">(blank for the suggested size)</span></label><input name="sample_size" type="number" min="1" max="2000" step="1" data-suggested="${suggested}" placeholder="${statistical ? "" : suggested}"></div>
+        </div>
+        <div class="actions"><button type="submit" class="small">${c.method ? "Plan the test again" : "Plan the test"}</button>
+          ${c.result !== "not_tested" ? '<span class="muted">Planning again clears the result.</span>' : ""}</div>
+      </form>
+      ${c.method ? `<form data-result>
+        <div class="grid">
+          <div><label>Items tested</label><input name="tested" type="number" min="1" max="2000" step="1" required value="${esc(c.tested ?? c.sample_size)}"></div>
+          <div><label>Deviations found</label><input name="deviations" type="number" min="0" max="2000" step="1" required value="${esc(c.deviations ?? 0)}"></div>
+          <div><label>Workpaper</label><input name="workpaper" maxlength="200" value="${esc(c.test_workpaper)}"></div>
+        </div>
+        <label>Deviations <span class="muted">(what went wrong, and why)</span></label>
+        <textarea name="deviation_note" rows="2" maxlength="5000">${esc(c.deviation_note)}</textarea>
+        <label>Conclusion</label>
+        <textarea name="conclusion" rows="2" maxlength="5000">${esc(c.test_conclusion)}</textarea>
+        <div class="actions"><button type="submit" class="small">Record the result</button></div>
+      </form>` : ""}
+    </details>
+    <div class="actions"><button type="button" class="small secondary" data-control-edit>Edit control</button>
+      ${me.rank >= 2 ? '<button type="button" class="small secondary danger" data-control-delete>Remove control</button>' : ""}</div>
+  </div>`;
+}
+
+function renderControls() {
+  if (!ct) { $("ct-cards").innerHTML = $("ct-list").innerHTML = ""; return; }
+  fillControlRisks();
+  const s = ct.summary;
+  $("ct-export").href = `/api/engagements/${ct.engagement_id}/controls/export`;
+  $("ct-cards").innerHTML = [
+    [s.controls, "Controls", false], [s.key, "Key controls", false],
+    [s.design.effective, "Designed and implemented", false],
+    [s.tested, "Tested", false], [s.effective, "Operating effectively", false],
+    [s.deficient, "Deficiencies", s.deficient > 0],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  // Keep open whatever was open, so saving one part doesn't fold the control away.
+  const open = new Set([...$("ct-list").querySelectorAll("details[open]")].map((d) => d.dataset.box));
+  $("ct-list").innerHTML = ct.controls.length ? ct.controls.map(controlHtml).join("")
+    : '<p class="muted">No controls yet. Add the controls the client relies on in each area that matters to the audit.</p>';
+  for (const d of $("ct-list").querySelectorAll("details[data-box]")) d.open = open.has(d.dataset.box);
+}
+
+async function controlsChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await loadControls();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+$("ct-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("ct-save"), async () => {
+    const id = currentEngagement.id;
+    const f = formObject($("ct-form"));
+    const body = { area: f.area, title: f.title, process: f.process || "", description: f.description || "",
+      risk_id: f.risk_id ? Number(f.risk_id) : null, kind: f.kind, nature: f.nature,
+      frequency: f.frequency, key: $("ct-key").checked, owner: f.owner || "" };
+    if (ctEditing) await sendJSON("PATCH", `/api/controls/${ctEditing}`, body);
+    else await sendJSON("POST", `/api/engagements/${id}/controls`, body);
+    if (currentEngagement?.id !== id) return;
+    resetControlForm();
+    $("ct-add").open = false;
+    await controlsChanged(id);
+  });
+});
+
+$("ct-cancel").addEventListener("click", () => { resetControlForm(); $("ct-add").open = false; });
+
+$("ct-calc-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy(ev.submitter || $("ct-calc-form").querySelector("button"), async () => {
+    $("ct-calc-out").textContent = "";
+    const q = new URLSearchParams({ confidence: $("ct-calc-conf").value,
+      tolerable: $("ct-calc-tol").value || "0", expected: $("ct-calc-exp").value || "0" });
+    const r = await getJSON(`/api/controls/sample-size?${q}`);
+    $("ct-calc-out").textContent = `Test ${r.sample_size} items. If no more than ${r.allowed_deviations} deviations are found, the deviation rate is below the tolerable rate at this confidence.`;
+  });
+});
+
+$("ct-list").addEventListener("change", (ev) => {
+  if (ev.target.name !== "method") return;
+  const form = ev.target.closest("form");
+  const statistical = ev.target.value === "statistical";
+  form.querySelectorAll("[data-stat]").forEach((el) => { el.hidden = !statistical; });
+  const size = form.elements.sample_size;
+  size.placeholder = statistical ? "" : size.dataset.suggested;
+});
+
+$("ct-list").addEventListener("submit", (ev) => {
+  const form = ev.target.closest("form");
+  if (!form) return;
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const controlId = form.closest("[data-control]").dataset.control;
+  const f = formObject(form);
+  busy(form.querySelector("button[type=submit]"), async () => {
+    if (form.hasAttribute("data-design")) {
+      await sendJSON("PATCH", `/api/controls/${controlId}`,
+        { design: f.design, walkthrough: f.walkthrough || "", design_note: f.design_note || "" });
+    } else if (form.hasAttribute("data-plan")) {
+      const statistical = f.method === "statistical";
+      await sendJSON("POST", `/api/controls/${controlId}/plan`, {
+        method: f.method, population: intOrNull(f.population), sample_size: intOrNull(f.sample_size),
+        ...(statistical ? { confidence: Number(f.confidence), tolerable_rate: numOrNull(f.tolerable_rate),
+          expected_rate: numOrNull(f.expected_rate) ?? 0 } : {}) });
+    } else if (form.hasAttribute("data-result")) {
+      await sendJSON("POST", `/api/controls/${controlId}/result`, {
+        tested: intOrNull(f.tested), deviations: intOrNull(f.deviations), workpaper: f.workpaper || "",
+        deviation_note: f.deviation_note || "", conclusion: f.conclusion || "" });
+    }
+    await controlsChanged(id);
+  });
+});
+
+$("ct-list").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-control-edit], button[data-control-delete]");
+  if (!btn) return;
+  const id = currentEngagement.id;
+  const controlId = Number(btn.closest("[data-control]").dataset.control);
+  const c = ct.controls.find((x) => x.id === controlId);
+  if (!c) return;
+  if (btn.hasAttribute("data-control-delete")) {
+    if (!confirm(`Remove the control "${c.title}" and its test?`)) return;
+    busy(btn, async () => {
+      await sendJSON("DELETE", `/api/controls/${controlId}`);
+      if (ctEditing === controlId) resetControlForm();
+      await controlsChanged(id);
+    });
+    return;
+  }
+  resetControlForm();
+  ctEditing = controlId;
+  const form = $("ct-form");
+  for (const k of ["area", "title", "process", "description", "kind", "nature", "frequency", "owner"]) form[k].value = c[k];
+  fillControlRisks(c.risk_id ?? "");
+  $("ct-key").checked = c.key;
+  $("ct-form-title").textContent = "Change the control";
+  $("ct-save").textContent = "Save changes";
+  $("ct-cancel").hidden = false;
+  $("ct-add").open = true;
+  $("ct-add").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+// External confirmations
+
+let cf = null;          // the list on show: {engagement_id, summary, confirmations, ...}
+let cfOptions = null;   // kinds, forms and statuses, loaded once
+let cfEditing = null;   // the request whose details are open for changing
+let cfLoads = 0;
+const CF_PILL = { agreed: "good", explained: "good", alternative_done: "good", negative_no_reply: "good",
+  to_send: "", waiting: "", overdue: "bad", difference: "bad", alternative_needed: "warn" };
+
+async function loadConfirmationOptions() {
+  if (cfOptions) return;
+  const o = await getJSON("/api/confirmations/options");
+  $("cf-kind").innerHTML = optionList(o.kinds);
+  $("cf-form-type").innerHTML = optionList(o.forms, "positive");
+  cfOptions = o;
+}
+
+async function loadConfirmations() {
+  const id = currentEngagement.id;
+  const load = ++cfLoads;
+  await loadConfirmationOptions();
+  const c = await getJSON(`/api/engagements/${id}/confirmations`);
+  if (load !== cfLoads || currentEngagement?.id !== id) return;
+  cf = { ...c, engagement_id: id };
+  renderConfirmations();
+}
+
+function renderConfirmationListing(e) {
+  const keep = $("cf-listing").value;
+  const files = e.uploads.filter((u) => u.kind === "ar" || u.kind === "ap");
+  $("cf-listing").innerHTML = files
+    .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
+    .join("") || '<option value="">Upload a receivables or payables listing first</option>';
+  if (files.some((u) => String(u.id) === keep)) $("cf-listing").value = keep;
+}
+
+function confirmationEditRow(c) {
+  const o = cfOptions;
+  return `<tr class="cf-edit" data-cf-edit="${c.id}"><td colspan="9"><form data-cf-form>
+    <div class="grid">
+      <div><label>Status</label><select name="status" class="map">${optionList(o.statuses, c.status)}</select></div>
+      <div><label>Sent on</label><input name="sent_on" type="date" value="${esc(c.sent_on || "")}"></div>
+      <div><label>Reminder sent on</label><input name="reminder_on" type="date" value="${esc(c.reminder_on || "")}"></div>
+      <div><label>Reply received on</label><input name="received_on" type="date" value="${esc(c.received_on || "")}"></div>
+      <div><label>Balance per books</label><input name="balance" type="number" step="any" value="${esc(c.balance ?? "")}"></div>
+      <div><label>Balance the reply confirms</label><input name="confirmed" type="number" step="any" value="${esc(c.confirmed ?? "")}"></div>
+      <div><label>Name</label><input name="party" maxlength="300" required value="${esc(c.party)}"></div>
+      <div><label>Account or customer code</label><input name="reference" maxlength="200" value="${esc(c.reference)}"></div>
+      <div><label>Workpaper</label><input name="workpaper" maxlength="200" value="${esc(c.workpaper)}"></div>
+    </div>
+    <label>Contact</label><textarea name="contact" rows="2" maxlength="5000">${esc(c.contact)}</textarea>
+    <label>Explanation of the difference</label><textarea name="difference_note" rows="2" maxlength="5000">${esc(c.difference_note)}</textarea>
+    <label>Alternative procedures <span class="muted">(when there's no reply)</span></label><textarea name="alternative" rows="2" maxlength="5000">${esc(c.alternative)}</textarea>
+    <label>Conclusion</label><textarea name="conclusion" rows="2" maxlength="5000">${esc(c.conclusion)}</textarea>
+    <div class="actions"><button type="submit" class="small">Save</button>
+      <button type="button" class="small secondary" data-cf-close>Close</button>
+      ${c.status === "to_send" || me.rank >= 2 ? '<button type="button" class="small secondary danger" data-cf-delete>Remove request</button>' : ""}</div>
+  </form></td></tr>`;
+}
+
+function renderConfirmations() {
+  if (!cf) { $("cf-cards").innerHTML = $("cf-coverage").innerHTML = $("cf-table").innerHTML = ""; return; }
+  const s = cf.summary;
+  $("cf-export").href = `/api/engagements/${cf.engagement_id}/confirmations/export`;
+  $("cf-cards").innerHTML = [
+    [s.requests, "Requests", false], [s.sent, "Sent", false], [s.replied, "Replied", false],
+    [s.response_rate == null ? "–" : `${s.response_rate}%`, "Response rate", false],
+    [s.open, "Still open", false], [s.outcomes.difference, "Differences to explain", s.outcomes.difference > 0],
+    [s.outcomes.overdue, "Overdue replies", s.outcomes.overdue > 0],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("cf-coverage").innerHTML = s.by_kind.length ? `<thead><tr><th>Sent to</th><th class="num">Requests</th><th class="num">Replied</th>
+      <th class="num">Balance asked about</th><th class="num">Balance covered</th><th class="num">Covered %</th></tr></thead><tbody>
+    ${s.by_kind.map((k) => `<tr><td>${esc(k.label)}</td><td class="num">${k.requests}</td><td class="num">${k.replied}</td>
+      <td class="num">${money(k.balance)}</td><td class="num">${money(k.covered)}</td>
+      <td class="num"><bdi dir="ltr">${k.covered_pct == null ? "" : `${k.covered_pct}%`}</bdi></td></tr>`).join("")}</tbody>` : "";
+  const filter = $("cf-filter").value;
+  const rows = cf.confirmations.map((c, i) => ({ c, ref: `K${i + 1}` }))
+    .filter(({ c }) => !filter || (filter === "open") === c.open);
+  if (!cf.confirmations.length) {
+    $("cf-table").innerHTML = '<tbody><tr><td class="muted">No requests yet. Add one above, or pick them from a receivables or payables listing.</td></tr></tbody>';
+    return;
+  }
+  $("cf-table").innerHTML = `<thead><tr><th>Ref</th><th>Sent to</th><th class="num">Balance per books</th><th>Status</th>
+      <th>Sent</th><th>Reply</th><th class="num">Confirmed</th><th class="num">Difference</th><th></th></tr></thead><tbody>
+    ${rows.map(({ c, ref }) => `<tr data-cf="${c.id}">
+      <td><bdi>${ref}</bdi></td>
+      <td>${data(c.party)}<div class="tag"><span>${esc(c.kind_label)}</span>${c.reference ? ` · ${data(c.reference)}` : ""} · <span>${esc(c.form_label)}</span></div></td>
+      <td class="num">${money(c.balance)}</td>
+      <td><span class="pill ${CF_PILL[c.outcome]}">${esc(c.outcome_label)}</span></td>
+      <td class="nowrap">${esc(c.sent_on || "")}${c.reminder_on ? `<div class="tag"><span>Reminder:</span> ${esc(c.reminder_on)}</div>` : ""}</td>
+      <td class="nowrap">${esc(c.received_on || "")}</td>
+      <td class="num">${money(c.confirmed)}</td>
+      <td class="num${c.outcome === "difference" ? " bad" : ""}">${money(c.difference)}</td>
+      <td class="nowrap">${c.status === "to_send" ? '<button type="button" class="small" data-cf-sent>Sent today</button>'
+        : c.status === "sent" ? '<button type="button" class="small secondary" data-cf-remind>Reminder sent today</button>' : ""}
+        <button type="button" class="small secondary" data-cf-open>${cfEditing === c.id ? "Close" : "Update"}</button></td></tr>
+      ${cfEditing === c.id ? confirmationEditRow(c) : ""}`).join("") || '<tr><td colspan="9" class="muted">Nothing to show with this filter.</td></tr>'}</tbody>`;
+}
+
+async function confirmationsChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await loadConfirmations();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+$("cf-filter").addEventListener("change", renderConfirmations);
+
+$("cf-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("cf-save"), async () => {
+    const id = currentEngagement.id;
+    const f = formObject($("cf-form"));
+    await sendJSON("POST", `/api/engagements/${id}/confirmations`, { kind: f.kind, party: f.party,
+      reference: f.reference || "", form: f.form, balance: numOrNull(f.balance), contact: f.contact || "" });
+    if (currentEngagement?.id !== id) return;
+    $("cf-form").reset();
+    await confirmationsChanged(id);
+  });
+});
+
+$("cf-pick-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("cf-pick-btn"), async () => {
+    const id = currentEngagement.id;
+    $("cf-picked").textContent = "";
+    const out = await sendJSON("POST", `/api/engagements/${id}/confirmations/from-listing`, {
+      upload_id: Number($("cf-listing").value), min_balance: numOrNull($("cf-min").value),
+      largest: intOrNull($("cf-largest").value) });
+    if (currentEngagement?.id !== id) return;
+    $("cf-picked").textContent = out.skipped
+      ? `Added ${out.added} requests. ${out.skipped} were already on the list.`
+      : `Added ${out.added} requests.`;
+    await confirmationsChanged(id);
+  });
+});
+
+$("cf-table").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-cf-sent], button[data-cf-remind], button[data-cf-open], button[data-cf-close], button[data-cf-delete]");
+  if (!btn) return;
+  const id = currentEngagement.id;
+  const confId = Number(btn.closest("[data-cf], [data-cf-edit]").dataset.cf || btn.closest("[data-cf-edit]").dataset.cfEdit);
+  const c = cf.confirmations.find((x) => x.id === confId);
+  if (!c) return;
+  if (btn.hasAttribute("data-cf-open") || btn.hasAttribute("data-cf-close")) {
+    cfEditing = cfEditing === confId ? null : confId;
+    renderConfirmations();
+  } else if (btn.hasAttribute("data-cf-sent")) {
+    busy(btn, async () => {
+      await sendJSON("PATCH", `/api/confirmations/${confId}`, { status: "sent", sent_on: today() });
+      await confirmationsChanged(id);
+    });
+  } else if (btn.hasAttribute("data-cf-remind")) {
+    busy(btn, async () => {
+      await sendJSON("PATCH", `/api/confirmations/${confId}`, { reminder_on: today() });
+      await confirmationsChanged(id);
+    });
+  } else if (btn.hasAttribute("data-cf-delete")) {
+    if (!confirm(`Remove the confirmation request to ${c.party}?`)) return;
+    busy(btn, async () => {
+      await sendJSON("DELETE", `/api/confirmations/${confId}`);
+      cfEditing = null;
+      await confirmationsChanged(id);
+    });
+  }
+});
+
+$("cf-table").addEventListener("submit", (ev) => {
+  const form = ev.target.closest("[data-cf-form]");
+  if (!form) return;
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const confId = Number(form.closest("[data-cf-edit]").dataset.cfEdit);
+  const f = formObject(form);
+  busy(form.querySelector("button[type=submit]"), async () => {
+    await sendJSON("PATCH", `/api/confirmations/${confId}`, {
+      status: f.status, sent_on: f.sent_on || null, reminder_on: f.reminder_on || null,
+      received_on: f.received_on || null, balance: numOrNull(f.balance), confirmed: numOrNull(f.confirmed),
+      party: f.party, reference: f.reference || "", workpaper: f.workpaper || "", contact: f.contact || "",
+      difference_note: f.difference_note || "", alternative: f.alternative || "", conclusion: f.conclusion || "" });
+    cfEditing = null;
+    await confirmationsChanged(id);
+  });
+});
 
 // Lead sheets and draft statements
 
@@ -2597,6 +3034,8 @@ async function loadDashboard() {
         : [money(d.bank.difference), "Bank difference"]);
   }
   if (d.risks?.risks) cards.push([`${d.risks.done}/${d.risks.procedures}`, "Audit procedures done"]);
+  if (d.controls?.controls) cards.push([d.controls.deficient, "Control deficiencies"]);
+  if (d.confirmations?.requests) cards.push([`${d.confirmations.replied}/${d.confirmations.sent}`, "Confirmation replies"]);
   if (d.days_since_period_end) cards.push([d.days_since_period_end, "Days since period end"]);
   $("dash-cards").innerHTML = cards.map(([v, k]) =>
     `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");

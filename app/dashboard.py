@@ -65,7 +65,8 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
                open_high: int, rv: dict, rq: dict, fs: dict | None,
                bank: dict | None = None, risks: dict | None = None,
                acceptance: dict | None = None,
-               disclosures: dict | None = None) -> list[dict]:
+               disclosures: dict | None = None, controls: dict | None = None,
+               confirmations: dict | None = None) -> list[dict]:
     """The to-do list, most pressing first. Each step names the panel (and tab) that deals
     with it."""
     steps: list[dict] = []
@@ -141,6 +142,31 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
         if risks["planned"]:
             add("medium", f"Finish {_plural(risks['planned'], 'planned audit procedure')}.",
                 "rr-panel")
+    if controls and controls["controls"]:
+        if controls["deficient"]:
+            found = _plural(controls["deficient"], "control deficiency", "control deficiencies")
+            add("high", f"Consider {found}: report significant ones to those charged with "
+                        "governance.", "ct-panel")
+        if controls["key_to_test"]:
+            add("medium", f"Test {_plural(controls['key_to_test'], 'key control')} you plan "
+                          "to rely on.", "ct-panel")
+        if controls["design"]["not_assessed"]:
+            add("low", f"Assess the design of "
+                       f"{_plural(controls['design']['not_assessed'], 'control')}.", "ct-panel")
+    if confirmations and confirmations["requests"]:
+        out = confirmations["outcomes"]
+        if out["overdue"]:
+            add("high", f"Send a reminder for {_plural(out['overdue'], 'confirmation request')}"
+                        " with no reply.", "cf-panel")
+        if out["difference"]:
+            add("high", f"Explain {_plural(out['difference'], 'difference')} in confirmation "
+                        "replies.", "cf-panel")
+        if out["to_send"]:
+            add("medium", f"Send {_plural(out['to_send'], 'confirmation request')}.", "cf-panel")
+        if out["alternative_needed"]:
+            add("medium", f"Do alternative procedures for "
+                          f"{_plural(out['alternative_needed'], 'confirmation')} with no reply.",
+                "cf-panel")
     if open_high:
         add("high", f"Work through {_plural(open_high, 'open high-severity finding')}.", "reg-panel")
     elif findings["open"]:
@@ -181,12 +207,16 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     bank = bank_state(e)
     # Imported here, as both import ai_writer or engagements, which import this module.
     from .acceptance import summary as acceptance_summary
+    from .confirmations import summary as confirmation_summary
+    from .controls import summary as control_summary
     from .disclosures import summary as disclosure_summary
     from .risks import summary
     # Teams may keep their risk assessment elsewhere: only suggest the register to those who
     # started one here, or asked the AI for a risk assessment.
     risk_summary = {**summary(list(e.risks)),
                     "ai_draft": any(d.kind == "risk" for d in e.ai_drafts)}
+    controls = control_summary(list(e.controls))
+    confirmations = confirmation_summary(e)
     days_left = (e.period_end - date.today()).days
     return {
         "period_end": e.period_end.isoformat(),
@@ -212,8 +242,11 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
         "statements": fs,
         "bank": bank,
         "risks": risk_summary,
+        "controls": controls,
+        "confirmations": confirmations,
         "next_steps": next_steps(e, mat, kinds, gl_runs, findings,
                                  open_by_severity.get("high", 0), rv, rq, fs, bank,
-                                 risk_summary, acceptance_summary(e), disclosure_summary(e))
+                                 risk_summary, acceptance_summary(e), disclosure_summary(e),
+                                 controls, confirmations)
         if e.lock is None else [],
     }

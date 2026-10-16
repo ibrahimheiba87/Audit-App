@@ -148,6 +148,12 @@ class Engagement(Base):
     disclosures: Mapped[DisclosureChecklist | None] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", uselist=False
     )
+    confirmations: Mapped[list[Confirmation]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Confirmation.id"
+    )
+    controls: Mapped[list[Control]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Control.id"
+    )
 
 
 class Upload(Base):
@@ -378,6 +384,83 @@ class IndependenceDeclaration(Base):
     declared_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="declarations")
+
+
+class Confirmation(Base):
+    """A request for external confirmation (ISA 505) sent to a bank, customer, supplier,
+    lawyer or other party, and its reply (confirmations.py)."""
+
+    __tablename__ = "confirmations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # bank | receivable | payable | legal | other
+    party: Mapped[str] = mapped_column(String(300))
+    reference: Mapped[str] = mapped_column(String(200), default="")  # account or customer code
+    contact: Mapped[str] = mapped_column(Text, default="")
+    form: Mapped[str] = mapped_column(String(20), default="positive")  # positive|negative|blank
+    balance: Mapped[float | None] = mapped_column(Float, nullable=True)  # per the client's books
+    status: Mapped[str] = mapped_column(String(20), default="to_send")
+    sent_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reminder_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    received_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    confirmed: Mapped[float | None] = mapped_column(Float, nullable=True)  # per the reply
+    difference_note: Mapped[str] = mapped_column(Text, default="")
+    alternative: Mapped[str] = mapped_column(Text, default="")  # procedures when no reply
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    workpaper: Mapped[str] = mapped_column(String(200), default="")
+    source: Mapped[str] = mapped_column(String(50), default="")  # "upload:<id>" if listed
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="confirmations")
+
+
+class Control(Base):
+    """An internal control on the engagement's controls register: its design and
+    implementation, and the test of its operating effectiveness (controls.py)."""
+
+    __tablename__ = "controls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    area: Mapped[str] = mapped_column(String(50))  # as risks.area
+    process: Mapped[str] = mapped_column(String(200), default="")
+    title: Mapped[str] = mapped_column(String(300))
+    description: Mapped[str] = mapped_column(Text, default="")
+    # A risk on the register it addresses. Not a foreign key: removing the risk clears it.
+    risk_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kind: Mapped[str] = mapped_column(String(20), default="preventive")
+    nature: Mapped[str] = mapped_column(String(20), default="manual")
+    frequency: Mapped[str] = mapped_column(String(20), default="monthly")
+    key: Mapped[bool] = mapped_column(Boolean, default=True)
+    owner: Mapped[str] = mapped_column(String(200), default="")
+    design: Mapped[str] = mapped_column(String(20), default="not_assessed")
+    design_note: Mapped[str] = mapped_column(Text, default="")
+    walkthrough: Mapped[str] = mapped_column(String(200), default="")  # workpaper reference
+    # The test of operating effectiveness: plan, items picked, and result.
+    method: Mapped[str | None] = mapped_column(String(20), nullable=True)  # statistical|frequency
+    confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 90 or 95 (%)
+    tolerable_rate: Mapped[float | None] = mapped_column(Float, nullable=True)  # %
+    expected_rate: Mapped[float | None] = mapped_column(Float, nullable=True)  # %
+    population: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sample_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    selected: Mapped[list | None] = mapped_column(JSON, nullable=True)  # item numbers picked
+    tested: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deviations: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deviation_note: Mapped[str] = mapped_column(Text, default="")
+    test_conclusion: Mapped[str] = mapped_column(Text, default="")
+    test_workpaper: Mapped[str] = mapped_column(String(200), default="")
+    tested_by: Mapped[str] = mapped_column(String(200), default="")
+    tested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    source: Mapped[str] = mapped_column(String(50), default="")  # "rolled:<id>" if carried
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="controls")
 
 
 class Risk(Base):
