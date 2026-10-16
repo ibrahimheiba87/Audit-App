@@ -295,6 +295,8 @@ async function openEngagement(id) {
     ct = null; renderControls(); resetControlForm(); $("ct-add").open = false; $("ct-calc-out").textContent = "";
     cf = null; cfEditing = null; renderConfirmations(); $("cf-form").reset(); $("cf-pick-form").reset();
     $("cf-picked").textContent = ""; $("cf-filter").value = "";
+    cp = null; renderCompletion(); $("cp-check").open = false; $("cp-event-form").reset(); $("cp-sign").reset();
+    rp = null; renderReport(); $("rp-preview-box").open = false;
     wp = null; renderWorkplan(); $("wp-form").reset(); $("wp-time-form").reset(); $("wp-filter").value = "open";
     $("bank-file").innerHTML = $("bank-gl").innerHTML = $("bank-accounts").innerHTML = "";
     $("bank-recs").innerHTML = "";
@@ -348,6 +350,8 @@ async function openEngagement(id) {
   guard(loadControls);
   guard(loadConfirmations);
   guard(loadWorkplan);
+  guard(loadCompletion);
+  guard(loadReport);
   guard(loadAcceptance);
   guard(loadDisclosures);
   await loadStatements();
@@ -387,6 +391,8 @@ $("team-form").addEventListener("submit", async (ev) => {
       currentEngagement.team = r.team;
       renderTeam(r.team);
       loadEngagementActivity();
+      guard(loadWorkplan);  // the task owner choices follow the team
+      refreshDashboard();
     }
   } catch (err) {
     $("team-error").textContent = err.message;
@@ -2323,15 +2329,18 @@ function renderWorkplan() {
     [s.actual, "Hours worked", s.over_areas.length > 0],
     [used, "Budget used", s.budget != null && s.actual > s.budget],
   ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v"><bdi dir="ltr">${esc(v)}</bdi></div><div class="k">${esc(k)}</div></div>`).join("");
-  const keepArea = $("wp-area").value;
+  const keepArea = $("wp-area").value, keepTimeArea = $("wp-time-area").value;
+  const keepTask = $("wp-time-task").value;
   $("wp-area").innerHTML = $("wp-time-area").innerHTML = optionList(wp.areas, "other");
   if (keepArea) $("wp-area").value = keepArea;
+  if (keepTimeArea) $("wp-time-area").value = keepTimeArea;
   const owners = [{ id: "", label: "No owner" }, ...wp.people.map((p) => ({ id: String(p.id), label: p.name }))];
   const keepOwner = $("wp-owner").value;
   $("wp-owner").innerHTML = owners.map((o) => `<option value="${esc(o.id)}">${o.id ? data(o.label) : esc(o.label)}</option>`).join("");
   $("wp-owner").value = owners.some((o) => o.id === keepOwner) ? keepOwner : "";
   $("wp-time-task").innerHTML = '<option value="">None</option>' + wp.tasks.filter((t) => t.status !== "done")
     .map((t) => `<option value="${t.id}">${data(t.title)}</option>`).join("");
+  if ([...$("wp-time-task").options].some((o) => o.value === keepTask)) $("wp-time-task").value = keepTask;
   if (!$("wp-time-day").value) $("wp-time-day").value = today();
   renderWorkplanTasks();
   $("wp-budget").innerHTML = wp.budget.length
@@ -2381,10 +2390,11 @@ function renderWorkplanTasks() {
       <td>${t.created_by_id === me.id || me.rank >= 2 ? '<button type="button" class="small secondary danger" data-task-delete>Remove</button>' : ""}</td></tr>`).join("")}</tbody>`;
 }
 
-async function workplanChanged(id, w) {
+// Reload rather than show the save's reply, so replies arriving out of order can't
+// bring back an older state.
+async function workplanChanged(id) {
   if (currentEngagement?.id !== id) return;
-  wp = { ...w, engagement_id: id };
-  renderWorkplan();
+  await loadWorkplan();
   refreshDashboard();
   await loadEngagementActivity();
 }
@@ -2399,9 +2409,10 @@ $("wp-form").addEventListener("submit", (ev) => {
   const body = { title: $("wp-title").value, area: $("wp-area").value, note: $("wp-note").value,
     assignee_id: intOrNull($("wp-owner").value), due_on: $("wp-due").value || null };
   busy($("wp-save"), async () => {
-    const w = await sendJSON("POST", `/api/engagements/${id}/tasks`, body);
+    await sendJSON("POST", `/api/engagements/${id}/tasks`, body);
+    if (currentEngagement?.id !== id) return;
     $("wp-title").value = $("wp-note").value = $("wp-due").value = "";
-    await workplanChanged(id, w);
+    await workplanChanged(id);
   });
 });
 
@@ -2416,7 +2427,8 @@ $("wp-tasks").addEventListener("change", (ev) => {
   if (!body) return;
   guard(async () => {
     try {
-      await workplanChanged(id, await sendJSON("PATCH", `/api/tasks/${row.dataset.task}`, body));
+      await sendJSON("PATCH", `/api/tasks/${row.dataset.task}`, body);
+      await workplanChanged(id);
     } catch (err) {
       if (wp?.engagement_id === id) renderWorkplanTasks();  // put the control back as it was
       throw err;
@@ -2429,7 +2441,10 @@ $("wp-tasks").addEventListener("click", (ev) => {
   if (!row || !wp || !ev.target.matches("[data-task-delete]")) return;
   if (!confirm("Remove this task?")) return;
   const id = wp.engagement_id;
-  guard(async () => workplanChanged(id, await sendJSON("DELETE", `/api/tasks/${row.dataset.task}`)));
+  guard(async () => {
+    await sendJSON("DELETE", `/api/tasks/${row.dataset.task}`);
+    await workplanChanged(id);
+  });
 });
 
 $("wp-budget-form").addEventListener("submit", (ev) => {
@@ -2439,9 +2454,10 @@ $("wp-budget-form").addEventListener("submit", (ev) => {
   const hoursBy = {};
   for (const input of $("wp-budget-fields").querySelectorAll("[data-area]")) hoursBy[input.dataset.area] = Number(input.value || 0);
   busy($("wp-budget-save"), async () => {
-    const w = await sendJSON("PUT", `/api/engagements/${id}/budget`, { hours: hoursBy });
+    await sendJSON("PUT", `/api/engagements/${id}/budget`, { hours: hoursBy });
+    if (currentEngagement?.id !== id) return;
     delete $("wp-budget-fields").dataset.dirty;
-    await workplanChanged(id, w);
+    await workplanChanged(id);
   });
 });
 
@@ -2453,9 +2469,10 @@ $("wp-time-form").addEventListener("submit", (ev) => {
     hours: Number($("wp-time-hours").value), note: $("wp-time-note").value,
     task_id: intOrNull($("wp-time-task").value) };
   busy($("wp-time-save"), async () => {
-    const w = await sendJSON("POST", `/api/engagements/${id}/time`, body);
+    await sendJSON("POST", `/api/engagements/${id}/time`, body);
+    if (currentEngagement?.id !== id) return;
     $("wp-time-hours").value = $("wp-time-note").value = "";
-    await workplanChanged(id, w);
+    await workplanChanged(id);
   });
 });
 
@@ -2464,7 +2481,10 @@ $("wp-entries").addEventListener("click", (ev) => {
   if (!row || !wp || !ev.target.matches("[data-time-delete]")) return;
   if (!confirm("Remove these hours?")) return;
   const id = wp.engagement_id;
-  guard(async () => workplanChanged(id, await sendJSON("DELETE", `/api/time-entries/${row.dataset.time}`)));
+  guard(async () => {
+    await sendJSON("DELETE", `/api/time-entries/${row.dataset.time}`);
+    await workplanChanged(id);
+  });
 });
 
 // The signed-in user's tasks on every engagement, shown when no engagement is open.
@@ -2481,6 +2501,296 @@ async function loadMyTasks() {
       <td class="nowrap">${t.due_on ? `<bdi dir="ltr">${esc(t.due_on)}</bdi>` : ""}${t.overdue ? ' <span class="pill bad">Overdue</span>' : ""}</td>
       <td><span class="pill ${WP_PILL[t.status]}">${esc(t.status_label)}</span></td></tr>`).join("")}</tbody>`;
 }
+
+// Completion procedures
+
+let cp = null;
+let cpLoads = 0;
+const CP_PILL = { pending: "warn", adjusted: "good", disclosed: "good", not_needed: "" };
+
+async function loadCompletion() {
+  const id = currentEngagement.id;
+  const load = ++cpLoads;
+  const c = await getJSON(`/api/engagements/${id}/completion`);
+  if (load !== cpLoads || currentEngagement?.id !== id) return;
+  cp = { ...c, engagement_id: id };
+  renderCompletion();
+}
+
+function renderCompletion() {
+  if (!cp) {
+    for (const t of ["cp-cards", "cp-status", "cp-questions", "cp-signs", "cp-events"]) $(t).innerHTML = "";
+    $("cp-saved").textContent = "";
+    $("cp-export").removeAttribute("href");
+    $("cp-letter").removeAttribute("href");
+    $("cp-form").reset();
+    $("cp-gc").innerHTML = "";
+    delete $("cp-form").dataset.dirty;
+    delete $("cp-form").dataset.engagement;
+    return;
+  }
+  const id = cp.engagement_id;
+  $("cp-export").href = `/api/engagements/${id}/completion/export`;
+  $("cp-letter").href = `/api/engagements/${id}/completion/representation-letter?language=${I18N.lang === "ar" ? "ar" : "en"}`;
+  $("cp-cards").innerHTML = [
+    [`${cp.answered}/${cp.questions.length}`, "Questions answered", false],
+    [cp.flags.length, "Answers needing a second look", cp.flags.length > 0],
+    [cp.events.length, "Subsequent events", false],
+    [cp.pending_events, "Events to decide", cp.pending_events > 0],
+    [cp.going_concern_label || "Not concluded", "Going concern", cp.going_concern && cp.going_concern !== "appropriate"],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("cp-status").innerHTML = cp.signed_by
+    ? `<p><strong>Signed off</strong> <span class="muted">${data(cp.signed_by)} · <span>${esc(when(cp.signed_at))}</span></span></p>
+       ${cp.signed_note ? `<p>${data(cp.signed_note)}</p>` : ""}
+       ${cp.changed_since_signoff ? '<p class="warn-box">The completion work changed after the sign-off. The partner may want to look at it again.</p>' : ""}`
+    : cp.blockers.length ? `<ul class="warn-list">${cp.blockers.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : "";
+  $("cp-saved").innerHTML = cp.updated_by ? `<span>Last saved by</span> ${data(cp.updated_by)} · <span>${esc(when(cp.updated_at))}</span>` : "";
+  renderCompletionEvents();
+  // Keep answers typed but not yet saved while an event or the sign-off changes.
+  const form = $("cp-form");
+  if (form.dataset.engagement === String(id) && form.dataset.dirty) return;
+  form.dataset.engagement = id;
+  let group = null;
+  $("cp-questions").innerHTML = cp.questions.map((q, i) => {
+    const a = cp.answers[q.id];
+    const flagged = cp.flags.includes(q.id);
+    const head = q.group !== group ? `<h3>${esc(cp.groups.find((g) => g.id === q.group).label)}</h3>` : "";
+    group = q.group;
+    return `${head}<div class="ac-q${flagged ? " flagged" : ""}" data-q="${esc(q.id)}">
+      <p><bdi>${i + 1}.</bdi> <span>${esc(q.text)}</span></p>
+      <fieldset class="checks-inline"><legend class="visually-hidden">Answer</legend>
+        ${Object.entries(ANSWER_LABELS).map(([v, label]) => `<label><input type="radio" name="cp-${esc(q.id)}" value="${v}" ${a.answer === v ? "checked" : ""}><span>${label}</span></label>`).join("")}
+      </fieldset>
+      <input data-comment maxlength="5000" value="${esc(a.comment)}" placeholder="Comment" aria-label="Comment">
+      ${flagged ? '<div class="tag flag-note">This answer needs a second look before signing off.</div>' : ""}
+    </div>`;
+  }).join("");
+  const signs = cp.signs;
+  $("cp-signs").innerHTML = !signs.statements ? '<p class="muted">Upload the trial balance to see warning signs from the draft statements here.</p>'
+    : signs.warnings.length ? `<ul class="warn-list">${signs.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`
+    : '<p class="muted">The draft statements show no going concern warning signs.</p>';
+  $("cp-gc").innerHTML = '<option value="">Not concluded</option>' + optionList(cp.going_concern_choices, cp.going_concern);
+  $("cp-gc-note").value = cp.going_concern_note;
+  $("cp-reps-asked").value = cp.reps_requested_on || "";
+  $("cp-reps-dated").value = cp.reps_dated || "";
+  $("cp-conclusion").value = cp.conclusion;
+}
+
+function renderCompletionEvents() {
+  if (!$("cp-ev-kind").options.length) {
+    $("cp-ev-kind").innerHTML = optionList(cp.event_kinds, "non_adjusting");
+    $("cp-ev-treatment").innerHTML = optionList(cp.treatments, "pending");
+  }
+  $("cp-events").innerHTML = cp.events.length
+    ? `<thead><tr><th>Date</th><th>Event</th><th>Type</th><th class="num">Amount</th><th>Treatment</th><th></th></tr></thead><tbody>
+      ${cp.events.map((x) => `<tr data-event="${x.id}"><td class="nowrap">${x.occurred_on ? `<bdi dir="ltr">${esc(x.occurred_on)}</bdi>` : ""}</td>
+        <td>${data(x.description)}</td>
+        <td><select data-ev-kind class="map" aria-label="Type">${optionList(cp.event_kinds, x.kind)}</select></td>
+        <td class="num">${money(x.amount)}</td>
+        <td><select data-ev-treatment class="map" aria-label="Treatment">${optionList(cp.treatments, x.treatment)}</select>
+          ${x.treatment === "pending" ? ' <span class="pill warn">To decide</span>' : ""}</td>
+        <td>${me.rank >= 2 ? '<button type="button" class="small secondary danger" data-ev-delete>Remove</button>' : ""}</td></tr>`).join("")}</tbody>`
+    : '<tbody><tr><td class="muted">No subsequent events recorded.</td></tr></tbody>';
+}
+
+// Reload rather than show the save's reply, so replies arriving out of order can't
+// bring back an older state.
+async function completionChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await loadCompletion();
+  refreshDashboard();
+  if (rp?.engagement_id === id) guard(loadReport);  // the suggestion follows the conclusion
+  await loadEngagementActivity();
+}
+
+$("cp-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!cp) return;
+  const id = cp.engagement_id;
+  const answers = {};
+  for (const q of $("cp-questions").querySelectorAll("[data-q]")) {
+    const picked = q.querySelector("input[type=radio]:checked");
+    answers[q.dataset.q] = { answer: picked ? picked.value : null, comment: q.querySelector("[data-comment]").value };
+  }
+  const body = { answers, conclusion: $("cp-conclusion").value, going_concern: $("cp-gc").value || null,
+    going_concern_note: $("cp-gc-note").value, reps_requested_on: $("cp-reps-asked").value || null,
+    reps_dated: $("cp-reps-dated").value || null };
+  busy($("cp-save"), async () => {
+    await sendJSON("PUT", `/api/engagements/${id}/completion`, body);
+    if (currentEngagement?.id !== id) return;
+    delete $("cp-form").dataset.dirty;
+    await completionChanged(id);
+  });
+});
+
+$("cp-form").addEventListener("input", () => { $("cp-form").dataset.dirty = "1"; });
+
+$("cp-event-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!cp) return;
+  const id = cp.engagement_id;
+  const body = { description: $("cp-ev-desc").value, occurred_on: $("cp-ev-date").value || null,
+    kind: $("cp-ev-kind").value, treatment: $("cp-ev-treatment").value, amount: numOrNull($("cp-ev-amount").value) };
+  busy($("cp-ev-save"), async () => {
+    await sendJSON("POST", `/api/engagements/${id}/completion/events`, body);
+    if (currentEngagement?.id !== id) return;
+    $("cp-ev-desc").value = $("cp-ev-date").value = $("cp-ev-amount").value = "";
+    await completionChanged(id);
+  });
+});
+
+$("cp-events").addEventListener("change", (ev) => {
+  const row = ev.target.closest("[data-event]");
+  if (!row || !cp) return;
+  const id = cp.engagement_id;
+  const body = ev.target.matches("[data-ev-kind]") ? { kind: ev.target.value }
+    : ev.target.matches("[data-ev-treatment]") ? { treatment: ev.target.value } : null;
+  if (!body) return;
+  guard(async () => {
+    try {
+      await sendJSON("PATCH", `/api/subsequent-events/${row.dataset.event}`, body);
+      await completionChanged(id);
+    } catch (err) {
+      if (cp?.engagement_id === id) renderCompletionEvents();
+      throw err;
+    }
+  });
+});
+
+$("cp-events").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-event]");
+  if (!row || !cp || !ev.target.matches("[data-ev-delete]")) return;
+  if (!confirm("Remove this subsequent event?")) return;
+  const id = cp.engagement_id;
+  guard(async () => {
+    await sendJSON("DELETE", `/api/subsequent-events/${row.dataset.event}`);
+    await completionChanged(id);
+  });
+});
+
+$("cp-sign").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!cp) return;
+  const id = cp.engagement_id;
+  busy($("cp-sign-btn"), async () => {
+    await sendJSON("POST", `/api/engagements/${id}/completion/signoff`, { note: $("cp-sign-note").value });
+    await completionChanged(id);
+  });
+});
+
+$("cp-letter").addEventListener("click", () => {  // in the language the page is in now
+  if (cp) $("cp-letter").href = `/api/engagements/${cp.engagement_id}/completion/representation-letter?language=${I18N.lang === "ar" ? "ar" : "en"}`;
+});
+
+// Auditor's report draft
+
+let rp = null;
+let rpLoads = 0;
+
+async function loadReport() {
+  const id = currentEngagement.id;
+  const load = ++rpLoads;
+  const r = await getJSON(`/api/engagements/${id}/report`);
+  if (load !== rpLoads || currentEngagement?.id !== id) return;
+  rp = { ...r, engagement_id: id };
+  renderReport();
+}
+
+function kamRow(k = { title: "", why: "", how: "" }) {
+  return `<div class="rp-kam" data-kam>
+    <label>Matter</label><input data-kam-title maxlength="300" value="${esc(k.title)}">
+    <label>Why it mattered</label><textarea data-kam-why rows="2" maxlength="5000">${esc(k.why)}</textarea>
+    <label>How the audit dealt with it</label><textarea data-kam-how rows="2" maxlength="5000">${esc(k.how)}</textarea>
+    <div class="actions"><button type="button" class="small secondary danger" data-kam-remove>Remove</button></div></div>`;
+}
+
+function renderReport() {
+  if (!rp) {
+    for (const t of ["rp-suggestion", "rp-warnings", "rp-kams", "rp-preview"]) $(t).innerHTML = "";
+    $("rp-form").reset();
+    delete $("rp-form").dataset.dirty;
+    delete $("rp-form").dataset.engagement;
+    $("rp-saved").textContent = "";
+    $("rp-word-en").removeAttribute("href");
+    $("rp-word-ar").removeAttribute("href");
+    return;
+  }
+  const id = rp.engagement_id;
+  $("rp-word-en").href = `/api/engagements/${id}/report/download?language=en`;
+  $("rp-word-ar").href = `/api/engagements/${id}/report/download?language=ar`;
+  const s = rp.suggestion;
+  $("rp-suggestion").innerHTML = `<p><span>The file points to:</span> <strong>${esc(s.label)}</strong></p>
+    ${s.reasons.length ? `<ul>${s.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${s.going_concern_section ? '<p class="muted">The report includes a section on the material uncertainty about going concern.</p>' : ""}`;
+  $("rp-warnings").hidden = !rp.warnings.length;
+  $("rp-warnings").innerHTML = rp.warnings.map((w) => `<li>${esc(w)}</li>`).join("");
+  $("rp-saved").innerHTML = rp.updated_by ? `<span>Last saved by</span> ${data(rp.updated_by)} · <span>${esc(when(rp.updated_at))}</span>` : "";
+  if ($("rp-preview-box").open) guard(loadReportPreview);
+  // Keep edits not yet saved when the completion work changes the suggestion.
+  const form = $("rp-form");
+  if (form.dataset.engagement === String(id) && form.dataset.dirty) return;
+  form.dataset.engagement = id;
+  $("rp-opinion").innerHTML = optionList(rp.opinions, rp.opinion);
+  $("rp-entity").value = rp.entity_name;
+  $("rp-addressee").value = rp.addressee;
+  $("rp-framework").value = rp.framework_name;
+  $("rp-firm").value = rp.firm_name;
+  $("rp-partner").value = rp.partner_name;
+  $("rp-city").value = rp.city;
+  $("rp-date").value = rp.report_date || "";
+  $("rp-basis").value = rp.basis;
+  $("rp-emphasis").value = rp.emphasis.join("\n");
+  $("rp-other").value = rp.other_matter;
+  $("rp-kams").innerHTML = rp.key_matters.map(kamRow).join("");
+}
+
+async function loadReportPreview() {
+  if (!rp) return;
+  const id = rp.engagement_id;
+  const lang = I18N.lang === "ar" ? "ar" : "en";
+  const p = await getJSON(`/api/engagements/${id}/report/preview?language=${lang}`);
+  if (rp?.engagement_id !== id) return;
+  const tag = { title: "h3", heading: "h4", subheading: "h5" };
+  $("rp-preview").dir = lang === "ar" ? "rtl" : "ltr";
+  $("rp-preview").innerHTML = p.paragraphs.map((x) => `<${tag[x.style] || "p"} class="rp-${esc(x.style)}" translate="no">${esc(x.text).replace(/\n/g, "<br>")}</${tag[x.style] || "p"}>`).join("");
+}
+
+$("rp-preview-box").addEventListener("toggle", () => { if ($("rp-preview-box").open) guard(loadReportPreview); });
+$("rp-form").addEventListener("input", () => { $("rp-form").dataset.dirty = "1"; });
+$("rp-kam-add").addEventListener("click", () => {
+  $("rp-kams").insertAdjacentHTML("beforeend", kamRow());
+  $("rp-form").dataset.dirty = "1";
+});
+$("rp-kams").addEventListener("click", (ev) => {
+  if (!ev.target.matches("[data-kam-remove]")) return;
+  ev.target.closest("[data-kam]").remove();
+  $("rp-form").dataset.dirty = "1";
+});
+
+$("rp-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!rp) return;
+  const id = rp.engagement_id;
+  const body = {
+    opinion: $("rp-opinion").value, entity_name: $("rp-entity").value, addressee: $("rp-addressee").value,
+    framework_name: $("rp-framework").value, firm_name: $("rp-firm").value, partner_name: $("rp-partner").value,
+    city: $("rp-city").value, report_date: $("rp-date").value || null, basis: $("rp-basis").value,
+    emphasis: $("rp-emphasis").value.split("\n").map((x) => x.trim()).filter(Boolean),
+    other_matter: $("rp-other").value,
+    key_matters: [...$("rp-kams").querySelectorAll("[data-kam]")].map((k) => ({
+      title: k.querySelector("[data-kam-title]").value.trim(), why: k.querySelector("[data-kam-why]").value,
+      how: k.querySelector("[data-kam-how]").value })).filter((k) => k.title),
+  };
+  busy($("rp-save"), async () => {
+    const r = await sendJSON("PUT", `/api/engagements/${id}/report`, body);
+    if (currentEngagement?.id !== id) return;
+    rp = { ...r, engagement_id: id };
+    delete $("rp-form").dataset.dirty;
+    renderReport();
+    refreshDashboard();
+    await loadEngagementActivity();
+  });
+});
 
 // Lead sheets and draft statements
 

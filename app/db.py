@@ -163,6 +163,16 @@ class Engagement(Base):
     time_entries: Mapped[list[TimeEntry]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="TimeEntry.id"
     )
+    completion: Mapped[CompletionChecklist | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
+    subsequent_events: Mapped[list[SubsequentEvent]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="SubsequentEvent.id"
+    )
+    audit_report: Mapped[AuditReport | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class Upload(Base):
@@ -453,6 +463,71 @@ class TimeEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="time_entries")
+class CompletionChecklist(Base):
+    """The completion procedures for an engagement: subsequent events, going concern, written
+    representations and the final review, with the partner's sign-off (completion.py)."""
+
+    __tablename__ = "completion_checklists"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    answers: Mapped[dict] = mapped_column(JSON, default=dict)  # {question: {answer, comment}}
+    going_concern: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    going_concern_note: Mapped[str] = mapped_column(Text, default="")
+    reps_requested_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reps_dated: Mapped[date | None] = mapped_column(Date, nullable=True)
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    signed_by: Mapped[str] = mapped_column(String(200), default="")
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    signed_note: Mapped[str] = mapped_column(Text, default="")
+
+    engagement: Mapped[Engagement] = relationship(back_populates="completion")
+
+
+class SubsequentEvent(Base):
+    """An event after the period end found during the completion work (ISA 560)."""
+
+    __tablename__ = "subsequent_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    occurred_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(String(20), default="non_adjusting")
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    treatment: Mapped[str] = mapped_column(String(20), default="pending")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="subsequent_events")
+
+
+class AuditReport(Base):
+    """The draft independent auditor's report for an engagement (report_draft.py)."""
+
+    __tablename__ = "audit_reports"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    opinion: Mapped[str] = mapped_column(String(20), default="unmodified")
+    basis: Mapped[str] = mapped_column(Text, default="")  # why the opinion is modified
+    entity_name: Mapped[str] = mapped_column(String(300), default="")
+    addressee: Mapped[str] = mapped_column(String(300), default="")
+    framework_name: Mapped[str] = mapped_column(String(300), default="")
+    emphasis: Mapped[list] = mapped_column(JSON, default=list)  # [text]
+    key_matters: Mapped[list] = mapped_column(JSON, default=list)  # [{title, why, how}]
+    other_matter: Mapped[str] = mapped_column(Text, default="")
+    firm_name: Mapped[str] = mapped_column(String(300), default="")
+    partner_name: Mapped[str] = mapped_column(String(200), default="")
+    city: Mapped[str] = mapped_column(String(200), default="")
+    report_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="audit_report")
 
 
 class Confirmation(Base):

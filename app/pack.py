@@ -34,11 +34,13 @@ from . import (
     leadsheets,
     portal,
     reconciliations,
+    report_draft,
     review,
     risks,
     samples,
     workplan,
 )
+from . import completion as completion_module
 from .auth import current_user, log
 from .db import Activity, Engagement, Evidence, RequestFile, Upload, User, get_session
 from .engagements import get_or_404, run_workbook, safe_stem
@@ -169,6 +171,12 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
                        lambda: leadsheets.workbook(e, data, tb, prior))
     if e.disclosures is not None:
         pack.workpaper(completion, "Disclosure checklist", lambda: disclosures.workbook(e))
+    if e.completion is not None or e.subsequent_events:
+        pack.workpaper(completion, "Completion procedures",
+                       lambda: completion_module.workbook(session, e))
+    if e.audit_report is not None:
+        pack.workpaper(completion, "Draft auditor's report",
+                       lambda: report_draft.word_file(session, e))
 
     inventory = source_files(e)
     if with_files:

@@ -181,3 +181,19 @@ def test_the_work_plan_downloads_and_is_locked_with_the_file():
                         json={"worked_on": TODAY.isoformat(), "hours": 1})):
         assert r.status_code == 409, r.text
     assert prep.get(f"/api/engagements/{eid}/workplan").status_code == 200
+
+
+def test_a_deactivated_owner_needs_replacing_and_hours_group_by_person():
+    a, prep, rev, partner, eid, _ = team()
+    prep.post(f"/api/engagements/{eid}/tasks", json={"title": "Bank letter",
+                                                      "assignee_id": me(rev)})
+    assert "Give 1 task an owner." not in steps(prep, eid)
+    assert a.patch(f"/api/users/{me(rev)}", json={"active": False}).status_code == 200
+    assert "Give 1 task an owner." in steps(prep, eid)
+    # Two people with the same name keep separate totals.
+    twin = add_user(a, "preparer", "twin@example.com")
+    join(a, eid, twin)
+    for c, h in ((prep, 3), (twin, 2)):
+        c.post(f"/api/engagements/{eid}/time", json={"worked_on": TODAY.isoformat(), "hours": h})
+    people = prep.get(f"/api/engagements/{eid}/workplan").json()["by_person"]
+    assert people == [{"name": "Preparer", "hours": 3.0}, {"name": "Preparer", "hours": 2.0}]
