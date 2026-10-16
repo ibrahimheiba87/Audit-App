@@ -249,12 +249,18 @@ def export_statements(engagement_id: int, upload_id: int | None = None,
     data, tb, prior = compute(session, e, upload_id, prior_upload_id)
     if tb is None:
         raise HTTPException(400, "Upload a trial balance first.")
-    entries = [entry_out(x) for x in e.adjusting_entries]
     log(session, user, "statements.download", "Downloaded lead sheets and draft statements", e,
         details={"upload_id": tb.id, "sha256": tb.sha256,
                  "prior_sha256": prior.sha256 if prior else None,
-                 "entries": [x["ref"] for x in entries]})
+                 "entries": [entry_ref(x) for x in e.adjusting_entries]})
     session.commit()
+    name, content = workbook(e, data, tb, prior)
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(e: Engagement, data: dict, tb: Upload, prior: Upload | None) -> tuple[str, bytes]:
+    """Lead sheets and draft statements (from compute) as an Excel file, and its name."""
+    entries = [entry_out(x) for x in e.adjusting_entries]
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(), "Framework": e.framework,
                "Trial balance": f"{tb.filename} (SHA-256 {tb.sha256})",
@@ -262,5 +268,4 @@ def export_statements(engagement_id: int, upload_id: int | None = None,
                    f"{prior.filename} (SHA-256 {prior.sha256})" if prior else "None",
                "Status": "Draft, not audited"}
     stem = safe_stem(f"{e.client.name}-{e.name}-lead-sheets")
-    return Response(statements.to_excel(data, entries, context), media_type=XLSX,
-                    headers=attachment(f"{stem}.xlsx"))
+    return f"{stem}.xlsx", statements.to_excel(data, entries, context)

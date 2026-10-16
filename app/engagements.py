@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session
 
-from . import auth, checks, loader, materiality, register, report
+from . import auth, checks, loader, materiality, register, report, templates
 from .auth import current_user, log, require
 from .db import (
     BankReconciliation,
@@ -28,6 +28,7 @@ from .db import (
     Finding,
     RequestFile,
     Run,
+    RunSummary,
     Sample,
     Upload,
     User,
@@ -94,6 +95,7 @@ class RunIn(BaseModel):
     weekend: Literal["sat-sun", "fri-sat", "fri"] = "sat-sun"
     # parse_keywords keeps the first MAX_KEYWORDS; this only bounds the request.
     keywords: list[str] | None = Field(default=None, max_length=1000)
+    template_id: int | None = None  # the firm template these settings came from, if any
 
 
 # --- Serialization ----------------------------------------------------------
@@ -163,7 +165,8 @@ def upload_out(u: Upload) -> dict:
 
 
 def run_brief(r: Run) -> dict:
-    s = r.result["summary"]
+    s = {"rows": r.summary.rows, "findings_by_severity": r.summary.findings_by_severity} \
+        if r.summary else RunSummary.of(r.result)
     return {"id": r.id, "upload_id": r.upload_id, "filename": r.upload.filename,
             "created_at": r.created_at.isoformat(), "settings": r.settings,
             "rows": s["rows"], "findings_by_severity": s["findings_by_severity"]}
@@ -669,15 +672,19 @@ def create_run(engagement_id: int, body: RunIn, user: User = Depends(require("pr
                                  "Reconcile a bank statement in the bank reconciliation panel.")
     loaded = load_upload(upload)
     settings = engagement_settings(e, body)
+    template = templates.matching(session, body.template_id, settings)
+    if template is not None:  # only when used as it is, so the report doesn't mislead
+        settings["template"] = template.name
     result = checks.run_all(
         loaded.df,
-        checks.Settings(**{**settings, "period_end": e.period_end, "kind": upload.kind}),
+        checks.Settings(**{**{k: v for k, v in settings.items() if k != "template"},
+                           "period_end": e.period_end, "kind": upload.kind}),
         loaded.report.to_dict(),
     )
     # The report shows the engagement as it was when the checks ran, even if it's renamed.
     snapshot = {"client": e.client.name, "engagement": e.name, "framework": e.framework}
     run = Run(engagement=e, upload=upload, settings={**settings, "context": snapshot},
-              result=result)
+              result=result, summary=RunSummary(**RunSummary.of(result)))
     session.add(run)
     session.flush()
     added = register.sync_run_findings(session, run)
@@ -709,14 +716,25 @@ def run_report(run_id: int, format: str = "xlsx", user: User = Depends(current_u
                      "sha256": run.upload.sha256,
                      "settings": {k: v for k, v in (run.settings or {}).items() if k != "context"}})
         session.commit()
-    stem = safe_stem(f"{e.client.name}-{e.name}-run{run.id}")
     if format == "csv":
+        stem = safe_stem(f"{e.client.name}-{e.name}-run{run.id}")
         return Response(
             report.to_csv(run.result), media_type="text/csv",
             headers=attachment(f"{stem}-findings.csv"),
         )
     if format != "xlsx":
         raise HTTPException(400, "Format must be csv or xlsx.")
+    name, content = run_workbook(run)
+    return Response(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=attachment(name),
+    )
+
+
+def run_workbook(run: Run) -> tuple[str, bytes]:
+    """A run's audit report as an Excel file, and its name."""
+    e = run.engagement
     then = (run.settings or {}).get("context", {})  # older runs fall back to the live names
     context = {"Client": then.get("client", e.client.name),
                "Engagement": then.get("engagement", e.name),
@@ -724,8 +742,8 @@ def run_report(run_id: int, format: str = "xlsx", user: User = Depends(current_u
                "Framework": then.get("framework", e.framework),
                "Run": f"#{run.id} at {run.created_at:%Y-%m-%d %H:%M} UTC",
                "File SHA-256": run.upload.sha256}
-    return Response(
-        report.to_excel(run.result, Path(run.upload.filename).name, context),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=attachment(f"{stem}-audit-report.xlsx"),
-    )
+    if (run.settings or {}).get("template"):
+        context["Firm test template"] = run.settings["template"]
+    stem = safe_stem(f"{e.client.name}-{e.name}-run{run.id}")
+    return (f"{stem}-audit-report.xlsx",
+            report.to_excel(run.result, Path(run.upload.filename).name, context))

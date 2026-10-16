@@ -309,6 +309,7 @@ async function openEngagement(id) {
     aiMapHints = {};
     $("fs-ai-note").hidden = true;
   }
+  const switched = currentEngagement?.id !== e.id;
   currentEngagement = e;
   $("eng-empty").hidden = true;
   $("eng-detail").hidden = false;
@@ -319,6 +320,8 @@ async function openEngagement(id) {
   renderMateriality(e.materiality, e.materiality_carried);
   renderUploads(e.uploads);
   renderRuns(e.runs);
+  renderTemplates(e, switched);
+  updatePackLink();
   renderComparisonForm(e);
   renderComparisons(e.comparisons);
   renderMatchForm(e);
@@ -746,6 +749,8 @@ $("uploads").addEventListener("click", (e) => {
           round_threshold: Number($("run-round").value || 1000),
           weekend: $("run-weekend").value,
           keywords: $("run-keywords").value.split(/[,،\n]/).filter((w) => w.trim()),
+          // The server keeps the name only if these are the template's settings unchanged.
+          template_id: /^\d+$/.test($("run-template").value) ? Number($("run-template").value) : null,
         });
         await openEngagement(currentEngagement.id);
         showRun(r);
@@ -760,6 +765,110 @@ $("uploads").addEventListener("click", (e) => {
       await openEngagement(currentEngagement.id);
     });
   }
+});
+
+// Firm templates for the audit check settings, and the audit file download
+
+let templates = [];
+let checkDefaults = null;  // the app's standard settings, from /api/checks/options
+
+function updatePackLink() {
+  if (!currentEngagement) return;
+  $("eng-pack").href = `/api/engagements/${currentEngagement.id}/pack${$("eng-pack-files").checked ? "?files=true" : ""}`;
+}
+$("eng-pack-files").addEventListener("change", updatePackLink);
+
+function currentCheckSettings() {
+  return {
+    cutoff_days: Number($("run-cutoff").value || 0),
+    round_threshold: Number($("run-round").value || 1000),
+    weekend: $("run-weekend").value,
+    keywords: $("run-keywords").value.split(/[,،\n]/).map((w) => w.trim()).filter(Boolean),
+  };
+}
+
+function fillCheckSettings(s) {
+  $("run-cutoff").value = s.cutoff_days;
+  $("run-round").value = s.round_threshold;
+  if ([...$("run-weekend").options].some((o) => o.value === s.weekend)) $("run-weekend").value = s.weekend;
+  $("run-keywords").value = s.keywords.join(", ");
+}
+
+// The picker: the last run's settings, the firm's templates, and the app's standard ones. A
+// newly opened engagement starts from its last run, else the firm default.
+function renderTemplates(e, switched, pick = null) {
+  const last = e.runs[0];
+  const keep = pick ?? $("run-template").value;
+  $("run-template").innerHTML = (last ? `<option value="last">Same as the last run (#${last.id})</option>` : "") +
+    templates.map((t) => `<option value="${t.id}" translate="no">${esc(t.name)}${t.is_default ? " ★" : ""}</option>`).join("") +
+    '<option value="app">The app\'s standard settings</option>';
+  const has = (v) => [...$("run-template").options].some((o) => o.value === String(v));
+  const firmDefault = templates.find((t) => t.is_default);
+  let value = has(keep) ? keep : "app";
+  if (switched || !has(keep)) value = last ? "last" : firmDefault ? String(firmDefault.id) : "app";
+  if (pick !== null && has(pick)) value = String(pick);
+  $("run-template").value = value;
+  if (switched || pick !== null || value !== keep) applyTemplate();
+  else renderTemplateButtons();
+}
+
+function selectedTemplate() {
+  return templates.find((t) => String(t.id) === $("run-template").value) || null;
+}
+
+function renderTemplateButtons() {
+  const t = selectedTemplate();
+  const partner = me.rank >= 3;  // only partners and admins change the firm's templates
+  $("tpl-save").hidden = !partner;
+  $("tpl-default").hidden = !partner || !t || t.is_default;
+  $("tpl-delete").hidden = !partner || !t;
+}
+
+function applyTemplate() {
+  const v = $("run-template").value;
+  const last = currentEngagement?.runs[0];
+  if (v === "last" && last) fillCheckSettings({ ...checkDefaults, ...last.settings });
+  else if (v === "app") fillCheckSettings(checkDefaults);
+  else if (selectedTemplate()) fillCheckSettings(selectedTemplate());
+  renderTemplateButtons();
+}
+$("run-template").addEventListener("change", applyTemplate);
+
+async function reloadTemplates(pick) {
+  templates = await getJSON("/api/test-templates");
+  if (currentEngagement) renderTemplates(currentEngagement, false, pick);
+}
+
+$("tpl-save").addEventListener("click", () => {
+  const t = selectedTemplate();
+  const name = (prompt("Name for the template", t ? t.name : "") || "").trim();
+  if (!name) return;
+  const same = templates.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  if (same && !confirm(`Replace the template ${same.name} with these settings?`)) return;
+  guard(async () => {
+    const body = { name, ...currentCheckSettings(), is_default: same ? same.is_default : false };
+    const saved = same ? await sendJSON("PUT", `/api/test-templates/${same.id}`, { ...body, name: same.name })
+      : await sendJSON("POST", "/api/test-templates", body);
+    await reloadTemplates(saved.id);
+  });
+});
+
+$("tpl-default").addEventListener("click", () => {
+  const t = selectedTemplate();
+  if (!t) return;
+  guard(async () => {
+    await sendJSON("PUT", `/api/test-templates/${t.id}`, { ...t, is_default: true });
+    await reloadTemplates(t.id);
+  });
+});
+
+$("tpl-delete").addEventListener("click", () => {
+  const t = selectedTemplate();
+  if (!t || !confirm(`Delete the template ${t.name}? Runs already made with it keep its name.`)) return;
+  guard(async () => {
+    await sendJSON("DELETE", `/api/test-templates/${t.id}`);
+    await reloadTemplates(null);
+  });
 });
 
 // Runs
@@ -3522,6 +3631,8 @@ async function startApp() {
     });
   });
   document.querySelectorAll(".keyword-list").forEach((input) => { input.value = checkOptions.keywords.join(", "); });
+  checkDefaults = { cutoff_days: 5, round_threshold: 1000, weekend: $("run-weekend").value, keywords: checkOptions.keywords };
+  try { templates = await getJSON("/api/test-templates"); } catch { templates = []; }
   $("up-kind").innerHTML = meta.upload_kinds.map((k) => `<option value="${k.id}">${esc(k.label)}</option>`).join("");
   appStarted = true;
   route();

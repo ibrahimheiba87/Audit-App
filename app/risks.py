@@ -332,7 +332,13 @@ def export_risks(engagement_id: int, user: User = Depends(current_user),
     log(session, user, "risk.download", "Downloaded the risk register and audit program", e,
         details={"risks": len(e.risks)})
     session.commit()
+    name, content = workbook(e)
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(e: Engagement) -> tuple[str, bytes]:
+    """The risk register and audit program as an Excel file, and its name."""
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat()}
     stem = safe_stem(f"{e.client.name}-{e.name}-risk-register")
-    return Response(to_excel(e, context), media_type=XLSX, headers=attachment(f"{stem}.xlsx"))
+    return f"{stem}.xlsx", to_excel(e, context)

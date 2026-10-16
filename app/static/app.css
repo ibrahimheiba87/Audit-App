@@ -90,6 +90,10 @@ a.button { display: inline-block; padding: 4px 10px; font-size: 13px; border-rad
 .spacer { flex: 1; }
 label.inline { display: flex; gap: 6px; align-items: center; margin: 0; }
 label.inline input { width: 170px; padding: 6px; }
+.pack-note { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin: 10px 0 0; }
+.pack-note label.inline input { width: auto; }
+.tpl-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
+.tpl-actions [hidden] { display: none; }
 .bulk { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 10px;
         border: 1px solid var(--border); border-radius: 8px; background: var(--low-bg); font-size: 14px; }
 .bulk input { width: 240px; padding: 5px 8px; }

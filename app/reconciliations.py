@@ -161,11 +161,17 @@ def reconciliation_report(rec_id: int, user: User = Depends(current_user),
         details={"reconciliation_id": r.id, "bank_sha256": r.bank_upload.sha256,
                  "gl_sha256": r.gl_upload.sha256})
     session.commit()
+    name, content = workbook(r)
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(r: BankReconciliation) -> tuple[str, bytes]:
+    """A bank reconciliation as an Excel file, and its name."""
+    e = r.engagement
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": r.settings["period_end"],
                "Bank statement": f"{r.bank_upload.filename} ({r.bank_upload.sha256[:12]})",
                "General ledger": f"{r.gl_upload.filename} ({r.gl_upload.sha256[:12]})",
                "Reconciled": f"{r.created_at:%Y-%m-%d %H:%M} UTC by {r.created_by}"}
     stem = safe_stem(f"{e.client.name}-{e.name}-bank-reconciliation{r.id}")
-    return Response(bankrec.to_excel(r.result, context), media_type=XLSX,
-                    headers=attachment(f"{stem}.xlsx"))
+    return f"{stem}.xlsx", bankrec.to_excel(r.result, context)

@@ -153,6 +153,13 @@ def export_sample(sample_id: int, user: User = Depends(current_user),
         details={"sample_id": x.id, "upload_id": x.upload_id, "sha256": x.upload.sha256,
                  "seed": x.seed, "params": x.params})
     session.commit()
+    name, content = workbook(x)
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(x: Sample) -> tuple[str, bytes]:
+    """A sample workpaper as an Excel file, and its name."""
+    e = x.engagement
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(),
                "File": f"{x.upload.filename} (SHA-256 {x.upload.sha256})",
@@ -161,9 +168,8 @@ def export_sample(sample_id: int, user: User = Depends(current_user),
     if x.evaluation:
         context["Results recorded"] = (f"{x.evaluation.updated_by}, "
                                        f"{x.evaluation.updated_at:%Y-%m-%d %H:%M} UTC")
-    return Response(sampling.to_excel(x.result, context, x.evaluation and x.evaluation.result),
-                    media_type=XLSX,
-                    headers=attachment(f"{stem}.xlsx"))
+    return f"{stem}.xlsx", sampling.to_excel(x.result, context,
+                                             x.evaluation and x.evaluation.result)
 
 
 @router.post("/sample")

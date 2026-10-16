@@ -407,8 +407,14 @@ def export_cross_match(match_id: int, user: User = Depends(current_user),
     log(session, user, "crossmatch.download", f"Downloaded file match #{m.id}", m.engagement,
         details={"match_id": m.id})
     session.commit()
-    stem = safe_stem(f"{m.engagement.name}-match-{m.id}")
-    return Response(to_excel(m), media_type=XLSX, headers=attachment(f"{stem}.xlsx"))
+    name, content = workbook(m)
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(m: CrossMatch) -> tuple[str, bytes]:
+    """A file match as an Excel file, and its name."""
+    e = m.engagement
+    return f"{safe_stem(f'{e.name}-match-{m.id}')}.xlsx", to_excel(m)
 
 
 @router.delete("/cross-matches/{match_id}", status_code=204)

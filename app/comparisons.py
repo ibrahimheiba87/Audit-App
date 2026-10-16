@@ -81,14 +81,20 @@ def comparison_report(comparison_id: int, user: User = Depends(current_user),
         details={"comparison_id": c.id, "current_sha256": c.current_upload.sha256,
                  "prior_sha256": c.prior_upload.sha256, "settings": c.settings})
     session.commit()
+    name, content = workbook(c)
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(c: Comparison) -> tuple[str, bytes]:
+    """A prior-year comparison as an Excel file, and its name."""
+    e = c.engagement
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat(),
                "This year's file": f"{c.current_upload.filename} ({c.current_upload.sha256[:12]})",
                "Prior year's file": f"{c.prior_upload.filename} ({c.prior_upload.sha256[:12]})",
                "Compared": f"{c.created_at:%Y-%m-%d %H:%M} UTC"}
     stem = safe_stem(f"{e.client.name}-{e.name}-comparison{c.id}")
-    return Response(compare.to_excel(c.result, context), media_type=XLSX,
-                    headers=attachment(f"{stem}.xlsx"))
+    return f"{stem}.xlsx", compare.to_excel(c.result, context)
 
 
 @router.post("/compare")

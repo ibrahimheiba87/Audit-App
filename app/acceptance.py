@@ -278,13 +278,17 @@ def to_excel(e: Engagement, s: dict, context: dict) -> bytes:
 def export_acceptance(engagement_id: int, user: User = Depends(current_user),
                       session: Session = Depends(get_session)) -> Response:
     e = get_or_404(session, Engagement, engagement_id, user)
-    s = state(session, e, user)
+    name, content = workbook(session, e, user)
     log(session, user, "acceptance.download",
         "Downloaded the acceptance and independence record", e)
     session.commit()
+    return Response(content, media_type=XLSX, headers=attachment(name))
+
+
+def workbook(session: Session, e: Engagement, user: User) -> tuple[str, bytes]:
+    """The acceptance and independence record as an Excel file, and its name."""
     context = {"Client": e.client.name, "Engagement": e.name,
                "Period end": e.period_end.isoformat()}
     stem = safe_stem(f"{e.client.name}-{e.name}-acceptance")
-    return Response(to_excel(e, s, context), media_type=XLSX,
-                    headers=attachment(f"{stem}.xlsx"))
+    return f"{stem}.xlsx", to_excel(e, state(session, e, user), context)
 

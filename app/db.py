@@ -22,9 +22,12 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    exists,
+    select,
     text,
 )
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -32,6 +35,7 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
     sessionmaker,
+    undefer,
 )
 
 
@@ -175,12 +179,47 @@ class Run(Base):
     engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"))
     upload_id: Mapped[int] = mapped_column(ForeignKey("uploads.id"))
     settings: Mapped[dict] = mapped_column(JSON)
-    result: Mapped[dict] = mapped_column(JSON)
+    result: Mapped[dict] = mapped_column(JSON, deferred=True)  # every finding; loaded when read
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="runs")
     upload: Mapped[Upload] = relationship()
     register_sync: Mapped[RunSync | None] = relationship(cascade="all, delete-orphan")
+    summary: Mapped[RunSummary | None] = relationship(cascade="all, delete-orphan",
+                                                      lazy="selectin")
+
+
+class RunSummary(Base):
+    """A run's counts, kept apart from its result so listing runs doesn't read every finding.
+
+    A separate table so databases made before it get it without a migration; init() fills it
+    in for runs saved before it existed.
+    """
+
+    __tablename__ = "run_summaries"
+
+    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id"), primary_key=True)
+    rows: Mapped[int] = mapped_column(Integer)
+    findings_by_severity: Mapped[dict] = mapped_column(JSON)
+
+    @staticmethod
+    def of(result: dict) -> dict:
+        s = result["summary"]
+        return {"rows": s["rows"], "findings_by_severity": s["findings_by_severity"]}
+
+
+class TestTemplate(Base):
+    """Firm-wide settings for the journal entry checks, such as the words to look for, that a
+    team picks instead of typing them in each time (templates.py)."""
+
+    __tablename__ = "test_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    settings: Mapped[dict] = mapped_column(JSON)  # cutoff_days, round_threshold, weekend, keywords
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class RunSync(Base):
@@ -797,6 +836,7 @@ def configure(url: str) -> None:
 def init() -> None:
     Base.metadata.create_all(engine)
     _upgrade()
+    _summarize_runs()
 
 
 def _upgrade() -> None:
@@ -805,6 +845,24 @@ def _upgrade() -> None:
         with engine.begin() as conn:
             for table in ("account_mappings", "adjusting_lines"):  # account was VARCHAR(100)
                 conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN account TYPE VARCHAR(200)"))
+
+
+def _summarize_runs() -> None:
+    """Give runs saved before run_summaries existed their summary, a few at a time."""
+    with Session(engine) as session:
+        missing = list(session.scalars(select(Run.id).where(
+            ~exists().where(RunSummary.run_id == Run.id)).order_by(Run.id)))
+        for start in range(0, len(missing), 50):
+            ids = missing[start:start + 50]
+            runs = session.scalars(select(Run).where(Run.id.in_(ids))
+                                   .options(undefer(Run.result)))
+            for run in runs:
+                session.add(RunSummary(run_id=run.id, **RunSummary.of(run.result)))
+            try:
+                session.commit()
+            except IntegrityError:  # another worker starting at the same time did these
+                session.rollback()
+            session.expunge_all()
 
 
 def get_session() -> Iterator[Session]:
