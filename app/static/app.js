@@ -900,7 +900,12 @@ function renderMatches(list) {
 
 $("xm-list").addEventListener("click", (ev) => {
   const b = ev.target.closest("[data-view-match]");
-  if (b) guard(async () => showMatch(await getJSON(`/api/cross-matches/${b.dataset.viewMatch}`)));
+  if (!b) return;
+  const id = currentEngagement.id;
+  guard(async () => {
+    const m = await getJSON(`/api/cross-matches/${b.dataset.viewMatch}`);
+    if (currentEngagement?.id === id && m.engagement_id === id) showMatch(m);
+  });
 });
 
 function showMatch(m) {
@@ -1003,7 +1008,8 @@ function renderDisclosures() {
     return;
   }
   const n = dc.counts;
-  $("dc-framework").hidden = !currentEngagement || ["IFRS", "IFRS for SMEs"].includes(currentEngagement.framework);
+  // The items are full IFRS; IFRS for SMEs asks for less, and differently.
+  $("dc-framework").hidden = !currentEngagement || currentEngagement.framework === "IFRS";
   $("dc-export").href = `/api/engagements/${dc.engagement_id}/disclosures/export`;
   $("dc-cards").innerHTML = [[`${n.answered}/${n.items}`, "Items answered", false], [n.given, "Given", false],
     [n.missing, "Missing", n.missing > 0], [n.na, "Not applicable", false],
@@ -1027,6 +1033,7 @@ function renderDisclosures() {
       ${ai}
     </div>`;
   }).join("");
+  lockDisclosures();
   $("dc-saved").innerHTML = dc.updated_by ? `<span>Last saved by</span> ${data(dc.updated_by)} · <span>${esc(when(dc.updated_at))}</span>` : "";
   filterDisclosures();
 }
@@ -1045,31 +1052,48 @@ async function disclosuresChanged(id) {
   await loadEngagementActivity();
 }
 
+// The answers can't be changed while a save is on its way: what's typed meanwhile wasn't
+// sent, and would be lost when the saved answers come back.
+let dcSaving = 0;
+function lockDisclosures() {
+  for (const el of $("dc-items").querySelectorAll("input")) el.disabled = dcSaving > 0;
+}
+async function whileSavingDisclosures(work) {
+  dcSaving += 1;
+  lockDisclosures();
+  try {
+    await work();
+  } finally {
+    dcSaving -= 1;
+    lockDisclosures();
+  }
+}
+
 $("dc-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
   if (!dc) return;
   const id = dc.engagement_id;
   // Only what was changed here, so answers someone else saved meanwhile aren't undone.
   const answers = disclosureEdits();
-  busy($("dc-save"), async () => {
+  busy($("dc-save"), () => whileSavingDisclosures(async () => {
     const d = await sendJSON("PUT", `/api/engagements/${id}/disclosures`, { answers });
     if (currentEngagement?.id !== id) return;
     dc = { ...d, engagement_id: id };
     renderDisclosures();
     await disclosuresChanged(id);
-  });
+  }));
 });
 
 $("dc-ai-note").addEventListener("click", (ev) => {
   const b = ev.target.closest("#dc-accept");
   if (!b || !dc) return;
   const id = dc.engagement_id;
-  busy(b, async () => {
+  busy(b, () => whileSavingDisclosures(async () => {
     const d = await sendJSON("POST", `/api/engagements/${id}/disclosures/accept-ai`);
     if (currentEngagement?.id !== id) return;
     showDisclosures(d, id);
     await disclosuresChanged(id);
-  });
+  }));
 });
 
 $("dc-ai-form").addEventListener("submit", (ev) => {
