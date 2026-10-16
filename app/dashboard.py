@@ -66,7 +66,7 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
                bank: dict | None = None, risks: dict | None = None,
                acceptance: dict | None = None,
                disclosures: dict | None = None, controls: dict | None = None,
-               confirmations: dict | None = None) -> list[dict]:
+               confirmations: dict | None = None, workplan: dict | None = None) -> list[dict]:
     """The to-do list, most pressing first. Each step names the panel (and tab) that deals
     with it."""
     steps: list[dict] = []
@@ -167,6 +167,14 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
             add("medium", f"Do alternative procedures for "
                           f"{_plural(out['alternative_needed'], 'confirmation')} with no reply.",
                 "cf-panel")
+    if workplan:
+        if workplan["overdue"]:
+            add("medium", f"Catch up on {_plural(workplan['overdue'], 'overdue task')}.",
+                "wp-panel")
+        if workplan["unassigned"]:
+            add("low", f"Give {_plural(workplan['unassigned'], 'task')} an owner.", "wp-panel")
+        for area in workplan["over_areas"]:
+            add("low", f"Hours on {area} are over budget.", "wp-panel")
     if open_high:
         add("high", f"Work through {_plural(open_high, 'open high-severity finding')}.", "reg-panel")
     elif findings["open"]:
@@ -211,12 +219,14 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     from .controls import summary as control_summary
     from .disclosures import summary as disclosure_summary
     from .risks import summary
+    from .workplan import summary as workplan_summary
     # Teams may keep their risk assessment elsewhere: only suggest the register to those who
     # started one here, or asked the AI for a risk assessment.
     risk_summary = {**summary(list(e.risks)),
                     "ai_draft": any(d.kind == "risk" for d in e.ai_drafts)}
     controls = control_summary(list(e.controls))
     confirmations = confirmation_summary(e)
+    workplan = workplan_summary(e)
     days_left = (e.period_end - date.today()).days
     return {
         "period_end": e.period_end.isoformat(),
@@ -244,9 +254,10 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
         "risks": risk_summary,
         "controls": controls,
         "confirmations": confirmations,
+        "workplan": workplan,
         "next_steps": next_steps(e, mat, kinds, gl_runs, findings,
                                  open_by_severity.get("high", 0), rv, rq, fs, bank,
                                  risk_summary, acceptance_summary(e), disclosure_summary(e),
-                                 controls, confirmations)
+                                 controls, confirmations, workplan)
         if e.lock is None else [],
     }

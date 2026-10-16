@@ -39,6 +39,8 @@ from .db import (
     RiskProcedure,
     Run,
     Sample,
+    Task,
+    TimeEntry,
     Upload,
     User,
     get_session,
@@ -56,6 +58,7 @@ PARAM_MODELS = {
     "request_id": DocumentRequest, "file_id": RequestFile, "rec_id": BankReconciliation,
     "draft_id": AiDraft, "risk_id": Risk, "procedure_id": RiskProcedure,
     "match_id": CrossMatch, "confirmation_id": Confirmation, "control_id": Control,
+    "task_id": Task, "time_entry_id": TimeEntry,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is

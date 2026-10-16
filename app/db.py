@@ -154,6 +154,15 @@ class Engagement(Base):
     controls: Mapped[list[Control]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Control.id"
     )
+    tasks: Mapped[list[Task]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Task.id"
+    )
+    time_budgets: Mapped[list[TimeBudget]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="TimeBudget.area"
+    )
+    time_entries: Mapped[list[TimeEntry]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="TimeEntry.id"
+    )
 
 
 class Upload(Base):
@@ -384,6 +393,66 @@ class IndependenceDeclaration(Base):
     declared_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="declarations")
+
+
+class Task(Base):
+    """A piece of work on an engagement, who it is for and when it is due (workplan.py)."""
+
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    area: Mapped[str] = mapped_column(String(30), default="other")
+    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True,
+                                                    index=True)
+    assignee_name: Mapped[str] = mapped_column(String(200), default="")
+    due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_by_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    done_by: Mapped[str] = mapped_column(String(200), default="")
+    done_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="tasks")
+
+
+class TimeBudget(Base):
+    """The hours budgeted for one area of an engagement (workplan.py)."""
+
+    __tablename__ = "time_budgets"
+    __table_args__ = (UniqueConstraint("engagement_id", "area"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    area: Mapped[str] = mapped_column(String(30))
+    hours: Mapped[float] = mapped_column(Float, default=0.0)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="time_budgets")
+
+
+class TimeEntry(Base):
+    """Hours someone worked on an engagement on one day (workplan.py)."""
+
+    __tablename__ = "time_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True,
+                                                index=True)
+    user_name: Mapped[str] = mapped_column(String(200), default="")
+    worked_on: Mapped[date] = mapped_column(Date)
+    area: Mapped[str] = mapped_column(String(30), default="other")
+    hours: Mapped[float] = mapped_column(Float)
+    note: Mapped[str] = mapped_column(Text, default="")
+    task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # not a key: tasks go
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="time_entries")
 
 
 class Confirmation(Base):
