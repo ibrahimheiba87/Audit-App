@@ -152,6 +152,12 @@ uses **Change team** to add the people who work on it.
 document request portal for that client's engagements (upload files, remove their own files
 until a request is accepted, send messages), and every other part of the app refuses them.
 
+People can also **ask for an account** from the sign-in page (name, email, password). They
+can't sign in until an admin approves them: the request waits under **Users → Waiting for
+approval** (the Users tab shows how many are waiting), where the admin picks a role and
+approves it or turns it down. Approved users see only the engagements they're added to. At most
+50 requests can wait at once, and 20 can arrive per hour.
+
 Every change and download is written to the activity log with who, when, the engagement, the
 file's SHA-256 and the settings used (run settings, sampling parameters and seed, comparison
 thresholds, materiality). Sign-ins, failed sign-ins and user changes are logged with the IP
@@ -260,6 +266,9 @@ All endpoints need a signed-in session cookie except `/api/health`, `GET /api/au
 - `GET /api/auth/status`, `POST /api/auth/setup` (first admin, only while there are no users),
   `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/password`,
   `PUT /api/auth/language` (`language=en|ar`)
+- `POST /api/auth/signup` (`name`, `email`, `password`; anyone): asks for an account
+- `GET /api/signups`, `POST /api/signups/{id}/approve` (`role`, default preparer; `client_id`
+  for client users), `DELETE /api/signups/{id}` (turn down); admin only
 - `GET|POST /api/users`, `PATCH /api/users/{id}` (`name`, `role`, `active`, `password`, `client_id` for client users); admin only
 - `GET /api/activity?engagement_id=&user_id=&action=&limit=`; without `engagement_id`, admin
   only; with it, admins and the engagement's team

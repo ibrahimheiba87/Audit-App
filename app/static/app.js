@@ -3903,6 +3903,7 @@ function setUser(user) {
   $("user-role").textContent = user.role_label;
   $("user-chip").hidden = false;
   $("nav").hidden = user.role === "client";
+  if (user.role === "admin") refreshSignupCount();
 }
 
 function showLogin(needsSetup) {
@@ -3916,8 +3917,37 @@ function showLogin(needsSetup) {
   $("results").hidden = true;
   $("login-form").hidden = needsSetup;
   $("setup-form").hidden = !needsSetup;
+  $("signup-form").hidden = $("signup-done").hidden = true;
+  $("signup-open-row").hidden = needsSetup;
   (needsSetup ? $("setup-name") : $("login-email")).focus();
 }
+
+// Asking for an account: it waits for an admin to approve it before it can sign in.
+function showSignup(form) {
+  showError("");
+  $("login-form").hidden = form !== "login";
+  $("signup-form").hidden = form !== "signup";
+  $("signup-done").hidden = form !== "done";
+  if (form === "signup") $("signup-name").focus();
+  if (form === "login") $("login-email").focus();
+}
+$("signup-open").addEventListener("click", () => {
+  $("signup-email").value = $("login-email").value;
+  showSignup("signup");
+});
+$("signup-back").addEventListener("click", () => showSignup("login"));
+$("signup-done-back").addEventListener("click", () => showSignup("login"));
+$("signup-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const button = ev.submitter || $("signup-form").querySelector("button[type=submit]");
+  busy(button, async () => {
+    const body = formObject($("signup-form"));
+    await sendJSON("POST", "/api/auth/signup", body);
+    $("login-email").value = body.email;
+    $("signup-form").reset();
+    showSignup("done");
+  });
+});
 
 let lastUser = null;  // who this page was last set up for, and as what
 const userKey = (u) => `${u.id}:${u.role}:${u.client_id ?? ""}`;
@@ -3976,13 +4006,36 @@ $("pw-form").addEventListener("submit", async (ev) => {
 });
 
 let users = [];
+let signups = [];  // account requests waiting for an admin
+
+function showSignupCount(n) {
+  $("signup-count").textContent = n || "";
+  $("signup-count").hidden = !n;
+}
+async function refreshSignupCount() {
+  try { showSignupCount((await getJSON("/api/signups")).length); } catch {}
+}
 
 let clients = [];  // for linking client users
 
 async function showUsers() {
-  [users, clients] = await Promise.all([getJSON("/api/users"), getJSON("/api/clients")]);
+  [users, clients, signups] = await Promise.all([getJSON("/api/users"), getJSON("/api/clients"),
+    getJSON("/api/signups")]);
   const staff = roles.filter((r) => r.id !== "client");
   const roleOptions = (sel, list) => list.map((r) => `<option value="${r.id}"${r.id === sel ? " selected" : ""}>${esc(r.label)}</option>`).join("");
+  showSignupCount(signups.length);
+  $("signups-panel").hidden = !signups.length;
+  $("signups").innerHTML = signups.length
+    ? "<tr><th>Name</th><th>Email</th><th>Asked</th><th>Role</th><th></th></tr>" +
+      signups.map((r) => `<tr data-signup="${r.id}"><td>${data(r.name)}</td><td>${data(r.email)}</td>
+        <td class="nowrap">${esc(when(r.created_at))}</td>
+        <td><select class="map" data-signup-role aria-label="Role">${roleOptions("preparer", staff)}
+          <optgroup label="Client user of">${clients.map((c) => `<option translate="no" value="client:${c.id}">${esc(c.name)}</option>`).join("")}</optgroup></select></td>
+        <td><div class="cell-actions">
+          <button type="button" class="small" data-approve>Approve</button>
+          <button type="button" class="small secondary danger" data-reject>Turn down</button>
+        </div></td></tr>`).join("")
+    : "";
   const clientOptions = (sel) => clients.map((c) => `<option value="${c.id}"${c.id === sel ? " selected" : ""} translate="no">${esc(c.name)}</option>`).join("");
   const keep = $("nu-role").value;
   $("nu-role").innerHTML = roleOptions(keep || "preparer", [...staff, ...roles.filter((r) => r.id === "client")]);
@@ -4002,6 +4055,25 @@ async function showUsers() {
         <button type="button" class="small secondary${u.active ? " danger" : ""}" data-active="${!u.active}">${u.active ? "Deactivate" : "Reactivate"}</button>
       </div></td></tr>`).join("");
 }
+
+$("signups").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-signup]");
+  const button = ev.target.closest("[data-approve], [data-reject]");
+  if (!row || !button) return;
+  const r = signups.find((x) => String(x.id) === row.dataset.signup);
+  if (button.matches("[data-reject]")) {
+    if (!confirm(`Turn down ${r.name}'s request? They won't be able to sign in.`)) return;
+    busy(button, async () => {
+      try { await sendJSON("DELETE", `/api/signups/${r.id}`); } finally { await showUsers(); }
+    }, () => false);
+    return;
+  }
+  const role = row.querySelector("[data-signup-role]").value;
+  const body = role.startsWith("client:") ? { role: "client", client_id: Number(role.slice(7)) } : { role };
+  busy(button, async () => {
+    try { await sendJSON("POST", `/api/signups/${r.id}/approve`, body); } finally { await showUsers(); }
+  }, () => false);
+});
 
 function updateNewUserRole() {
   const client = $("nu-role").value === "client";

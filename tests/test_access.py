@@ -236,6 +236,8 @@ NOT_ENGAGEMENT_ROUTES = {
     ("GET", "/api/clients/{client_id}"), ("PATCH", "/api/clients/{client_id}"),
     ("DELETE", "/api/clients/{client_id}"), ("POST", "/api/clients/{client_id}/engagements"),
     ("PATCH", "/api/users/{user_id}"),
+    ("POST", "/api/signups/{signup_id}/approve"),
+    ("DELETE", "/api/signups/{signup_id}"),
     ("PUT", "/api/engagements/{engagement_id}/team"),  # admins only
     ("DELETE", "/api/engagements/{engagement_id}/lock"),  # admins only
     ("PUT", "/api/test-templates/{template_id}"),  # firm-wide, not an engagement's

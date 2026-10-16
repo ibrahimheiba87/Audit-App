@@ -46,6 +46,7 @@ def upload(c, rid, file=PDF):
 
 # Endpoints a client user may call; everything else must refuse them.
 CLIENT_PATHS = {"/", "/api/auth/status", "/api/auth/setup", "/api/auth/login", "/api/auth/logout",
+                "/api/auth/signup",
                 "/api/auth/me", "/api/auth/password", "/api/auth/language", "/api/health",
                 "/api/portal/requests",
                 "/api/requests/{request_id}/files", "/api/requests/{request_id}/messages",

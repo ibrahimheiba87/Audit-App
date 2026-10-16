@@ -928,6 +928,23 @@ class AuthSession(Base):
     user: Mapped[User] = relationship()
 
 
+class SignupRequest(Base):
+    """Someone who asked for an account on the sign-in page. They can't sign in until an admin
+    approves the request, which turns it into a user; rejecting it deletes it.
+
+    A separate table so databases made before sign-up get it without a migration.
+    """
+
+    __tablename__ = "signup_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    name: Mapped[str] = mapped_column(String(200))
+    password_hash: Mapped[str] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    ip: Mapped[str] = mapped_column(String(64), default="")
+
+
 class Activity(Base):
     """Who did what and when. Names are copied in so the log survives deletions."""
 

@@ -14,6 +14,9 @@ Roles, lowest to highest. Each role can do everything the roles below it can:
 Everyone but admins sees only the engagements they are assigned to (on_engagement); the rest
 answer 404 as if they didn't exist. Admins see every engagement.
 
+People can also ask for an account on the sign-in page (accounts.signup). The request can't
+sign in until an admin approves it with a role, which turns it into an ordinary user.
+
 Client users are outside this ladder: they belong to one client and can only use the
 document request portal (portal.py) for that client's engagements. Every other endpoint
 refuses them.
