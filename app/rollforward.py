@@ -173,6 +173,10 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
         log(session, user, "control.carry",
             f"Carried {carried['controls']} controls from {old.name}", new,
             details={"from_engagement_id": old.id, "controls": carried['controls']})
+    if carried.get("related_parties"):  # and the related parties section
+        log(session, user, "related.carry",
+            f"Carried {carried['related_parties']} related parties from {old.name}", new,
+            details={"from_engagement_id": old.id, "parties": carried["related_parties"]})
     if upload is not None:
         log(session, user, "upload.create",
             f"Uploaded {upload.filename} (Prior-year trial balance) from {old.name}", new,

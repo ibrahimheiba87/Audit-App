@@ -26,6 +26,7 @@ from sqlalchemy import (
     select,
     text,
 )
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
@@ -553,6 +554,10 @@ class RelatedParty(Base):
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     matches: Mapped[int] = mapped_column(Integer, default=0)
     matched_amount: Mapped[float] = mapped_column(Float, default=0.0)  # debits plus credits
+    # Which ledger was scanned, and a fingerprint of the lines found, so a later scan that
+    # finds different lines (even as many) needs a fresh review. Added after the table.
+    scan_upload_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scan_fingerprint: Mapped[str] = mapped_column(String(64), default="")
     conclusion: Mapped[str] = mapped_column(Text, default="")  # on the transactions found
     reviewed_by: Mapped[str] = mapped_column(String(200), default="")
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -1144,8 +1149,23 @@ def init() -> None:
     _summarize_runs()
 
 
+# Columns added to a table after it first shipped: create_all doesn't add them.
+ADDED_COLUMNS = {
+    "related_parties": {"scan_upload_id": "INTEGER",
+                        "scan_fingerprint": "VARCHAR(64) NOT NULL DEFAULT ''"},
+}
+
+
 def _upgrade() -> None:
     """Changes create_all can't make to tables an earlier version created."""
+    with engine.begin() as conn:
+        for table, columns in ADDED_COLUMNS.items():
+            have = {c["name"] for c in sa_inspect(conn).get_columns(table)}
+            for name, ddl in columns.items():
+                if name not in have:
+                    # IF NOT EXISTS: another worker starting at the same time may have added it.
+                    exists_ok = " IF NOT EXISTS" if engine.dialect.name == "postgresql" else ""
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN{exists_ok} {name} {ddl}"))
     if engine.dialect.name == "postgresql":  # SQLite doesn't enforce VARCHAR lengths
         with engine.begin() as conn:
             for table in ("account_mappings", "adjusting_lines"):  # account was VARCHAR(100)

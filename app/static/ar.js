@@ -2207,12 +2207,14 @@ I18N.add({
     "This file has no user column to filter on.": "لا يحتوي هذا الملف على عمود مستخدم للتصفية به.",
     "This file has no entry column to filter on.": "لا يحتوي هذا الملف على عمود قيد للتصفية به.",
     "Upload a file first.": "ارفع ملفًا أولًا.",
+    "The date of the document itself": "تاريخ المستند نفسه",
   },
   patterns: {
     "Showing the first {n} of {count} rows.": "يُعرض أول {n} من أصل {count} صفاً.",
     "Showing the largest {n} of {count} columns.": "يُعرض أكبر {n} من أصل {count} عموداً.",
     "Showing the first {n} of {count} lines.": "يُعرض أول {n} من أصل {count} بنداً.",
     "Explored {file}": "تم استكشاف {file}",
+    "Carried {n} related parties from {name}": "تم ترحيل {n} من الأطراف ذات العلاقة من {name}",
     "Downloaded the ledger explorer workpaper for {file}": "تم تنزيل ورقة عمل مستكشف دفتر الأستاذ لـ {file}",
   },
 });

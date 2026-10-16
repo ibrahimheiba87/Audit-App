@@ -3,7 +3,8 @@ general ledger for transactions that name them.
 
 The team lists each party (shareholders, directors, their families, group companies and so
 on) with any other names it may appear under. The scan looks for those names in the ledger's
-descriptions and account names, ignoring case, punctuation and company endings such as "Ltd",
+descriptions and account names (and any other text column of the file, such as an account
+name beside the account code), ignoring case, punctuation and company endings such as "Ltd",
 and lists what it finds, flagging entries near the period end and round amounts. Someone then
 records a conclusion on each party's transactions and whether the statements disclose it.
 The scan's counts are kept so the dashboard can prompt without reading the ledger again.
@@ -11,6 +12,7 @@ The scan's counts are kept so the dashboard can prompt without reading the ledge
 
 from __future__ import annotations
 
+import hashlib
 import io
 import re
 from datetime import timedelta
@@ -129,7 +131,8 @@ def summary(e: Engagement) -> dict:
     parties = list(e.related_parties)
     return {
         "parties": len(parties),
-        "scanned": any(p.scanned_at for p in parties),
+        # Every current name checked: a party added or renamed since the last scan wasn't.
+        "scanned": bool(parties) and all(p.scanned_at for p in parties),
         "with_matches": sum(1 for p in parties if p.matches),
         "to_review": sum(1 for p in parties if p.matches and not p.reviewed_at),
         "missing_disclosure": sum(1 for p in parties if p.disclosed == "missing"),
@@ -149,18 +152,23 @@ def latest_ledger(e: Engagement) -> Upload | None:
     return max(gls, key=lambda u: (u.uploaded_at, u.id)) if gls else None
 
 
-def scan(e: Engagement, gl: Upload) -> list[dict]:
+def scan(e: Engagement, gl: Upload, parties: list[RelatedParty] | None = None) -> list[dict]:
     """Each party with the ledger lines that name it."""
-    df = load_upload(gl).df
+    loaded = load_upload(gl)
+    df = loaded.df
     text = pd.Series([""] * len(df), index=df.index)
     for col in ("description", "account"):
         if col in df:
             text = text + " " + df[col].fillna("").astype(str)
+    if loaded.unmapped is not None:  # an Account Name beside the Account Code, say
+        others = loaded.unmapped.reindex(df["row"].to_numpy())
+        for col in others.columns:
+            text = text + " " + others[col].fillna("").astype(str).to_numpy()
     norm = text.map(normalize)
     near_from, near_to = e.period_end - timedelta(days=NEAR_DAYS), e.period_end + \
         timedelta(days=NEAR_DAYS)
     out = []
-    for p in e.related_parties:
+    for p in (e.related_parties if parties is None else parties):
         keys = patterns(p)
         hits = norm[norm.map(lambda t, keys=keys: matches_name(t, keys))] if keys else norm[:0]
         rows = []
@@ -182,6 +190,12 @@ def scan(e: Engagement, gl: Upload) -> list[dict]:
                     "debits": round(sum(x["amount"] for x in rows if x["amount"] > 0), 2),
                     "credits": round(-sum(x["amount"] for x in rows if x["amount"] < 0), 2)})
     return out
+
+
+def fingerprint(gl: Upload, rows: list[dict]) -> str:
+    """The ledger and the lines found in it: a different set needs a fresh review."""
+    lines = sorted((r["row"], r["amount"]) for r in rows)
+    return hashlib.sha256(f"{gl.sha256}|{lines}".encode()).hexdigest()
 
 
 def scan_out(results: list[dict], gl: Upload) -> dict:
@@ -267,6 +281,7 @@ def update_party(party_id: int, body: PartyPatch, user: User = Depends(require("
         p.relationship_kind = changes["relationship"]
     if patterns(p) != before:  # different names: last scan's counts no longer apply
         p.scanned_at, p.matches, p.matched_amount = None, 0, 0.0
+        p.scan_upload_id, p.scan_fingerprint = None, ""
         p.reviewed_by, p.reviewed_at = "", None
     if changes.get("reviewed") is True:
         if p.matches and not p.conclusion:
@@ -275,6 +290,8 @@ def update_party(party_id: int, body: PartyPatch, user: User = Depends(require("
         p.reviewed_by, p.reviewed_at = user.name, utcnow()
     elif changes.get("reviewed") is False:
         p.reviewed_by, p.reviewed_at = "", None
+    elif p.reviewed_at and p.matches and not p.conclusion.strip():
+        p.reviewed_by, p.reviewed_at = "", None  # the conclusion the review rested on is gone
     p.updated_by, p.updated_at = user.name, utcnow()
     log(session, user, "related.update", f"Changed the related party {p.name}", e,
         details={"party_id": p.id, "changed": sorted(changes), "disclosed": p.disclosed,
@@ -310,10 +327,12 @@ def scan_ledger(engagement_id: int, body: ScanIn, user: User = Depends(require("
     now = utcnow()
     for x in results:
         p = x["party"]
-        if p.matches != len(x["rows"]):
-            p.reviewed_by, p.reviewed_at = "", None  # new transactions need a fresh look
+        mark = fingerprint(gl, x["rows"])
+        if mark != p.scan_fingerprint:
+            p.reviewed_by, p.reviewed_at = "", None  # other ledger or lines: a fresh look
         p.scanned_at, p.matches = now, len(x["rows"])
         p.matched_amount = x["debits"] + x["credits"]
+        p.scan_upload_id, p.scan_fingerprint = gl.id, mark
     log(session, user, "related.scan", f"Scanned {gl.filename} for related party names", e,
         details={"upload_id": gl.id, "parties": len(results),
                  "matches": sum(len(x["rows"]) for x in results)})
@@ -328,7 +347,7 @@ def to_excel(e: Engagement, results: list[dict] | None, gl: Upload | None) -> by
     about = [("Client", e.client.name), ("Engagement", e.name),
              ("Period end", e.period_end.isoformat()), ("Related parties", s["parties"]),
              ("With transactions found", s["with_matches"]),
-             ("Ledger scanned", gl.filename if gl else "No general ledger uploaded")]
+             ("Ledger scanned", gl.filename if gl else "Not scanned")]
     parties = [{"Name": p.name, "Relationship": RELATIONSHIPS.get(p.relationship_kind, ""),
                 "Other names": ", ".join(p.aliases or []), "Note": p.note,
                 "Transactions found": p.matches,
@@ -354,13 +373,23 @@ def to_excel(e: Engagement, results: list[dict] | None, gl: Upload | None) -> by
     return buf.getvalue()
 
 
+def scanned_ledger(e: Engagement) -> Upload | None:
+    """The ledger of the latest scan, if it is still uploaded."""
+    done = [p for p in e.related_parties if p.scanned_at and p.scan_upload_id]
+    if not done:
+        return None
+    last = max(done, key=lambda p: p.scanned_at).scan_upload_id
+    return next((u for u in e.uploads if u.id == last), None)
+
+
 def workbook(e: Engagement) -> tuple[str, bytes]:
-    """The register, with the transactions in the latest ledger that name each party."""
-    gl = latest_ledger(e)
+    """The register, with the transactions found by the last scan: the same ledger and the
+    same parties its counts, conclusions and reviews rest on."""
+    gl = scanned_ledger(e)
     results = None
-    if gl is not None and e.related_parties:
+    if gl is not None:
         try:
-            results = scan(e, gl)
+            results = scan(e, gl, [p for p in e.related_parties if p.scan_upload_id == gl.id])
         except HTTPException:
             gl = None  # a ledger that no longer loads: the register on its own
     stem = safe_stem(f"{e.client.name}-{e.name}-related-parties")

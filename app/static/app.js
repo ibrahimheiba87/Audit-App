@@ -2817,6 +2817,22 @@ $("rp-form").addEventListener("submit", (ev) => {
 
 // Related parties
 
+// Text someone is typing in a list that is about to be redrawn (another row's save reloads
+// it), to put back afterwards with the focus where it was.
+function keepDrafts(container, selector, key) {
+  const drafts = new Map();
+  let focused = null;
+  container.querySelectorAll(selector).forEach((el) => {
+    if (el.value !== el.defaultValue) drafts.set(key(el), el.value);
+    if (el === document.activeElement) focused = key(el);
+  });
+  return () => container.querySelectorAll(selector).forEach((el) => {
+    const k = key(el);
+    if (drafts.has(k)) el.value = drafts.get(k);
+    if (k === focused) el.focus();
+  });
+}
+
 let rpt = null;       // the register on show: {engagement_id, parties, summary, ...}
 let rptLoads = 0;
 let rptFound = null;  // what the last scan found, for the engagement it ran on
@@ -2836,6 +2852,7 @@ function renderRelated() {
     $("rpt-export").removeAttribute("href");
     return;
   }
+  const restore = keepDrafts($("rpt-table"), "[data-rpt-conclusion]", (el) => el.closest("[data-party]").dataset.party);
   const s = rpt.summary;
   $("rpt-export").href = `/api/engagements/${rpt.engagement_id}/related-parties/export`;
   $("rpt-cards").innerHTML = [
@@ -2860,6 +2877,7 @@ function renderRelated() {
         <td><select data-rpt-disclosed class="map" aria-label="Disclosure">${optionList(rpt.disclosed, p.disclosed)}</select></td>
         <td>${me.rank >= 2 || (!p.matches && !p.reviewed_at) ? '<button type="button" class="small secondary danger" data-rpt-delete>Remove</button>' : ""}</td></tr>`).join("")}</tbody>`
     : '<tbody><tr><td class="muted">No related parties yet.</td></tr></tbody>';
+  restore();
   renderRelatedFound();
 }
 
@@ -2970,6 +2988,7 @@ function renderSummaries() {
   }
   $("ds-export").href = `/api/engagements/${ds.engagement_id}/document-summaries/export`;
   if (!$("ds-kind").options.length) $("ds-kind").innerHTML = optionList(ds.kinds, "contract");
+  const restore = keepDrafts($("ds-list"), "[data-ds-note]", (el) => el.closest("[data-ds]").dataset.ds);
   const list = (title, items) => items.length ? `<h4>${esc(title)}</h4><ul>${items.join("")}</ul>` : "";
   $("ds-list").innerHTML = ds.summaries.length ? ds.summaries.map((s) => {
     const c = s.content;
@@ -2977,7 +2996,7 @@ function renderSummaries() {
       <h3>${data(c.title || s.filename)}</h3>
       <p class="muted"><span>${esc(s.kind_label)}</span> · ${data(s.filename)}${c.document_date ? ` · <bdi dir="ltr">${esc(c.document_date)}</bdi>` : ""} · <span>Summarised by</span> ${data(s.created_by)} · <span>${esc(when(s.created_at))}</span></p>
       <p>${data(c.summary)}</p>
-      ${s.after_period_end.length ? `<div class="warn-box"><p>Dated after the period end: look at these in the subsequent events review.</p><ul>${s.after_period_end.map((d) => `<li><bdi dir="ltr">${esc(d.date)}</bdi> ${data(d.what)}</li>`).join("")}</ul></div>` : ""}
+      ${s.after_period_end.length ? `<div class="warn-box"><p>Dated after the period end: look at these in the subsequent events review.</p><ul>${s.after_period_end.map((d) => `<li><bdi dir="ltr">${esc(d.date)}</bdi> ${d.own ? "<span>The date of the document itself</span>" : data(d.what)}</li>`).join("")}</ul></div>` : ""}
       ${s.related.length ? `<h4>Parties</h4><ul>${s.related.map((p) => `<li>${data(p.name)} ${p.party ? `<span class="pill warn"><span>In the related parties register:</span> ${data(p.party)}</span>` : `<button type="button" class="small secondary" data-ds-add-party="${esc(p.name)}">Add to related parties</button>`}</li>`).join("")}</ul>` : ""}
       ${list("Points for the audit", (c.audit_points || []).map((p) => `<li><span class="pill">${esc(ds.areas[p.area] || p.area)}</span> ${data(p.point)}</li>`))}
       <details><summary>Key terms, amounts, dates and decisions</summary>
@@ -2997,6 +3016,7 @@ function renderSummaries() {
       <p class="muted"><span>Written by the AI assistant</span> (${data(s.model)}).</p>
     </article>`;
   }).join("") : '<p class="muted">No documents summarised yet.</p>';
+  restore();
 }
 
 async function summariesChanged(id) {

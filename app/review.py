@@ -93,6 +93,7 @@ SECTIONS = [
             "The related parties register, the ledger scan for their names, and AI summaries "
             "of contracts and minutes.",
             ("related.create", "related.update", "related.delete", "related.scan",
+             "related.carry",
              "summary.create", "summary.update", "summary.delete")),
     Section("findings", "Findings register", "Findings, their notes, evidence and status.",
             ("finding.create", "finding.delete", "finding.note", "finding.severity",
