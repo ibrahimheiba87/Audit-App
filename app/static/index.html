@@ -154,6 +154,8 @@
           <option value="confirmation.">Confirmations</option>
           <option value="task.">Tasks</option>
           <option value="time.">Time</option>
+          <option value="completion.">Completion procedures</option>
+          <option value="report.">Auditor's report</option>
           <option value="crossmatch.">File matching</option>
           <option value="disclosure.">Disclosure checklist</option>
           <option value="pack.">Audit file downloads</option>
@@ -963,6 +965,95 @@
               </select>
             </div>
             <div id="rq-list"></div>
+          </section>
+
+          <section class="panel" id="cp-panel">
+            <div class="row-between">
+              <h2>Completion procedures</h2>
+              <div class="cell-actions">
+                <a class="button secondary" id="cp-letter" href="#">Representation letter (Word)</a>
+                <a class="button secondary" id="cp-export" href="#">Download Excel</a>
+              </div>
+            </div>
+            <p class="muted">Subsequent events, going concern, written representations and the final review. A partner signs the completion off once nothing is left open.</p>
+            <div class="cards" id="cp-cards"></div>
+            <div id="cp-status"></div>
+            <details id="cp-check">
+              <summary>Completion checklist</summary>
+              <form id="cp-form">
+                <div id="cp-questions"></div>
+                <h3>Going concern</h3>
+                <div id="cp-signs"></div>
+                <div class="grid">
+                  <div><label for="cp-gc">Conclusion</label><select id="cp-gc" class="map"></select></div>
+                  <div><label for="cp-reps-asked">Representation letter asked for</label><input id="cp-reps-asked" type="date"></div>
+                  <div><label for="cp-reps-dated">Representation letter dated</label><input id="cp-reps-dated" type="date"></div>
+                </div>
+                <label for="cp-gc-note">Events or conditions behind the conclusion</label>
+                <textarea id="cp-gc-note" rows="2" maxlength="5000"></textarea>
+                <label for="cp-conclusion">Overall conclusion</label>
+                <textarea id="cp-conclusion" rows="2" maxlength="5000"></textarea>
+                <div class="actions"><button type="submit" id="cp-save">Save checklist</button><span class="muted" id="cp-saved"></span></div>
+              </form>
+            </details>
+            <h3>Subsequent events</h3>
+            <form id="cp-event-form">
+              <div class="grid">
+                <div><label for="cp-ev-date">Date</label><input id="cp-ev-date" name="occurred_on" type="date"></div>
+                <div><label for="cp-ev-kind">Type</label><select id="cp-ev-kind" name="kind" class="map"></select></div>
+                <div><label for="cp-ev-amount">Amount</label><input id="cp-ev-amount" name="amount" type="number" step="any"></div>
+                <div><label for="cp-ev-treatment">Treatment</label><select id="cp-ev-treatment" name="treatment" class="map"></select></div>
+              </div>
+              <label for="cp-ev-desc">Event</label>
+              <input id="cp-ev-desc" name="description" maxlength="5000" required placeholder="e.g. A major customer went into liquidation in January">
+              <div class="actions"><button type="submit" id="cp-ev-save">Add event</button></div>
+            </form>
+            <div class="table-wrap"><table id="cp-events"></table></div>
+            <form id="cp-sign" class="min-3">
+              <h3>Partner's sign-off</h3>
+              <label for="cp-sign-note">Note <span class="muted">(needed when an answer needs a second look)</span></label>
+              <textarea id="cp-sign-note" rows="2" maxlength="5000"></textarea>
+              <div class="actions"><button type="submit" id="cp-sign-btn">Sign off completion</button></div>
+            </form>
+          </section>
+
+          <section class="panel" id="rp-panel">
+            <div class="row-between">
+              <h2>Auditor's report draft</h2>
+              <div class="cell-actions">
+                <a class="button secondary" id="rp-word-en" href="#">Word (English)</a>
+                <a class="button secondary" id="rp-word-ar" href="#">Word (Arabic)</a>
+              </div>
+            </div>
+            <p class="muted">Choose the opinion and add the matters to report. The app suggests the opinion from the file and drafts the report as short template text for you to finish in Word.</p>
+            <div id="rp-suggestion"></div>
+            <ul class="warn-list" id="rp-warnings"></ul>
+            <form id="rp-form">
+              <div class="grid">
+                <div><label for="rp-opinion">Opinion</label><select id="rp-opinion" class="map"></select></div>
+                <div><label for="rp-entity">Company name</label><input id="rp-entity" maxlength="300"></div>
+                <div><label for="rp-addressee">Addressed to</label><input id="rp-addressee" maxlength="300" placeholder="e.g. the shareholders of the company"></div>
+                <div><label for="rp-framework">Framework wording</label><input id="rp-framework" maxlength="300"></div>
+                <div><label for="rp-firm">Audit firm</label><input id="rp-firm" maxlength="300"></div>
+                <div><label for="rp-partner">Engagement partner</label><input id="rp-partner" maxlength="300"></div>
+                <div><label for="rp-city">City</label><input id="rp-city" maxlength="300"></div>
+                <div><label for="rp-date">Report date</label><input id="rp-date" type="date"></div>
+              </div>
+              <label for="rp-basis">Basis for a modified opinion</label>
+              <textarea id="rp-basis" rows="3" maxlength="5000"></textarea>
+              <label for="rp-emphasis">Emphasis of matter <span class="muted">(one paragraph per line)</span></label>
+              <textarea id="rp-emphasis" rows="2" maxlength="5000"></textarea>
+              <label for="rp-other">Other matter</label>
+              <textarea id="rp-other" rows="2" maxlength="5000"></textarea>
+              <h3>Key audit matters</h3>
+              <div id="rp-kams"></div>
+              <div class="actions"><button type="button" class="secondary" id="rp-kam-add">Add a key audit matter</button></div>
+              <div class="actions"><button type="submit" id="rp-save">Save draft</button><span class="muted" id="rp-saved"></span></div>
+            </form>
+            <details id="rp-preview-box">
+              <summary>Preview</summary>
+              <div class="report-preview" id="rp-preview"></div>
+            </details>
           </section>
 
           <section class="panel" id="rv-panel">

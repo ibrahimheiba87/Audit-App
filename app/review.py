@@ -98,6 +98,10 @@ SECTIONS = [
     Section("disclosures", "Disclosure checklist",
             "The disclosures in the draft financial statements, checked item by item.",
             ("disclosure.update", "disclosure.accept_ai")),
+    Section("finalisation", "Completion procedures and report",
+            "Subsequent events, going concern, written representations, the final review and "
+            "the draft auditor's report.",
+            ("completion.update", "completion.event", "completion.signoff", "report.update")),
     Section("completion", "Completion",
             "The overall sign-off, once every other section is reviewed with no open notes.",
             ()),
@@ -107,7 +111,8 @@ SECTION = {s.id: s for s in SECTIONS}
 # isn't needed for completion, so engagements without a bank statement (or that keep their
 # risk assessment, acceptance, independence, disclosure, controls or confirmation records
 # outside the app) aren't held up.
-OPTIONAL = {"bank", "risks", "acceptance", "disclosures", "controls", "confirmations"}
+OPTIONAL = {"bank", "risks", "acceptance", "disclosures", "controls", "confirmations",
+            "finalisation"}
 WORK = [s for s in SECTIONS if s.id != "completion"]
 SECTIONS_CHANGED: dict[str, set[str]] = {}  # action -> the sections it changes
 for _s in WORK:
@@ -118,7 +123,7 @@ for _a, _ids in SIDE_EFFECTS.items():
 
 SectionId = Literal["acceptance", "planning", "risks", "controls", "data", "comparison",
                     "sampling", "bank", "confirmations", "findings", "statements", "disclosures",
-                    "completion"]
+                    "finalisation", "completion"]
 Kind = Literal["prepared", "reviewed"]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
 

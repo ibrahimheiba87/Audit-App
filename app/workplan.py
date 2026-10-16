@@ -143,10 +143,18 @@ def budget_rows(e: Engagement) -> list[dict]:
 
 
 def people_rows(e: Engagement) -> list[dict]:
-    by: dict[str, float] = {}
-    for x in e.time_entries:
-        by[x.user_name] = by.get(x.user_name, 0.0) + x.hours
-    return [{"name": n, "hours": round(h, 2)} for n, h in sorted(by.items(), key=lambda i: -i[1])]
+    """Hours per person, by account, so two people with one name stay apart and a renamed
+    person stays together (under their latest name)."""
+    by: dict[int | str, list] = {}
+    for x in sorted(e.time_entries, key=lambda x: x.id):
+        row = by.setdefault(x.user_id or f"name:{x.user_name}", [x.user_name, 0.0])
+        row[0], row[1] = x.user_name, row[1] + x.hours
+    return [{"name": n, "hours": round(h, 2)} for n, h in sorted(by.values(), key=lambda i: -i[1])]
+
+
+def owners(e: Engagement) -> set[int]:
+    """Who can still own a task: active staff on the team (as assignable(), without a query)."""
+    return {m.user_id for m in e.team if m.user.active and m.user.role != "client"}
 
 
 def summary(e: Engagement) -> dict:
@@ -156,9 +164,9 @@ def summary(e: Engagement) -> dict:
     actual = round(sum(x.hours for x in e.time_entries), 2)
     return {"tasks": len(e.tasks), "open": sum(1 for t in e.tasks if t.status != "done"),
             "overdue": sum(1 for t in e.tasks if overdue(t, today)),
-            # Tasks with no owner, or one who has since left the team.
+            # Tasks with no owner, or one who has since left the team or been deactivated.
             "unassigned": sum(1 for t in e.tasks if t.status != "done"
-                              and t.assignee_id not in {m.user_id for m in e.team}),
+                              and t.assignee_id not in owners(e)),
             "budget": round(budget, 2) if e.time_budgets else None, "actual": actual,
             "over_areas": [r["label"] for r in budget_rows(e) if r["over"]]}
 
