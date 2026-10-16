@@ -29,10 +29,12 @@ from .db import (
     Control,
     CrossMatch,
     DocumentRequest,
+    DocumentSummary,
     Engagement,
     EngagementLock,
     Evidence,
     Finding,
+    RelatedParty,
     RequestFile,
     ReviewNote,
     Risk,
@@ -60,6 +62,7 @@ PARAM_MODELS = {
     "draft_id": AiDraft, "risk_id": Risk, "procedure_id": RiskProcedure,
     "match_id": CrossMatch, "confirmation_id": Confirmation, "control_id": Control,
     "task_id": Task, "time_entry_id": TimeEntry, "event_id": SubsequentEvent,
+    "party_id": RelatedParty, "summary_id": DocumentSummary,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is

@@ -39,11 +39,13 @@ from .locking import router as locking_router
 from .pack import router as pack_router
 from .portal import router as portal_router
 from .reconciliations import router as reconciliations_router
+from .related_parties import router as related_router
 from .report_draft import router as report_router
 from .review import router as review_router
 from .risks import router as risks_router
 from .rollforward import router as rollforward_router
 from .samples import router as samples_router
+from .summaries import router as summaries_router
 from .templates import router as templates_router
 from .uploads import FORM_OVERHEAD, MAX_UPLOAD_BYTES, BodyLimit, parse_mapping, read_upload
 from .workplan import router as workplan_router
@@ -70,7 +72,7 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                ai_writer_router, analysis_router, risks_router, locking_router,
                acceptance_router, crossmatch_router, disclosures_router, pack_router,
                templates_router, confirmations_router, controls_router, workplan_router,
-               completion_router, report_router):
+               completion_router, report_router, related_router, summaries_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

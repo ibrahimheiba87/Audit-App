@@ -173,6 +173,13 @@ class Engagement(Base):
     audit_report: Mapped[AuditReport | None] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", uselist=False
     )
+    related_parties: Mapped[list[RelatedParty]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="RelatedParty.id"
+    )
+    document_summaries: Mapped[list[DocumentSummary]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="DocumentSummary.id"
+    )
 
 
 class Upload(Base):
@@ -528,6 +535,60 @@ class AuditReport(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="audit_report")
+
+
+class RelatedParty(Base):
+    """A related party of the client (ISA 550): a shareholder, director, family member or
+    group company, with other names it may appear under in the ledger (related_parties.py)."""
+
+    __tablename__ = "related_parties"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    name: Mapped[str] = mapped_column(String(300))
+    relationship_kind: Mapped[str] = mapped_column(String(30), default="other")
+    aliases: Mapped[list] = mapped_column(JSON, default=list)  # other names to look for
+    note: Mapped[str] = mapped_column(Text, default="")
+    # From the last ledger scan, so the dashboard needn't read the ledger.
+    scanned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    matches: Mapped[int] = mapped_column(Integer, default=0)
+    matched_amount: Mapped[float] = mapped_column(Float, default=0.0)  # debits plus credits
+    conclusion: Mapped[str] = mapped_column(Text, default="")  # on the transactions found
+    reviewed_by: Mapped[str] = mapped_column(String(200), default="")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    disclosed: Mapped[str] = mapped_column(String(20), default="not_checked")
+    source: Mapped[str] = mapped_column(String(50), default="")  # "rolled:<id>", "summary:<id>"
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="related_parties")
+
+
+class DocumentSummary(Base):
+    """A contract or board minutes the AI summarised for the auditor (summaries.py). The file
+    itself isn't kept, only its name, size and fingerprint."""
+
+    __tablename__ = "document_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # contract | minutes | other
+    filename: Mapped[str] = mapped_column(String(255))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer)
+    language: Mapped[str] = mapped_column(String(5), default="en")
+    content: Mapped[dict] = mapped_column(JSON)
+    model: Mapped[str] = mapped_column(String(100), default="")
+    note: Mapped[str] = mapped_column(Text, default="")  # the auditor's own note
+    reviewed_by: Mapped[str] = mapped_column(String(200), default="")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_by_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="document_summaries")
 
 
 class Confirmation(Base):

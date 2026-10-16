@@ -89,6 +89,11 @@ SECTIONS = [
             "Requests to banks, customers, suppliers and lawyers, and their replies.",
             ("confirmation.create", "confirmation.import", "confirmation.update",
              "confirmation.delete")),
+    Section("related", "Related parties and documents",
+            "The related parties register, the ledger scan for their names, and AI summaries "
+            "of contracts and minutes.",
+            ("related.create", "related.update", "related.delete", "related.scan",
+             "summary.create", "summary.update", "summary.delete")),
     Section("findings", "Findings register", "Findings, their notes, evidence and status.",
             ("finding.create", "finding.delete", "finding.note", "finding.severity",
              "finding.status", "evidence.add", "evidence.remove")),
@@ -112,7 +117,7 @@ SECTION = {s.id: s for s in SECTIONS}
 # risk assessment, acceptance, independence, disclosure, controls or confirmation records
 # outside the app) aren't held up.
 OPTIONAL = {"bank", "risks", "acceptance", "disclosures", "controls", "confirmations",
-            "finalisation"}
+            "finalisation", "related"}
 WORK = [s for s in SECTIONS if s.id != "completion"]
 SECTIONS_CHANGED: dict[str, set[str]] = {}  # action -> the sections it changes
 for _s in WORK:
@@ -122,7 +127,7 @@ for _a, _ids in SIDE_EFFECTS.items():
     SECTIONS_CHANGED.setdefault(_a, set()).update(_ids)
 
 SectionId = Literal["acceptance", "planning", "risks", "controls", "data", "comparison",
-                    "sampling", "bank", "confirmations", "findings", "statements", "disclosures",
+                    "sampling", "bank", "confirmations", "related", "findings", "statements", "disclosures",
                     "finalisation", "completion"]
 Kind = Literal["prepared", "reviewed"]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]

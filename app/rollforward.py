@@ -26,6 +26,7 @@ from .db import (
     DocumentRequest,
     Engagement,
     EngagementMember,
+    RelatedParty,
     Task,
     TimeBudget,
     Upload,
@@ -47,6 +48,7 @@ class RollForwardIn(BaseModel):
     trial_balance: bool = True
     controls: bool = True
     workplan: bool = True
+    related_parties: bool = True
 
 
 def next_year(d: date) -> date:
@@ -134,6 +136,14 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
             new.time_budgets.append(TimeBudget(area=b.area, hours=b.hours))
         carried["tasks"] = len(old.tasks)
         carried["budget"] = round(sum(b.hours for b in old.time_budgets), 2)
+    if body.related_parties and old.related_parties:
+        # Who the related parties are, not this year's scan or conclusions.
+        for p in old.related_parties:
+            new.related_parties.append(RelatedParty(
+                name=p.name, relationship_kind=p.relationship_kind, aliases=list(p.aliases or []),
+                note=p.note, source=f"rolled:{p.id}", created_by=user.name,
+                updated_by=user.name))
+        carried["related_parties"] = len(old.related_parties)
     session.flush()
 
     upload = None
