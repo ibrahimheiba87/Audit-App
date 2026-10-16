@@ -182,8 +182,11 @@ def going_concern_signs(session: Session, e: Engagement) -> dict:
     material, to look at beside the going concern conclusion."""
     from .dashboard import statements_state  # dashboard imports this module
     fs = statements_state(session, e)
-    if not fs or "error" in fs:
-        return {"warnings": [], "uncorrected": None, "statements": bool(fs)}
+    if not fs:
+        return {"warnings": [], "uncorrected": None, "statements": False}
+    if "error" in fs:  # say so, rather than look like a clean result
+        return {"warnings": [f"The draft statements couldn't be worked out: {fs['error']}"],
+                "uncorrected": None, "statements": True}
     return {"warnings": [w["text"] for w in fs["warnings"]], "uncorrected": fs["uncorrected"],
             "statements": True}
 
@@ -468,6 +471,9 @@ def workbook(session: Session, e: Engagement) -> tuple[str, bytes]:
         ("Signed off at", f"{s['signed_at'][:16].replace('T', ' ')} UTC"
          if s["signed_at"] else ""),
         ("Sign-off note", s["signed_note"]),
+        ("Sign-off status", "Reopened: the work changed after the sign-off"
+         if s["changed_since_signoff"] else "Signed off" if s["signed_by"] else
+         "Not yet signed off"),
         ("Still open", "\n".join(s["blockers"])),
     ]
     checklist = [{"Area": GROUPS[g], "Question": text,

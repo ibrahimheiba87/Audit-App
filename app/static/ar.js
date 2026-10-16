@@ -2167,6 +2167,7 @@ I18N.add({
     "Review the transactions with {n} related parties.": "راجع المعاملات مع {n} من الأطراف ذات العلاقة.",
     "Check {n} AI document summary against the documents.": "طابق {n} ملخص مستند بالذكاء الاصطناعي مع المستندات.",
     "Check {n} AI document summaries against the documents.": "طابق {n} من ملخصات المستندات بالذكاء الاصطناعي مع المستندات.",
+    "The draft statements couldn't be worked out: {t:x}": "تعذر إعداد القوائم المالية المبدئية: {x}",
     "RelatedParty {n} not found.": "الطرف ذو العلاقة {n} غير موجود.",
     "DocumentSummary {n} not found.": "الملخص {n} غير موجود.",
   },

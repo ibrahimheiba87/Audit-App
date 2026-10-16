@@ -49,6 +49,7 @@ REPORT = {
         "kam_intro": "These are the matters we judged most significant in this year's audit. "
                      "We dealt with them as part of the audit as a whole and give no separate "
                      "opinion on them.",
+        "kam_title": "[Name the key audit matter]",
         "kam_why": "Why it mattered: {text}",
         "kam_how": "How we dealt with it: {text}",
         "other_heading": "Other matter",
@@ -114,6 +115,7 @@ REPORT["ar"] = {
     "kam_heading": "أمور المراجعة الرئيسية",
     "kam_intro": "هذه هي الأمور التي رأينا أنها الأكثر أهمية في مراجعة هذه السنة. وقد تناولناها "
                  "ضمن المراجعة ككل، ولا نبدي رأياً منفصلاً فيها.",
+    "kam_title": "[اذكر أمر المراجعة الرئيسي]",
     "kam_why": "سبب أهميته: {text}",
     "kam_how": "كيف تناولناه: {text}",
     "other_heading": "أمر آخر",

@@ -699,6 +699,7 @@ $("mat-form").addEventListener("submit", (e) => {
     currentEngagement = eng;
     renderMateriality(eng.materiality);
     refreshDashboard();
+    refreshFinishing(eng.id);
   });
 });
 
@@ -2619,15 +2620,16 @@ $("cp-form").addEventListener("submit", (ev) => {
   const body = { answers, conclusion: $("cp-conclusion").value, going_concern: $("cp-gc").value || null,
     going_concern_note: $("cp-gc-note").value, reps_requested_on: $("cp-reps-asked").value || null,
     reps_dated: $("cp-reps-dated").value || null };
+  const rev = $("cp-form").dataset.rev;
   busy($("cp-save"), async () => {
     await sendJSON("PUT", `/api/engagements/${id}/completion`, body);
     if (currentEngagement?.id !== id) return;
-    delete $("cp-form").dataset.dirty;
+    if ($("cp-form").dataset.rev === rev) delete $("cp-form").dataset.dirty;
     await completionChanged(id);
   });
 });
 
-$("cp-form").addEventListener("input", () => { $("cp-form").dataset.dirty = "1"; });
+$("cp-form").addEventListener("input", () => formEdited($("cp-form")));
 
 $("cp-event-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
@@ -2686,6 +2688,14 @@ $("cp-letter").addEventListener("click", () => {  // in the language the page is
   if (cp) $("cp-letter").href = `/api/engagements/${cp.engagement_id}/completion/representation-letter?language=${I18N.lang === "ar" ? "ar" : "en"}`;
 });
 
+// The going concern signs and the suggested opinion follow the figures: reload both panels
+// (keeping unsaved edits) after the mapping, adjusting entries or materiality change.
+function refreshFinishing(id) {
+  if (currentEngagement?.id !== id) return;
+  if (cp?.engagement_id === id) guard(loadCompletion);
+  if (rp?.engagement_id === id) guard(loadReport);
+}
+
 // Auditor's report draft
 
 let rp = null;
@@ -2702,9 +2712,9 @@ async function loadReport() {
 
 function kamRow(k = { title: "", why: "", how: "" }) {
   return `<div class="rp-kam" data-kam>
-    <label>Matter</label><input data-kam-title maxlength="300" value="${esc(k.title)}">
-    <label>Why it mattered</label><textarea data-kam-why rows="2" maxlength="5000">${esc(k.why)}</textarea>
-    <label>How the audit dealt with it</label><textarea data-kam-how rows="2" maxlength="5000">${esc(k.how)}</textarea>
+    <label>Matter</label><input data-kam-title maxlength="300" value="${esc(k.title)}" aria-label="Matter">
+    <label>Why it mattered</label><textarea data-kam-why rows="2" maxlength="5000" aria-label="Why it mattered">${esc(k.why)}</textarea>
+    <label>How the audit dealt with it</label><textarea data-kam-how rows="2" maxlength="5000" aria-label="How the audit dealt with it">${esc(k.how)}</textarea>
     <div class="actions"><button type="button" class="small secondary danger" data-kam-remove>Remove</button></div></div>`;
 }
 
@@ -2753,22 +2763,29 @@ async function loadReportPreview() {
   const id = rp.engagement_id;
   const lang = I18N.lang === "ar" ? "ar" : "en";
   const p = await getJSON(`/api/engagements/${id}/report/preview?language=${lang}`);
-  if (rp?.engagement_id !== id) return;
+  if (rp?.engagement_id !== id || (I18N.lang === "ar" ? "ar" : "en") !== lang) return;
   const tag = { title: "h3", heading: "h4", subheading: "h5" };
   $("rp-preview").dir = lang === "ar" ? "rtl" : "ltr";
   $("rp-preview").innerHTML = p.paragraphs.map((x) => `<${tag[x.style] || "p"} class="rp-${esc(x.style)}" translate="no">${esc(x.text).replace(/\n/g, "<br>")}</${tag[x.style] || "p"}>`).join("");
 }
 
+document.addEventListener("languagechange", () => { if (rp && $("rp-preview-box").open) guard(loadReportPreview); });
 $("rp-preview-box").addEventListener("toggle", () => { if ($("rp-preview-box").open) guard(loadReportPreview); });
-$("rp-form").addEventListener("input", () => { $("rp-form").dataset.dirty = "1"; });
+// Edits not yet saved: `dirty` keeps them through a refresh, and `rev` counts them, so a save
+// only clears `dirty` when nothing was typed while it was on its way.
+function formEdited(form) {
+  form.dataset.dirty = "1";
+  form.dataset.rev = String(Number(form.dataset.rev || 0) + 1);
+}
+$("rp-form").addEventListener("input", () => formEdited($("rp-form")));
 $("rp-kam-add").addEventListener("click", () => {
   $("rp-kams").insertAdjacentHTML("beforeend", kamRow());
-  $("rp-form").dataset.dirty = "1";
+  formEdited($("rp-form"));
 });
 $("rp-kams").addEventListener("click", (ev) => {
   if (!ev.target.matches("[data-kam-remove]")) return;
   ev.target.closest("[data-kam]").remove();
-  $("rp-form").dataset.dirty = "1";
+  formEdited($("rp-form"));
 });
 
 $("rp-form").addEventListener("submit", (ev) => {
@@ -2783,14 +2800,14 @@ $("rp-form").addEventListener("submit", (ev) => {
     other_matter: $("rp-other").value,
     key_matters: [...$("rp-kams").querySelectorAll("[data-kam]")].map((k) => ({
       title: k.querySelector("[data-kam-title]").value.trim(), why: k.querySelector("[data-kam-why]").value,
-      how: k.querySelector("[data-kam-how]").value })).filter((k) => k.title),
+      how: k.querySelector("[data-kam-how]").value })).filter((k) => k.title || k.why.trim() || k.how.trim()),
   };
+  const rev = $("rp-form").dataset.rev;
   busy($("rp-save"), async () => {
-    const r = await sendJSON("PUT", `/api/engagements/${id}/report`, body);
+    await sendJSON("PUT", `/api/engagements/${id}/report`, body);
     if (currentEngagement?.id !== id) return;
-    rp = { ...r, engagement_id: id };
-    delete $("rp-form").dataset.dirty;
-    renderReport();
+    if ($("rp-form").dataset.rev === rev) delete $("rp-form").dataset.dirty;  // else keep newer edits
+    await loadReport();
     refreshDashboard();
     await loadEngagementActivity();
   });
@@ -3217,6 +3234,7 @@ $("fs-save-map").addEventListener("click", (ev) => busy(ev.currentTarget, async 
   aiMapHints = {};
   $("fs-ai-note").hidden = true;
   await loadStatements();
+  refreshFinishing(id);
   await loadEngagementActivity();
 }, canSaveMapping));
 
@@ -3294,6 +3312,7 @@ $("aje-form").addEventListener("submit", (ev) => {
     if (currentEngagement.id !== id) return;  // the user has opened another engagement
     resetEntryForm();
     await loadStatements();
+    refreshFinishing(id);
     await loadEngagementActivity();
   });
 });
@@ -3302,6 +3321,7 @@ $("aje-list").addEventListener("click", (ev) => {
   if (book) guard(async () => {
     await sendJSON("PATCH", `/api/adjusting-entries/${book.dataset.book}`, { kind: "adjusting" });
     await loadStatements();
+    refreshFinishing(currentEngagement?.id);
     await loadEngagementActivity();
   });
   if (del) {
@@ -3310,6 +3330,7 @@ $("aje-list").addEventListener("click", (ev) => {
     guard(async () => {
       await sendJSON("DELETE", `/api/adjusting-entries/${e.id}`);
       await loadStatements();
+      refreshFinishing(currentEngagement?.id);
       await loadEngagementActivity();
     });
   }
