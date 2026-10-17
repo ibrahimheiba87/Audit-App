@@ -138,10 +138,12 @@ _running = threading.Lock()
 _again = threading.Event()
 
 
-def _server_lock(session: Session) -> bool:
-    if session.bind.dialect.name != "postgresql":
+def _server_lock(conn) -> bool:
+    if conn.dialect.name != "postgresql":
         return True
-    return bool(session.scalar(text("SELECT pg_try_advisory_lock(:k)"), {"k": LOCK_ID}))
+    got = bool(conn.scalar(text("SELECT pg_try_advisory_lock(:k)"), {"k": LOCK_ID}))
+    conn.commit()  # the lock belongs to the connection and outlasts the transaction
+    return got
 
 
 def backfill(limit: int | None = None, tidy: bool = True) -> int:
@@ -152,14 +154,17 @@ def backfill(limit: int | None = None, tidy: bool = True) -> int:
         return 0
     done = 0
     try:
-        with db.SessionLocal() as guard:
+        # The lock is held on one connection kept for the whole run: a session would hand its
+        # connection back to the pool on commit, and the unlock would then run on another.
+        with db.SessionLocal.kw["bind"].connect() as guard:
             if not _server_lock(guard):
                 return 0
             try:
                 if tidy:
-                    guard.execute(delete(DocumentText).where(~still_there())
-                                  .execution_options(synchronize_session=False))
-                    guard.commit()
+                    with db.SessionLocal() as session:
+                        session.execute(delete(DocumentText).where(~still_there())
+                                        .execution_options(synchronize_session=False))
+                        session.commit()
                 while True:
                     _again.clear()
                     for source in SOURCES:
@@ -181,7 +186,7 @@ def backfill(limit: int | None = None, tidy: bool = True) -> int:
                     if not _again.is_set() or (limit is not None and done >= limit):
                         break
             finally:
-                if guard.bind.dialect.name == "postgresql":
+                if guard.dialect.name == "postgresql":
                     guard.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": LOCK_ID})
                     guard.commit()
     finally:
