@@ -98,3 +98,17 @@ def test_report_includes_import_details():
 def test_static_assets_served():
     assert client.get("/static/app.js").status_code == 200
     assert client.get("/static/app.css").status_code == 200
+
+
+def test_adding_a_column_another_worker_already_added_is_fine(monkeypatch):
+    from app import db
+
+    class Blind:  # sees none of the columns, as a worker that looked first would
+        def __init__(self, conn):
+            pass
+
+        def get_columns(self, table):
+            return []
+
+    monkeypatch.setattr(db, "sa_inspect", Blind)
+    db._upgrade()

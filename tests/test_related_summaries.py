@@ -242,3 +242,68 @@ def test_a_document_dated_after_the_period_end_is_flagged(fake_api, monkeypatch)
     from app.db import Engagement, SessionLocal
     with SessionLocal() as session:
         assert summaries.summary(session.get(Engagement, eid))["after_period_end"] == 1
+
+
+def test_deleting_the_scanned_ledger_or_an_old_scan_asks_for_a_fresh_one():
+    from app import db
+
+    a, prep, rev, partner, eid, _ = team()
+    url = f"/api/engagements/{eid}/related-parties"
+    prep.post(url, json={"name": "Sara Haddad", "relationship": "director"})
+    gl = upload_gl(prep, eid)
+    party = prep.post(f"{url}/scan", json={"upload_id": gl}).json()["parties"][0]
+    prep.patch(f"/api/related-parties/{party['id']}",
+               json={"reviewed": True, "conclusion": "Approved loan."})
+
+    # A scan saved before the ledger was recorded is pointed back at it at start-up.
+    with db.SessionLocal() as s:
+        p = s.get(db.RelatedParty, party["id"])
+        p.scan_upload_id, p.scan_fingerprint = None, ""
+        s.commit()
+    db._backfill_scans()
+    with db.SessionLocal() as s:
+        assert s.get(db.RelatedParty, party["id"]).scan_upload_id == gl
+    book = pd.read_excel(io.BytesIO(prep.get(f"{url}/export").content), sheet_name=None)
+    assert book["Transactions"]["Amount"].tolist() == [20000]
+
+    # A different file under the same name and id isn't taken for the scanned one.
+    with db.SessionLocal() as s:
+        s.get(db.RelatedParty, party["id"]).scan_fingerprint = "0" * 64
+        s.commit()
+    book = pd.read_excel(io.BytesIO(prep.get(f"{url}/export").content), sheet_name=None)
+    assert book["Transactions"].empty
+    assert "Sara Haddad" in " ".join(book["About"]["Value"].astype(str))
+
+    # Deleting the ledger takes the scan and its review with it; the conclusion stays.
+    assert rev.delete(f"/api/uploads/{gl}").status_code == 204
+    p = prep.get(url).json()["parties"][0]
+    assert p["scanned_at"] is None and p["matches"] == 0 and p["reviewed_at"] is None
+    assert p["conclusion"] == "Approved loan."
+    upload_gl(prep, eid)
+    assert "Scan the general ledger for related party names." in steps(prep, eid)
+
+
+def test_an_old_scan_with_no_ledger_left_is_forgotten_unless_the_file_is_locked():
+    from app import db
+
+    a, prep, rev, partner, eid, _ = team()
+    url = f"/api/engagements/{eid}/related-parties"
+    prep.post(url, json={"name": "Sara Haddad"})
+    prep.post(url, json={"name": "Acme Holdings"})
+    gl = upload_gl(prep, eid)
+    ids = [p["id"] for p in prep.post(f"{url}/scan", json={"upload_id": gl}).json()["parties"]]
+    with db.SessionLocal() as s:
+        for pid in ids:  # as if scanned before any ledger was uploaded
+            s.get(db.RelatedParty, pid).scan_upload_id = None
+        for u in s.query(db.Upload):
+            u.uploaded_at = db.utcnow()
+        s.commit()
+    assert partner.post(f"/api/engagements/{eid}/lock", json={}).status_code == 200
+    db._backfill_scans()
+    assert all(p["scanned_at"] for p in prep.get(url).json()["parties"])
+    with db.SessionLocal() as s:
+        s.query(db.EngagementLock).delete()
+        s.commit()
+    db._backfill_scans()
+
+    assert not any(p["scanned_at"] for p in prep.get(url).json()["parties"])

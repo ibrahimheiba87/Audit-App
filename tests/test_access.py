@@ -81,6 +81,8 @@ def full_engagement(a):
     assert event.status_code == 200, event.text
     party = a.post(f"/api/engagements/{eid}/related-parties", json={"name": "Acme Holdings"})
     assert party.status_code == 201, party.text
+    expectation = a.post(f"/api/engagements/{eid}/expectations", json={"kind": "payroll"})
+    assert expectation.status_code == 201, expectation.text
     with db.SessionLocal() as s:
         doc = db.DocumentSummary(engagement_id=eid, kind="contract", filename="lease.pdf",
                                  sha256="0" * 64, size=1, content={"title": "Lease"})
@@ -97,7 +99,8 @@ def full_engagement(a):
             "control_id": control.json()["id"], "task_id": task.json()["tasks"][0]["id"],
             "time_entry_id": hours.json()["entries"][0]["id"],
             "event_id": event.json()["events"][0]["id"],
-            "party_id": party.json()["parties"][0]["id"], "summary_id": summary_id}
+            "party_id": party.json()["parties"][0]["id"], "summary_id": summary_id,
+            "expectation_id": expectation.json()["expectations"][0]["id"]}
 
 
 def bodies(ids):
@@ -180,6 +183,11 @@ def bodies(ids):
         ("GET", "/api/engagements/{engagement_id}/related-parties/export"): {},
         ("PATCH", "/api/related-parties/{party_id}"): {"json": {"note": "x"}},
         ("DELETE", "/api/related-parties/{party_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/expectations"): {},
+        ("POST", "/api/engagements/{engagement_id}/expectations"): {"json": {}},
+        ("GET", "/api/engagements/{engagement_id}/expectations/export"): {},
+        ("PATCH", "/api/expectations/{expectation_id}"): {"json": {"basis": "x"}},
+        ("DELETE", "/api/expectations/{expectation_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/document-summaries"): {},
         ("POST", "/api/engagements/{engagement_id}/document-summaries"):
             {"files": {"file": PDF}, "data": {"kind": "contract"}},

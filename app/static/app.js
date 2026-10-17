@@ -294,6 +294,7 @@ async function openEngagement(id) {
     aged = null; $("ag-result").hidden = $("ag-export").hidden = true; $("ag-terms").value = "30";
     rr = null; renderRisks(); resetRiskForm(); $("rr-add").open = false; $("ra-imported").textContent = "";
     ct = null; renderControls(); resetControlForm(); $("ct-add").open = false; $("ct-calc-out").textContent = "";
+    ap = null; apEditing = null; renderExpectations(); $("ap-form").reset(); $("ap-add").open = false;
     cf = null; cfEditing = null; renderConfirmations(); $("cf-form").reset(); $("cf-pick-form").reset();
     $("cf-picked").textContent = ""; $("cf-filter").value = "";
     cp = null; renderCompletion(); $("cp-check").open = false; $("cp-event-form").reset(); $("cp-sign").reset();
@@ -353,6 +354,7 @@ async function openEngagement(id) {
   guard(loadRisks);
   guard(loadControls);
   guard(loadConfirmations);
+  guard(loadExpectations);
   guard(loadWorkplan);
   guard(loadCompletion);
   guard(loadReport);
@@ -431,7 +433,7 @@ $("roll-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = $("roll-form");
   const body = { name: $("roll-name").value };
-  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "team"]) body[k] = f[k].checked;
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "team"]) body[k] = f[k].checked;
   $("roll-submit").disabled = true;
   try {
     const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
@@ -2301,6 +2303,205 @@ $("cf-table").addEventListener("submit", (ev) => {
   });
 });
 
+// Analytical procedures and proofs in total
+
+let ap = null;          // the list on show: {engagement_id, expectations, summary, problem, ...}
+let apOptions = null;   // types, methods, lines and the presets of each proof, loaded once
+let apEditing = null;   // the expectation whose details are open for changing
+let apLoads = 0;
+const AP_PILL = { within: "good", explained: "good", misstatement: "bad", to_explain: "bad",
+  no_actual: "warn", no_expectation: "warn", no_threshold: "warn" };
+// The inputs each way of building an expectation uses.
+const AP_FIELDS = {
+  prior_change: [["base", "Starting figure (blank for last year's balance)", "number"], ["change_pct", "Change expected %", "number"]],
+  rate: [["base_label", "What the base is", "text"], ["base", "Base", "number"], ["rate_pct", "Rate %", "number"], ["months", "Months", "number"]],
+  units: [["units_label", "What is counted", "text"], ["units", "Units", "number"], ["price_label", "What the price is", "text"], ["price", "Price per unit", "number"], ["periods", "Times (for example 12 months)", "number"]],
+  amount: [["amount", "Expected amount", "number"]],
+};
+
+async function loadExpectationOptions() {
+  if (apOptions) return;
+  const o = await getJSON("/api/expectations/options");
+  $("ap-kind").innerHTML = optionList(o.kinds, "analytic");
+  $("ap-line").innerHTML = optionList(o.lines, "revenue");
+  $("ap-method").innerHTML = optionList(o.methods, "prior_change");
+  apOptions = o;
+}
+
+async function loadExpectations() {
+  const id = currentEngagement.id;
+  const load = ++apLoads;
+  await loadExpectationOptions();
+  const x = await getJSON(`/api/engagements/${id}/expectations`);
+  if (load !== apLoads || currentEngagement?.id !== id) return;
+  ap = { ...x, engagement_id: id };
+  renderExpectations();
+}
+
+// How the expected figure is reached, as a sum (so it reads the same in either language).
+function apHow(x) {
+  const i = x.inputs, n = (v) => `<bdi dir="ltr">${esc(Number(v).toLocaleString(LOCALE, { maximumFractionDigits: 4 }))}</bdi>`;
+  if (x.expected == null) return "";
+  if (x.method === "prior_change") return `<bdi dir="ltr">${money(x.base_used)} × (1 + ${esc(i.change_pct)}%)</bdi>`;
+  if (x.method === "rate") return `<bdi dir="ltr">${money(i.base)} × ${esc(i.rate_pct)}% × ${esc(i.months || 12)}/12</bdi>`;
+  if (x.method === "units") return `${n(i.units)} × <bdi dir="ltr">${money(i.price)}</bdi>${(i.periods || 1) !== 1 ? ` × ${n(i.periods)}` : ""}`;
+  return "";
+}
+
+function apInputs(method, inputs) {
+  return AP_FIELDS[method].map(([k, label, type]) => {
+    const v = inputs[k] ?? "";
+    // A proof's own name for its base or units, if it has one, labels the figure.
+    const shown = k === "base" && inputs.base_label ? inputs.base_label : k === "units" && inputs.units_label
+      ? inputs.units_label : k === "price" && inputs.price_label ? inputs.price_label : label;
+    return `<div><label>${esc(shown)}</label>${type === "number"
+      ? `<input name="in_${k}" type="number" step="any" value="${esc(v)}">`
+      : `<input name="in_${k}" maxlength="200" value="${esc(v)}">`}</div>`;
+  }).join("");
+}
+
+function expectationEditRow(x) {
+  const o = apOptions;
+  return `<tr class="cf-edit" data-ap-edit="${x.id}"><td colspan="9"><form data-ap-form>
+    <div class="grid">
+      <div><label>Title <span class="muted">(optional)</span></label><input name="title" maxlength="200" value="${esc(x.own_title)}"></div>
+      <div><label>Statement line</label><select name="line" class="map"><option value="">None</option>${optionList(o.lines, x.line)}</select></div>
+      <div><label>Built from</label><select name="method" class="map" data-ap-method>${optionList(o.methods, x.method)}</select></div>
+      <div><label>Threshold <span class="muted">(blank for performance materiality)</span></label><input name="threshold" type="number" step="any" min="0" value="${esc(x.threshold_set ? x.threshold : "")}"></div>
+    </div>
+    <div class="grid" data-ap-inputs>${apInputs(x.method, x.inputs)}</div>
+    <label>Where the inputs come from <span class="muted">(and how they were checked)</span></label><textarea name="basis" rows="2" maxlength="5000">${esc(x.basis)}</textarea>
+    <div class="grid">
+      <div><label>Actual figure <span class="muted">(blank for the line's adjusted balance)</span></label><input name="actual_override" type="number" step="any" value="${esc(x.actual_override ?? "")}"></div>
+      <div><label>Where the actual figure comes from</label><input name="actual_note" maxlength="5000" value="${esc(x.actual_note)}"></div>
+    </div>
+    <label>Explanation of the difference</label><textarea name="explanation" rows="2" maxlength="5000">${esc(x.explanation)}</textarea>
+    <label class="check-label" style="margin-top:8px"><input type="checkbox" name="misstatement" ${x.misstatement ? "checked" : ""}> <span>Treat the difference as a misstatement</span></label>
+    <label>Conclusion</label><textarea name="conclusion" rows="2" maxlength="5000">${esc(x.conclusion)}</textarea>
+    <div class="actions"><button type="submit" class="small">Save</button>
+      <button type="button" class="small secondary" data-ap-close>Close</button>
+      ${me.rank >= 2 ? (x.reviewed_at ? '<button type="button" class="small secondary" data-ap-unreview>Take back the sign-off</button>'
+        : '<button type="button" class="small" data-ap-review>Sign off as reviewed</button>') : ""}
+      ${!x.reviewed_at || me.rank >= 2 ? '<button type="button" class="small secondary danger" data-ap-delete>Remove</button>' : ""}</div>
+  </form></td></tr>`;
+}
+
+function renderExpectations() {
+  if (!ap) { $("ap-cards").innerHTML = $("ap-table").innerHTML = ""; $("ap-problem").hidden = true; return; }
+  const s = ap.summary, out = s.outcomes;
+  $("ap-export").href = `/api/engagements/${ap.engagement_id}/expectations/export`;
+  $("ap-problem").hidden = !(ap.problem && ap.expectations.length);
+  $("ap-problem").textContent = ap.problem || "";
+  $("ap-cards").innerHTML = [
+    [s.expectations, "Expectations and proofs", false], [out.within + out.explained, "Within the threshold or explained", false],
+    [out.to_explain, "Differences to explain", out.to_explain > 0], [money(s.misstatements), "Misstatements found", out.misstatement > 0],
+    [s.not_reviewed, "Not reviewed", false],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  if (!ap.expectations.length) {
+    $("ap-table").innerHTML = '<tbody><tr><td class="muted">None yet. Add an expectation for a statement line, or a proof of depreciation, payroll or interest.</td></tr></tbody>';
+    return;
+  }
+  $("ap-table").innerHTML = `<thead><tr><th>Ref</th><th>Expectation</th><th class="num">Expected</th><th class="num">Actual</th>
+      <th class="num">Difference</th><th class="num">Threshold</th><th>Outcome</th><th>Reviewed</th><th></th></tr></thead><tbody>
+    ${ap.expectations.map((x, i) => `<tr data-ap="${x.id}">
+      <td><bdi>AP${i + 1}</bdi></td>
+      <td>${x.title === x.kind_label || x.title === x.line_label ? esc(x.title) : data(x.title)}<div class="tag">${[x.kind_label, x.line_label].filter((t) => t && t !== x.title).map((t) => `<span>${esc(t)}</span>`).join(" · ")}</div></td>
+      <td class="num">${money(x.expected)}<div class="tag">${apHow(x)}</div></td>
+      <td class="num">${money(x.actual)}${x.actual_override != null ? '<div class="tag">Entered by hand</div>' : ""}</td>
+      <td class="num${x.outcome === "to_explain" || x.outcome === "misstatement" ? " bad" : ""}">${money(x.difference)}${x.difference_pct != null ? `<div class="tag"><bdi dir="ltr">${esc(x.difference_pct)}%</bdi></div>` : ""}</td>
+      <td class="num">${money(x.threshold)}</td>
+      <td><span class="pill ${AP_PILL[x.outcome]}">${esc(x.outcome_label)}</span></td>
+      <td>${x.reviewed_at ? `${data(x.reviewed_by)}${x.review_stale ? ' <span class="pill warn">Changed since</span>' : ""}` : ""}</td>
+      <td><button type="button" class="small secondary" data-ap-open>${apEditing === x.id ? "Close" : "Update"}</button></td></tr>
+      ${apEditing === x.id ? expectationEditRow(x) : ""}`).join("")}</tbody>`;
+}
+
+async function expectationsChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await loadExpectations();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+// Picking a proof starts it on its usual line and method.
+$("ap-kind").addEventListener("change", () => {
+  const p = apOptions?.presets[$("ap-kind").value];
+  if (!p) return;
+  $("ap-line").value = p.line;
+  $("ap-method").value = p.method;
+});
+
+$("ap-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("ap-save"), async () => {
+    const id = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/engagements/${id}/expectations`, { kind: $("ap-kind").value,
+      line: $("ap-line").value || null, method: $("ap-method").value, title: $("ap-title").value.trim() });
+    if (currentEngagement?.id !== id) return;
+    $("ap-form").reset();
+    $("ap-kind").value = "analytic"; $("ap-line").value = "revenue"; $("ap-method").value = "prior_change";
+    apEditing = out.expectations[out.expectations.length - 1]?.id ?? null;  // straight on to its inputs
+    await expectationsChanged(id);
+  });
+});
+
+$("ap-table").addEventListener("change", (ev) => {
+  const sel = ev.target.closest("[data-ap-method]");
+  if (!sel) return;
+  const x = ap.expectations.find((e) => e.id === Number(sel.closest("[data-ap-edit]").dataset.apEdit));
+  sel.closest("form").querySelector("[data-ap-inputs]").innerHTML = apInputs(sel.value, x ? x.inputs : {});
+});
+
+$("ap-table").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-ap-open], button[data-ap-close], button[data-ap-delete], button[data-ap-review], button[data-ap-unreview]");
+  if (!btn) return;
+  const id = currentEngagement.id;
+  const row = btn.closest("[data-ap], [data-ap-edit]");
+  const xid = Number(row.dataset.ap || row.dataset.apEdit);
+  const x = ap.expectations.find((e) => e.id === xid);
+  if (!x) return;
+  if (btn.hasAttribute("data-ap-open") || btn.hasAttribute("data-ap-close")) {
+    apEditing = apEditing === xid ? null : xid;
+    renderExpectations();
+  } else if (btn.hasAttribute("data-ap-delete")) {
+    if (!confirm(`Remove the expectation ${x.title}?`)) return;
+    busy(btn, async () => {
+      await sendJSON("DELETE", `/api/expectations/${xid}`);
+      apEditing = null;
+      await expectationsChanged(id);
+    });
+  } else {
+    const reviewed = btn.hasAttribute("data-ap-review");
+    busy(btn, async () => {
+      await sendJSON("PATCH", `/api/expectations/${xid}`, { reviewed });
+      await expectationsChanged(id);
+    });
+  }
+});
+
+$("ap-table").addEventListener("submit", (ev) => {
+  const form = ev.target.closest("[data-ap-form]");
+  if (!form) return;
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const xid = Number(form.closest("[data-ap-edit]").dataset.apEdit);
+  const f = formObject(form);
+  const inputs = {};
+  for (const [k, , type] of AP_FIELDS[f.method]) {
+    const v = f[`in_${k}`] ?? "";
+    inputs[k] = type === "number" ? numOrNull(v) : v;
+  }
+  busy(form.querySelector("button[type=submit]"), async () => {
+    await sendJSON("PATCH", `/api/expectations/${xid}`, {
+      title: f.title || "", line: f.line || null, method: f.method, inputs, basis: f.basis || "",
+      threshold: numOrNull(f.threshold), actual_override: numOrNull(f.actual_override),
+      actual_note: f.actual_note || "", explanation: f.explanation || "",
+      misstatement: form.querySelector("[name=misstatement]").checked, conclusion: f.conclusion || "" });
+    apEditing = null;
+    await expectationsChanged(id);
+  });
+});
+
 // Tasks and time
 
 let wp = null;       // the work plan shown
@@ -2553,6 +2754,11 @@ function renderCompletion() {
     : cp.blockers.length ? `<ul class="warn-list">${cp.blockers.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : "";
   $("cp-saved").innerHTML = cp.updated_by ? `<span>Last saved by</span> ${data(cp.updated_by)} · <span>${esc(when(cp.updated_at))}</span>` : "";
   renderCompletionEvents();
+  // Worked out by the server, not typed here, so always shown fresh.
+  const signs = cp.signs;
+  $("cp-signs").innerHTML = !signs.statements ? '<p class="muted">Upload the trial balance to see warning signs from the draft statements here.</p>'
+    : signs.warnings.length ? `<ul class="warn-list">${signs.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`
+    : '<p class="muted">The draft statements show no going concern warning signs.</p>';
   // Keep answers typed but not yet saved while an event or the sign-off changes.
   const form = $("cp-form");
   if (form.dataset.engagement === String(id) && form.dataset.dirty) return;
@@ -2572,10 +2778,6 @@ function renderCompletion() {
       ${flagged ? '<div class="tag flag-note">This answer needs a second look before signing off.</div>' : ""}
     </div>`;
   }).join("");
-  const signs = cp.signs;
-  $("cp-signs").innerHTML = !signs.statements ? '<p class="muted">Upload the trial balance to see warning signs from the draft statements here.</p>'
-    : signs.warnings.length ? `<ul class="warn-list">${signs.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`
-    : '<p class="muted">The draft statements show no going concern warning signs.</p>';
   $("cp-gc").innerHTML = '<option value="">Not concluded</option>' + optionList(cp.going_concern_choices, cp.going_concern);
   $("cp-gc-note").value = cp.going_concern_note;
   $("cp-reps-asked").value = cp.reps_requested_on || "";
@@ -2696,6 +2898,7 @@ function refreshFinishing(id) {
   if (currentEngagement?.id !== id) return;
   if (cp?.engagement_id === id) guard(loadCompletion);
   if (rp?.engagement_id === id) guard(loadReport);
+  if (ap?.engagement_id === id && !apEditing) guard(loadExpectations);  // the actuals move too
 }
 
 // Auditor's report draft
@@ -2819,7 +3022,7 @@ $("rp-form").addEventListener("submit", (ev) => {
 
 // Text someone is typing in a list that is about to be redrawn (another row's save reloads
 // it), to put back afterwards with the focus where it was.
-function keepDrafts(container, selector, key) {
+function keepListDrafts(container, selector, key) {
   const drafts = new Map();
   let focused = null;
   container.querySelectorAll(selector).forEach((el) => {
@@ -2852,7 +3055,7 @@ function renderRelated() {
     $("rpt-export").removeAttribute("href");
     return;
   }
-  const restore = keepDrafts($("rpt-table"), "[data-rpt-conclusion]", (el) => el.closest("[data-party]").dataset.party);
+  const restore = keepListDrafts($("rpt-table"), "[data-rpt-conclusion]", (el) => el.closest("[data-party]").dataset.party);
   const s = rpt.summary;
   $("rpt-export").href = `/api/engagements/${rpt.engagement_id}/related-parties/export`;
   $("rpt-cards").innerHTML = [
@@ -2988,7 +3191,7 @@ function renderSummaries() {
   }
   $("ds-export").href = `/api/engagements/${ds.engagement_id}/document-summaries/export`;
   if (!$("ds-kind").options.length) $("ds-kind").innerHTML = optionList(ds.kinds, "contract");
-  const restore = keepDrafts($("ds-list"), "[data-ds-note]", (el) => el.closest("[data-ds]").dataset.ds);
+  const restore = keepListDrafts($("ds-list"), "[data-ds-note]", (el) => el.closest("[data-ds]").dataset.ds);
   const list = (title, items) => items.length ? `<h4>${esc(title)}</h4><ul>${items.join("")}</ul>` : "";
   $("ds-list").innerHTML = ds.summaries.length ? ds.summaries.map((s) => {
     const c = s.content;
@@ -3680,6 +3883,7 @@ function renderStrat() {
 
 let lx = null;  // the look on show
 let lxTab = "pivot";
+const OTHER_COLUMN = "(other)";  // the explorer pivot adds up columns beyond its limit here
 const LX_GROUPS = { account: "Account", user: "User", month: "Month", entry_id: "Entry" };
 
 function renderExplorerForm(e) {
@@ -3751,11 +3955,12 @@ function renderExplorer() {
     const p = lx.pivot;
     const notes = [];
     if (p.rows.length < p.rows_total) notes.push(`Showing the first ${p.rows.length} of ${p.rows_total} rows.`);
-    if (p.columns.length < p.columns_total) notes.push(`Showing the largest ${p.columns.length} of ${p.columns_total} columns.`);
-    if (notes.length) notes.push("The Excel download has them all.");
+    const shown = p.columns.filter((c) => c !== OTHER_COLUMN).length;
+    if (shown < p.columns_total) notes.push(`Showing the largest ${shown} of ${p.columns_total} columns.`, '"(other)" adds up the rest.');
+    if (p.rows.length < p.rows_total) notes.push("The Excel download has all the rows.");
     note = notes;
     html = `<tr><th>${esc(LX_GROUPS[p.rows_by])}</th><th>Lines</th><th>Debits</th><th>Credits</th>` +
-      p.columns.map((c) => `<th class="num">${data(c)}</th>`).join("") + "<th>Net</th></tr>" +
+      p.columns.map((c) => `<th class="num">${c === OTHER_COLUMN ? esc(c) : data(c)}</th>`).join("") + "<th>Net</th></tr>" +
       p.rows.map((r) => `<tr><td>${data(r.key)}</td><td class="num">${r.lines.toLocaleString(LOCALE)}</td>
         <td class="num">${money(r.debits)}</td><td class="num">${money(r.credits)}</td>` +
         r.cells.map((v) => `<td class="num">${v ? money(v) : ""}</td>`).join("") +

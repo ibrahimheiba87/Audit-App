@@ -29,7 +29,8 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MAX_LINES = 500     # lines sent to the page; the Excel download has up to MAX_EXPORT
 MAX_EXPORT = 100_000
 MAX_PIVOT_ROWS = 300
-MAX_PIVOT_COLUMNS = 36
+MAX_PIVOT_COLUMNS = 36         # on the page
+MAX_EXPORT_COLUMNS = 250       # in the download; the rest go into one "Other" column
 GROUPS = {"account": "Account", "user": "User", "month": "Month", "entry_id": "Entry"}
 SPLITS = {"none": "Nothing", "month": "Month", "user": "User", "account": "Account"}
 SORTS = {"date": "Date", "largest": "Largest amount first"}
@@ -111,8 +112,13 @@ def apply(df: pd.DataFrame, f: ExploreIn) -> pd.DataFrame:
     return df[keep]
 
 
-def pivot(df: pd.DataFrame, rows: str, columns: str) -> dict:
-    """Net amounts by `rows` (and `columns`), with a count and total for each row."""
+def pivot(df: pd.DataFrame, rows: str, columns: str, max_columns: int = MAX_PIVOT_COLUMNS) -> dict:
+    """Net amounts by `rows` (and `columns`), with a count and total for each row.
+
+    Only the row/column pairs that occur are summed (never a full rows x columns grid), and at
+    most `max_columns` columns are kept; when more exist, the rest are added up in "other" so
+    each row's cells still add up to its net.
+    """
     if columns == rows:
         columns = "none"
     frame = pd.DataFrame({"row": key(df, rows), "amount": df["amount"]})
@@ -124,21 +130,29 @@ def pivot(df: pd.DataFrame, rows: str, columns: str) -> dict:
     totals = totals.sort_index() if rows == "month" else \
         totals.assign(turnover=totals.debits + totals.credits).sort_values(
             "turnover", ascending=False).drop(columns="turnover")
-    cols, cells = [], {}
+    cols, cells, columns_total = [], {}, 0
     if columns != "none":
-        table = frame.pivot_table(index="row", columns="col", values="amount", aggfunc="sum",
-                                  fill_value=0.0)
-        cols = sorted(table.columns) if columns == "month" else \
-            list(table.abs().sum().sort_values(ascending=False).index)
-        cols = cols[:MAX_PIVOT_COLUMNS]
-        cells = {r: {c: money(table.at[r, c]) for c in cols} for r in table.index}
-    out = [{"key": str(r), "lines": int(t.lines), "debits": money(t.debits),
-            "credits": money(t.credits), "net": money(t.net),
-            "cells": [cells[r][c] for c in cols] if cols else []}
-           for r, t in totals.iterrows()]
-    return {"rows_by": rows, "columns_by": columns, "columns": [str(c) for c in cols],
-            "columns_total": int(frame["col"].nunique()) if columns != "none" else 0,
-            "rows": out, "rows_total": len(out)}
+        pairs = frame.groupby(["row", "col"])["amount"].sum()  # only pairs that occur
+        weight = pairs.abs().groupby(level="col").sum()
+        columns_total = len(weight)
+        cols = sorted(weight.index) if columns == "month" else \
+            list(weight.sort_values(ascending=False).index)
+        cols = cols[:max_columns]
+        keep = set(cols)
+        for (r, c), v in pairs.items():
+            if c in keep:
+                cells.setdefault(r, {})[c] = v
+    other = columns_total > len(cols)
+    out = []
+    for r, t in totals.iterrows():
+        row_cells = [money(cells.get(r, {}).get(c, 0.0)) for c in cols]
+        if other:
+            row_cells.append(money(t.net - sum(cells.get(r, {}).values())))
+        out.append({"key": str(r), "lines": int(t.lines), "debits": money(t.debits),
+                    "credits": money(t.credits), "net": money(t.net), "cells": row_cells})
+    return {"rows_by": rows, "columns_by": columns,
+            "columns": [str(c) for c in cols] + (["(other)"] if other else []),
+            "columns_total": columns_total, "rows": out, "rows_total": len(out)}
 
 
 def line_out(r) -> dict:
@@ -150,7 +164,8 @@ def line_out(r) -> dict:
             "amount": money(r["amount"])}
 
 
-def explore(upload: Upload, f: ExploreIn) -> tuple[pd.DataFrame, dict]:
+def explore(upload: Upload, f: ExploreIn,
+            max_columns: int = MAX_PIVOT_COLUMNS) -> tuple[pd.DataFrame, dict]:
     df = load_upload(upload).df
     hits = apply(df, f)
     if f.sort == "largest":
@@ -163,7 +178,7 @@ def explore(upload: Upload, f: ExploreIn) -> tuple[pd.DataFrame, dict]:
         "matched": len(hits), "debits": money(amount[amount > 0].sum()),
         "credits": money(-amount[amount < 0].sum()), "net": money(amount.sum()),
         "has": [c for c in ("date", "account", "entry_id", "description", "user") if c in df],
-        "pivot": pivot(hits, f.rows, f.columns),
+        "pivot": pivot(hits, f.rows, f.columns, max_columns),
     }
     return hits, result
 
@@ -203,7 +218,7 @@ def explore_upload(upload_id: int, body: ExploreIn, user: User = Depends(current
 def export_explore(upload_id: int, f: ExploreIn = Depends(), user: User = Depends(current_user),
                    session: Session = Depends(get_session)) -> Response:
     upload = get_or_404(session, Upload, upload_id, user)
-    hits, result = explore(upload, f)
+    hits, result = explore(upload, f, MAX_EXPORT_COLUMNS)
     e = upload.engagement
     log(session, user, "analysis.download",
         f"Downloaded the ledger explorer workpaper for {upload.filename}", e,
@@ -218,6 +233,10 @@ def export_explore(upload_id: int, f: ExploreIn = Depends(), user: User = Depend
              ("Credits", result["credits"]), ("Net", result["net"])]
     if result["matched"] > MAX_EXPORT:
         about.append(("Note", f"Only the first {MAX_EXPORT:,} lines are listed."))
+    if result["pivot"]["columns_total"] > MAX_EXPORT_COLUMNS:
+        about.append(("Note", f"The pivot shows the {MAX_EXPORT_COLUMNS} largest of "
+                              f"{result['pivot']['columns_total']:,} columns; the rest are "
+                              "added up in \"(other)\"."))
     lines = pd.DataFrame([line_out(r) for _, r in hits.head(MAX_EXPORT).iterrows()],
                          columns=["row", "date", "account", "entry_id", "description", "user",
                                   "amount"])

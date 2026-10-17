@@ -28,7 +28,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -176,6 +176,9 @@ class Engagement(Base):
     )
     related_parties: Mapped[list[RelatedParty]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="RelatedParty.id"
+    )
+    expectations: Mapped[list[Expectation]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Expectation.id"
     )
     document_summaries: Mapped[list[DocumentSummary]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan",
@@ -594,6 +597,40 @@ class DocumentSummary(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="document_summaries")
+
+
+class Expectation(Base):
+    """A substantive analytical procedure (ISA 520) or proof in total: what a statement line
+    should be, worked out from inputs checked elsewhere, against what it is (expectations.py)."""
+
+    __tablename__ = "expectations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="analytic")  # expectations.KINDS
+    title: Mapped[str] = mapped_column(String(200), default="")
+    line: Mapped[str | None] = mapped_column(String(50), nullable=True)  # statements.LINE
+    method: Mapped[str] = mapped_column(String(20), default="prior_change")
+    inputs: Mapped[dict] = mapped_column(JSON, default=dict)
+    basis: Mapped[str] = mapped_column(Text, default="")  # where the inputs come from
+    threshold: Mapped[float | None] = mapped_column(Float, nullable=True)  # else perf. mat.
+    # When the line holds more than what is tested, the actual figure entered by hand.
+    actual_override: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_note: Mapped[str] = mapped_column(Text, default="")
+    explanation: Mapped[str] = mapped_column(Text, default="")  # of a difference over it
+    misstatement: Mapped[bool] = mapped_column(Boolean, default=False)
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    reviewed_by: Mapped[str] = mapped_column(String(200), default="")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # The expected, actual and threshold the review saw: other figures need a fresh look.
+    reviewed_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    source: Mapped[str] = mapped_column(String(50), default="")  # "rolled:<id>" if carried
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="expectations")
 
 
 class Confirmation(Base):
@@ -1158,18 +1195,46 @@ ADDED_COLUMNS = {
 
 def _upgrade() -> None:
     """Changes create_all can't make to tables an earlier version created."""
-    with engine.begin() as conn:
-        for table, columns in ADDED_COLUMNS.items():
+    for table, columns in ADDED_COLUMNS.items():
+        with engine.connect() as conn:
             have = {c["name"] for c in sa_inspect(conn).get_columns(table)}
-            for name, ddl in columns.items():
-                if name not in have:
-                    # IF NOT EXISTS: another worker starting at the same time may have added it.
-                    exists_ok = " IF NOT EXISTS" if engine.dialect.name == "postgresql" else ""
+        for name, ddl in columns.items():
+            if name in have:
+                continue
+            # Another worker starting at the same time may add it first: PostgreSQL skips it
+            # with IF NOT EXISTS, SQLite (which hasn't that) says it's a duplicate.
+            exists_ok = " IF NOT EXISTS" if engine.dialect.name == "postgresql" else ""
+            try:
+                with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN{exists_ok} {name} {ddl}"))
+            except OperationalError as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
+    _backfill_scans()
     if engine.dialect.name == "postgresql":  # SQLite doesn't enforce VARCHAR lengths
         with engine.begin() as conn:
             for table in ("account_mappings", "adjusting_lines"):  # account was VARCHAR(100)
                 conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN account TYPE VARCHAR(200)"))
+
+
+def _backfill_scans() -> None:
+    """Related parties scanned before scan_upload_id existed: point them at the ledger the
+    scan would have read (the latest one uploaded by then). With no such ledger left, the
+    scan is forgotten so a fresh one is asked for, except on a locked file, which can't be
+    scanned again and keeps what it has."""
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE related_parties SET scan_upload_id = (
+                SELECT u.id FROM uploads u
+                WHERE u.engagement_id = related_parties.engagement_id AND u.kind = 'gl'
+                  AND u.uploaded_at <= related_parties.scanned_at
+                ORDER BY u.uploaded_at DESC, u.id DESC LIMIT 1)
+            WHERE scan_upload_id IS NULL AND scanned_at IS NOT NULL"""))
+        conn.execute(text("""
+            UPDATE related_parties SET scanned_at = NULL, matches = 0, matched_amount = 0,
+                scan_fingerprint = '', reviewed_by = '', reviewed_at = NULL
+            WHERE scan_upload_id IS NULL AND scanned_at IS NOT NULL
+              AND engagement_id NOT IN (SELECT engagement_id FROM engagement_locks)"""))
 
 
 def _summarize_runs() -> None:

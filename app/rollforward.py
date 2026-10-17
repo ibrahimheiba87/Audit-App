@@ -26,6 +26,7 @@ from .db import (
     DocumentRequest,
     Engagement,
     EngagementMember,
+    Expectation,
     RelatedParty,
     Task,
     TimeBudget,
@@ -49,6 +50,11 @@ class RollForwardIn(BaseModel):
     controls: bool = True
     workplan: bool = True
     related_parties: bool = True
+    expectations: bool = True
+
+
+# The names and periods of an expectation's inputs; the amounts and rates are this year's.
+CARRIED_INPUTS = ("base_label", "units_label", "price_label", "months", "periods")
 
 
 def next_year(d: date) -> date:
@@ -144,6 +150,16 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
                 note=p.note, source=f"rolled:{p.id}", created_by=user.name,
                 updated_by=user.name))
         carried["related_parties"] = len(old.related_parties)
+    if body.expectations and old.expectations:
+        # How each expectation is built and where its inputs come from; the figures, the
+        # threshold and the conclusions are this year's to work out.
+        for x in old.expectations:
+            new.expectations.append(Expectation(
+                kind=x.kind, title=x.title, line=x.line, method=x.method,
+                inputs={k: v for k, v in (x.inputs or {}).items() if k in CARRIED_INPUTS},
+                basis=x.basis, source=f"rolled:{x.id}", created_by=user.name,
+                updated_by=user.name))
+        carried["expectations"] = len(old.expectations)
     session.flush()
 
     upload = None
@@ -173,6 +189,10 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
         log(session, user, "control.carry",
             f"Carried {carried['controls']} controls from {old.name}", new,
             details={"from_engagement_id": old.id, "controls": carried['controls']})
+    if carried.get("expectations"):  # and the analytics section
+        log(session, user, "expectation.carry",
+            f"Carried {carried['expectations']} expectations from {old.name}", new,
+            details={"from_engagement_id": old.id, "expectations": carried["expectations"]})
     if carried.get("related_parties"):  # and the related parties section
         log(session, user, "related.carry",
             f"Carried {carried['related_parties']} related parties from {old.name}", new,

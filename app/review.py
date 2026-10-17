@@ -85,6 +85,10 @@ SECTIONS = [
     Section("bank", "Bank reconciliation",
             "Bank statements matched to the cash account, and the reconciling items.",
             ("bankrec.create",)),
+    Section("analytics", "Analytical procedures and proofs",
+            "Expectations of statement lines and proofs in total, compared with the balances.",
+            ("expectation.create", "expectation.update", "expectation.delete",
+             "expectation.carry")),
     Section("confirmations", "External confirmations",
             "Requests to banks, customers, suppliers and lawyers, and their replies.",
             ("confirmation.create", "confirmation.import", "confirmation.update",
@@ -115,10 +119,10 @@ SECTIONS = [
 SECTION = {s.id: s for s in SECTIONS}
 # Sections only some engagements have work in. Until one has (or is signed or noted), it
 # isn't needed for completion, so engagements without a bank statement (or that keep their
-# risk assessment, acceptance, independence, disclosure, controls or confirmation records
+# risk assessment, acceptance, independence, disclosure, controls, confirmation or analytics records
 # outside the app) aren't held up.
 OPTIONAL = {"bank", "risks", "acceptance", "disclosures", "controls", "confirmations",
-            "finalisation", "related"}
+            "finalisation", "related", "analytics"}
 WORK = [s for s in SECTIONS if s.id != "completion"]
 SECTIONS_CHANGED: dict[str, set[str]] = {}  # action -> the sections it changes
 for _s in WORK:
@@ -128,8 +132,8 @@ for _a, _ids in SIDE_EFFECTS.items():
     SECTIONS_CHANGED.setdefault(_a, set()).update(_ids)
 
 SectionId = Literal["acceptance", "planning", "risks", "controls", "data", "comparison",
-                    "sampling", "bank", "confirmations", "related", "findings", "statements", "disclosures",
-                    "finalisation", "completion"]
+                    "sampling", "bank", "analytics", "confirmations", "related", "findings",
+                    "statements", "disclosures", "finalisation", "completion"]
 Kind = Literal["prepared", "reviewed"]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
 
