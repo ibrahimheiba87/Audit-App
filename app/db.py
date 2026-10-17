@@ -180,6 +180,9 @@ class Engagement(Base):
     expectations: Mapped[list[Expectation]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Expectation.id"
     )
+    stock_count: Mapped[StockCount | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
     document_summaries: Mapped[list[DocumentSummary]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="DocumentSummary.id"
@@ -631,6 +634,67 @@ class Expectation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="expectations")
+
+
+class StockCount(Base):
+    """Attendance at the client's inventory count (ISA 501): the items picked from the
+    inventory listing to count from the books to the floor, and those picked on the floor to
+    trace to the books (stock_count.py). One per engagement."""
+
+    __tablename__ = "stock_counts"
+    __table_args__ = (UniqueConstraint("engagement_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    # The inventory listing the items were picked from; kept as it was if the file is deleted.
+    upload_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    columns: Mapped[dict] = mapped_column(JSON, default=dict)
+    selection: Mapped[dict] = mapped_column(JSON, default=dict)  # how many, the seed
+    population_value: Mapped[float] = mapped_column(Float, default=0.0)
+    population_lines: Mapped[int] = mapped_column(Integer, default=0)
+    listing_checks: Mapped[dict] = mapped_column(JSON, default=dict)  # odd lines found
+    count_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    location: Mapped[str] = mapped_column(String(200), default="")
+    observations: Mapped[str] = mapped_column(Text, default="")  # how the count was run
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    reviewed_by: Mapped[str] = mapped_column(String(200), default="")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="stock_count")
+    items: Mapped[list[StockCountItem]] = relationship(
+        back_populates="count", cascade="all, delete-orphan", order_by="StockCountItem.id"
+    )
+
+
+class StockCountItem(Base):
+    """One item test counted: the quantity in the books against the quantity on the floor."""
+
+    __tablename__ = "stock_count_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    count_id: Mapped[int] = mapped_column(ForeignKey("stock_counts.id"), index=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    direction: Mapped[str] = mapped_column(String(10), default="to_floor")  # or "to_book"
+    reason: Mapped[str] = mapped_column(String(20), default="")  # largest, random, floor
+    source_row: Mapped[int | None] = mapped_column(Integer, nullable=True)  # in the listing
+    item: Mapped[str] = mapped_column(String(200), default="")
+    description: Mapped[str] = mapped_column(String(500), default="")
+    location: Mapped[str] = mapped_column(String(200), default="")
+    unit_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    book_qty: Mapped[float | None] = mapped_column(Float, nullable=True)
+    counted_qty: Mapped[float | None] = mapped_column(Float, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")  # condition, tag number, damage
+    explanation: Mapped[str] = mapped_column(Text, default="")  # of a difference
+    counted_by: Mapped[str] = mapped_column(String(200), default="")
+    counted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    count: Mapped[StockCount] = relationship(back_populates="items")
 
 
 class Confirmation(Base):

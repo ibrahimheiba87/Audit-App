@@ -41,9 +41,12 @@ router = APIRouter(prefix="/api")
 
 UPLOAD_KINDS = {"gl": "General ledger", "tb": "Trial balance", "prior_tb": "Prior-year trial balance",
                 "bank": "Bank statement", "ar": "Receivables listing", "ap": "Payables listing",
+                "fixed_assets": "Fixed asset register", "inventory": "Inventory listing",
                 "list": "Other list (such as a vendor or employee master file)"}
-# Lists have no amounts to map: they're kept as they are, to be matched against other files.
-LISTS = ("list",)
+# Lists have no amounts to map: they're kept as they are, to be matched against other files,
+# and the fixed asset register and inventory listing are read by their own analyses, whose
+# columns the auditor picks there.
+LISTS = ("list", "fixed_assets", "inventory")
 FRAMEWORKS = ["IFRS", "US GAAP", "IFRS for SMEs", "Local GAAP", "Other"]
 
 
@@ -626,6 +629,9 @@ def delete_upload(upload_id: int, user: User = Depends(require("review")),
         if party.scan_upload_id == upload_id:  # its counts and review rested on this ledger
             forget_scan(party)
             affects.add("related")
+    count = upload.engagement.stock_count
+    if count is not None and count.upload_id == upload_id:
+        count.upload_id = None  # the items picked keep their figures; no more look-ups
     log(session, user, "upload.delete", f"Deleted {upload.filename}", upload.engagement,
         details={"upload_id": upload.id, "sha256": upload.sha256, "kind": upload.kind,
                  "affects": sorted(affects)})
@@ -652,8 +658,10 @@ def list_report(filename: str, content: bytes, sheet: str | None) -> dict:
 
 def load_upload(upload: Upload) -> loader.Loaded:
     if upload.kind in LISTS:
-        raise HTTPException(400, f"{upload.filename} is a list with no amounts. Match it "
-                                 "against another file under Match two files.")
+        where = {"fixed_assets": "Look at it under Fixed asset register.",
+                 "inventory": "Use it under Inventory count."}.get(
+            upload.kind, "Match it against another file under Match two files.")
+        raise HTTPException(400, f"{upload.filename} is a list with no amounts to check. {where}")
     try:
         return loader.load(upload.filename, upload.content, upload.mapping, upload.sheet)
     except loader.LoadError as exc:

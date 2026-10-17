@@ -295,6 +295,9 @@ async function openEngagement(id) {
     rr = null; renderRisks(); resetRiskForm(); $("rr-add").open = false; $("ra-imported").textContent = "";
     ct = null; renderControls(); resetControlForm(); $("ct-add").open = false; $("ct-calc-out").textContent = "";
     ap = null; apEditing = null; renderExpectations(); $("ap-form").reset(); $("ap-add").open = false;
+    resetFixedAssets(); faTab = "categories";
+    sc = null; scEditing = null; resetStockListing(); renderStockCount(); $("sc-filter").value = "";
+    $("sc-setup").open = false; $("sc-form").reset(); $("sc-add-form").reset(); $("sc-details").reset();
     cf = null; cfEditing = null; renderConfirmations(); $("cf-form").reset(); $("cf-pick-form").reset();
     $("cf-picked").textContent = ""; $("cf-filter").value = "";
     cp = null; renderCompletion(); $("cp-check").open = false; $("cp-event-form").reset(); $("cp-sign").reset();
@@ -340,6 +343,8 @@ async function openEngagement(id) {
   renderMatches(e.cross_matches);
   renderStratifyForm(e);
   renderExplorerForm(e);
+  renderFixedAssetForm(e);
+  renderStockForm(e);
   renderAgingForm(e);
   renderConfirmationListing(e);
   renderSampleForm(e);
@@ -355,6 +360,7 @@ async function openEngagement(id) {
   guard(loadControls);
   guard(loadConfirmations);
   guard(loadExpectations);
+  guard(loadStockCount);
   guard(loadWorkplan);
   guard(loadCompletion);
   guard(loadReport);
@@ -710,8 +716,10 @@ $("mat-form").addEventListener("submit", (e) => {
 // Uploads
 
 const uploadMapper = Mapper($("up-mapper"));
-// Lists (vendor or employee master files) have no amounts, so there's nothing to map.
-const uploadIsList = () => $("up-kind").value === "list";
+// Lists (vendor or employee master files, fixed asset registers, inventory listings) have no
+// amounts to map: their columns are picked where they're used.
+const LIST_KINDS = ["list", "fixed_assets", "inventory"];
+const uploadIsList = () => LIST_KINDS.includes($("up-kind").value);
 function loadUploadMapper() {
   uploadMapper.setMapping(!uploadIsList());
   uploadMapper.load($("up-file").files[0]);
@@ -743,6 +751,8 @@ function renderUploads(uploads) {
         ${u.kind === "bank"
           ? `<button type="button" class="small" data-reconcile="${u.id}">Reconcile</button>`
           : u.kind === "list" ? `<button type="button" class="small" data-match="${u.id}">Match</button>`
+          : u.kind === "fixed_assets" ? `<button type="button" class="small" data-goto="fa-panel" data-goto-upload="${u.id}">Look at it</button>`
+          : u.kind === "inventory" ? `<button type="button" class="small" data-goto="sc-panel" data-goto-upload="${u.id}">Count</button>`
           : `<button type="button" class="small" data-run="${u.id}">Run audit</button>`}
         <button type="button" class="small secondary danger min-2" data-delete-upload="${u.id}">Delete</button>
       </div></td></tr>`).join("")
@@ -754,6 +764,15 @@ $("uploads").addEventListener("click", (e) => {
   const del = e.target.closest("[data-delete-upload]");
   const rec = e.target.closest("[data-reconcile]");
   const matchBtn = e.target.closest("[data-match]");
+  const goto = e.target.closest("[data-goto]");
+  if (goto) {
+    const panel = goto.dataset.goto, select = panel === "fa-panel" ? "fa-upload" : "sc-upload";
+    $(select).value = goto.dataset.gotoUpload;
+    $(select).dispatchEvent(new Event("change"));
+    if (panel === "sc-panel" && !sc?.count) $("sc-setup").open = true;
+    $(panel).scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
   if (matchBtn) {
     $("xm-left").value = matchBtn.dataset.match;
     $("xm-left").dispatchEvent(new Event("change"));
@@ -2502,6 +2521,400 @@ $("ap-table").addEventListener("submit", (ev) => {
   });
 });
 
+// Registers and listings whose columns the auditor picks (fixed assets, inventory)
+
+// A picker for each field, holding the column used (or none).
+function columnPickers(fields, fileColumns, picked) {
+  return fields.map((f) => `<div><label>${esc(f.label)}</label><select class="map" data-field="${esc(f.id)}">
+    <option value="">(not in file)</option>${fileColumns.map((c) =>
+      `<option value="${esc(c)}" ${picked[f.id] === c ? "selected" : ""} translate="no">${esc(c)}</option>`).join("")}</select></div>`).join("");
+}
+
+// The columns picked, or {} before any picker is shown (the server then guesses them).
+function columnsPicked(root) {
+  const out = {};
+  root.querySelectorAll("[data-field]").forEach((sel) => { if (sel.value) out[sel.dataset.field] = sel.value; });
+  return out;
+}
+
+const date = (d) => d ? `<bdi dir="ltr">${esc(d)}</bdi>` : "";
+const qty = (n) => n == null ? "" : `<bdi dir="ltr">${esc(Number(n).toLocaleString(LOCALE, { maximumFractionDigits: 4 }))}</bdi>`;
+
+// Fixed asset register
+
+let fa = null;         // the analysis on show
+let faTab = "categories";
+
+function renderFixedAssetForm(e) {
+  const keep = $("fa-upload").value;
+  const files = e.uploads.filter((u) => u.kind === "fixed_assets");
+  $("fa-upload").innerHTML = files
+    .map((u) => `<option value="${u.id}">${esc(u.filename)}</option>`)
+    .join("") || '<option value="">Upload a fixed asset register first</option>';
+  if (files.some((u) => String(u.id) === keep)) $("fa-upload").value = keep;
+  if (fa && String(fa.upload_id) !== $("fa-upload").value) resetFixedAssets();
+}
+
+function resetFixedAssets() {
+  fa = null;
+  $("fa-columns").innerHTML = "";
+  $("fa-columns-note").hidden = $("fa-problem").hidden = true;
+  $("fa-result").hidden = $("fa-export").hidden = true;
+}
+
+$("fa-upload").addEventListener("change", resetFixedAssets);
+
+$("fa-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("fa-run"), async () => {
+    const id = Number($("fa-upload").value);
+    if (!id) throw new Error("Upload a fixed asset register first.");
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/uploads/${id}/fixed-assets`, { columns: columnsPicked($("fa-columns")) });
+    if (currentEngagement?.id !== engagementId) return;
+    fa = out;
+    $("fa-columns").innerHTML = columnPickers(out.fields, out.file_columns, out.columns);
+    $("fa-columns-note").hidden = false;
+    $("fa-problem").hidden = !out.problem;
+    $("fa-problem").textContent = out.problem || "";
+    $("fa-export").hidden = !!out.problem;
+    renderFixedAssets();
+  });
+});
+
+$("fa-export").addEventListener("click", () => {
+  busy($("fa-export"), async () => {
+    const res = await request(`/api/uploads/${fa.upload_id}/fixed-assets/export`, { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: fa.columns }) });
+    await saveFile(res, "fixed-assets.xlsx");
+  });
+});
+
+$("fa-tabs").addEventListener("click", (ev) => {
+  const tab = ev.target.closest("[data-fa]");
+  if (!tab) return;
+  faTab = tab.dataset.fa;
+  renderFixedAssets();
+});
+
+function assetRows(items, extra = false) {
+  return `<tr><th>Row</th><th>Asset</th><th>Category</th><th>Acquired</th><th>Disposed</th><th class="num">Cost</th>
+    <th class="num">Accumulated depreciation</th><th class="num">Net book value</th><th class="num">Depreciation this year</th>
+    ${extra ? '<th class="num">Recomputed</th><th class="num">Difference</th>' : ""}<th>Points to look at</th></tr>` +
+    items.map((x) => `<tr><td class="num">${x.row}</td><td>${data(x.asset)}<div class="tag">${data(x.description)}</div></td>
+      <td>${x.category === "(none)" ? esc(x.category) : data(x.category)}</td><td class="nowrap">${date(x.acquired)}</td><td class="nowrap">${date(x.disposed)}</td>
+      <td class="num">${money(x.cost)}</td><td class="num">${money(x.accumulated)}</td><td class="num">${money(x.nbv)}</td>
+      <td class="num">${money(x.charge)}</td>
+      ${extra ? `<td class="num">${money(x.expected)}</td><td class="num bad">${money(x.difference)}</td>` : ""}
+      <td>${x.issues.map((i) => `<div>${esc(i)}</div>`).join("")}</td></tr>`).join("");
+}
+
+function renderFixedAssets() {
+  $("fa-result").hidden = !fa || !!fa.problem;
+  if (!fa || fa.problem) return;
+  $("fa-tabs").querySelectorAll("[data-fa]").forEach((b) => b.setAttribute("aria-selected", b.dataset.fa === faTab));
+  const t = fa.totals, r = fa.recomputed;
+  const tieOff = fa.tie.some((x) => x.difference);
+  $("fa-cards").innerHTML = [
+    [t.assets.toLocaleString(LOCALE), "Assets held at the period end", false], [money(t.cost), "Cost", false],
+    [money(t.nbv), "Net book value", false], [money(t.charge), "Depreciation this year", false],
+    [r.differences.toLocaleString(LOCALE), "Depreciation differences", r.differences > 0],
+    [fa.issues.count.toLocaleString(LOCALE), "Assets with points to look at", fa.issues.count > 0],
+    ...(fa.tie.length ? [[tieOff ? "Differs" : "Agrees", "Register and trial balance", tieOff]] : []),
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  let note = [], html = "";
+  if (faTab === "categories") {
+    html = `<tr><th>Category</th><th class="num">Assets</th><th class="num">Cost</th><th class="num">Accumulated depreciation</th>
+      <th class="num">Net book value</th><th class="num">Depreciation this year</th></tr>` +
+      fa.categories.map((c) => `<tr><td>${c.category === "(none)" ? esc(c.category) : data(c.category)}</td><td class="num">${c.assets}</td>
+        <td class="num">${money(c.cost)}</td><td class="num">${money(c.accumulated)}</td><td class="num">${money(c.nbv)}</td>
+        <td class="num">${money(c.charge)}</td></tr>`).join("") +
+      `<tr class="total"><td>Total</td><td class="num">${t.assets}</td><td class="num">${money(t.cost)}</td><td class="num">${money(t.accumulated)}</td>
+        <td class="num">${money(t.nbv)}</td><td class="num">${money(t.charge)}</td></tr>`;
+    note = ["Assets disposed of in the year are left out of the totals; their charge for the year is kept."];
+  } else if (faTab === "tie") {
+    if (!fa.tie.length) note = ["Upload this year's trial balance and map it to tie the register to it."];
+    else html = '<tr><th>Line</th><th class="num">Register</th><th class="num">Trial balance</th><th class="num">Difference</th></tr>' +
+      fa.tie.map((x) => `<tr><td>${esc(x.label)}</td><td class="num">${money(x.register)}</td>
+        <td class="num">${x.trial_balance == null ? esc("Not mapped") : money(x.trial_balance)}</td>
+        <td class="num${x.difference ? " bad" : ""}">${money(x.difference)}</td></tr>`).join("");
+  } else if (faTab === "recomputed") {
+    note = [`Recomputed on the straight line for ${r.checked} assets, for the part of the year each was held.`,
+      "Differences over 1% are listed."];
+    if (r.items.length) html = assetRows(r.items, true);
+  } else {
+    const part = fa[faTab];
+    if (faTab === "additions") note = [`${part.count} additions costing ${money(part.cost)}.`];
+    if (faTab === "disposals") note = [`${part.count} disposals costing ${money(part.cost)}.`];
+    if (faTab === "issues" && !part.count) note = ["Nothing odd found."];
+    if (part.items.length) html = assetRows(part.items);
+    if (part.items.length < part.count) note.push(`Showing the first ${part.items.length}.`, "The Excel download has them all.");
+  }
+  $("fa-note").innerHTML = [].concat(note).map((n) => `<span>${esc(n)}</span>`).join(" ");
+  $("fa-table").innerHTML = html;
+}
+
+// Inventory count
+
+let sc = null;         // {engagement_id, count, items, summary}
+let scListing = null;  // the listing as last looked at, before picking
+let scEditing = null;  // the item whose note and explanation are open
+let scLoads = 0;
+const SC_PILL = { to_count: "warn", agreed: "good", explained: "good", difference: "bad", not_listed: "bad" };
+
+async function loadStockCount() {
+  const id = currentEngagement.id;
+  const load = ++scLoads;
+  const out = await getJSON(`/api/engagements/${id}/stock-count`);
+  if (load !== scLoads || currentEngagement?.id !== id) return;
+  sc = { ...out, engagement_id: id };
+  renderStockCount();
+}
+
+function renderStockForm(e) {
+  const keep = $("sc-upload").value;
+  const files = e.uploads.filter((u) => u.kind === "inventory");
+  $("sc-upload").innerHTML = files
+    .map((u) => `<option value="${u.id}">${esc(u.filename)}</option>`)
+    .join("") || '<option value="">Upload an inventory listing first</option>';
+  if (files.some((u) => String(u.id) === keep)) $("sc-upload").value = keep;
+  if (scListing && String(scListing.upload_id) !== $("sc-upload").value) resetStockListing();
+}
+
+function resetStockListing() {
+  scListing = null;
+  $("sc-columns").innerHTML = "";
+  $("sc-columns-note").hidden = $("sc-problem").hidden = $("sc-listing").hidden = true;
+}
+
+$("sc-upload").addEventListener("change", resetStockListing);
+
+$("sc-look").addEventListener("click", () => {
+  busy($("sc-look"), async () => {
+    const id = Number($("sc-upload").value);
+    if (!id) throw new Error("Upload an inventory listing first.");
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/uploads/${id}/inventory`, { upload_id: id, columns: columnsPicked($("sc-columns")) });
+    if (currentEngagement?.id !== engagementId) return;
+    scListing = out;
+    renderStockListing();
+  });
+});
+
+function renderStockListing() {
+  const l = scListing;
+  $("sc-columns").innerHTML = columnPickers(l.fields, l.file_columns, l.columns);
+  $("sc-columns-note").hidden = false;
+  $("sc-problem").hidden = !l.problem;
+  $("sc-problem").textContent = l.problem || "";
+  $("sc-listing").hidden = !!l.problem;
+  if (l.problem) return;
+  $("sc-listing-cards").innerHTML = [[l.lines.toLocaleString(LOCALE), "Lines in the listing"], [money(l.value), "Value of the listing"],
+    [l.checks.lines.toLocaleString(LOCALE), "Lines worth a look"]]
+    .map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("sc-checks").innerHTML = l.checks.items.map((c) =>
+    `<li><span>${esc(c.label)}</span>: <bdi dir="ltr">${esc(c.rows.join(", "))}</bdi></li>`).join("");
+}
+
+$("sc-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("sc-pick"), async () => {
+    const id = Number($("sc-upload").value);
+    if (!id) throw new Error("Upload an inventory listing first.");
+    if (sc?.count && !confirm("Pick the items again? The items picked before go.")) return;
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/engagements/${engagementId}/stock-count`, {
+      upload_id: id, columns: columnsPicked($("sc-columns")), largest: Number($("sc-largest").value || 0),
+      random: Number($("sc-random").value || 0), seed: numOrNull($("sc-seed").value) });
+    if (currentEngagement?.id !== engagementId) return;
+    sc = { ...out, engagement_id: engagementId };
+    $("sc-setup").open = false;
+    renderStockCount();
+    await stockChanged(engagementId, false);
+  });
+});
+
+function stockItemEditRow(x) {
+  const floor = x.direction === "to_book";
+  return `<tr class="cf-edit" data-sc-edit="${x.id}"><td colspan="9"><form data-sc-form>
+    ${floor ? `<div class="grid">
+      <div><label>Book quantity <span class="muted">(blank if it isn't in the books)</span></label><input name="book_qty" type="number" step="any" value="${esc(x.book_qty ?? "")}"></div>
+      <div><label>Unit cost</label><input name="unit_cost" type="number" step="any" min="0" value="${esc(x.unit_cost ?? "")}"></div></div>` : ""}
+    <label>Note <span class="muted">(tag number, condition, damage)</span></label><textarea name="note" rows="2" maxlength="5000">${esc(x.note)}</textarea>
+    <label>Explanation of the difference</label><textarea name="explanation" rows="2" maxlength="5000">${esc(x.explanation)}</textarea>
+    <div class="actions"><button type="submit" class="small">Save</button>
+      <button type="button" class="small secondary" data-sc-close>Close</button>
+      ${floor ? '<button type="button" class="small secondary danger" data-sc-delete>Remove</button>' : ""}</div>
+  </form></td></tr>`;
+}
+
+function renderStockCount() {
+  const c = sc?.count;
+  $("sc-count").hidden = $("sc-export").hidden = !c;
+  $("sc-setup").querySelector("summary").textContent = c ? "Pick the items again" : "Pick the items to count";
+  if (!c) { $("sc-table").innerHTML = ""; return; }
+  const s = sc.summary, st = s.statuses;
+  $("sc-export").href = `/api/engagements/${sc.engagement_id}/stock-count/export`;
+  $("sc-cards").innerHTML = [
+    [`${s.items - st.to_count} / ${s.items}`, "Items counted", false],
+    [st.difference + st.not_listed, "Differences to explain", st.difference + st.not_listed > 0],
+    [money(s.found), "Differences found", s.found !== 0],
+    [money(s.projected), "Projected over the listing", s.outcome === "over"],
+    [money(s.performance_materiality), "Performance materiality", false],
+    [s.coverage_pct == null ? "" : `${s.coverage_pct}%`, "Value covered", false],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("") +
+    `<div class="card"><div class="v"><span class="pill ${s.outcome === "over" ? "bad" : s.outcome === "within" ? "good" : "warn"}">${esc(s.outcome_label)}</span></div><div class="k">${esc("Outcome")}</div></div>`;
+  $("sc-about").innerHTML = [`<span>${esc(`Picked from ${c.filename}`)}</span>`.replace(esc(c.filename), data(c.filename)),
+    `<span>${esc(`${c.population_lines} lines worth ${money(c.population_value)}.`)}</span>`,
+    `<span>${esc(`Random seed ${c.selection.seed}.`)}</span>`,
+    ...(c.upload_id == null ? [`<span>${esc("The listing was deleted, so items picked on the floor can't be looked up.")}</span>`] : [])].join(" ");
+  if (document.activeElement?.closest("#sc-details") == null) {
+    $("sc-date").value = c.count_date || "";
+    $("sc-location").value = c.location;
+    $("sc-observations").value = c.observations;
+    $("sc-conclusion").value = c.conclusion;
+  }
+  $("sc-review").hidden = !(me.rank >= 2) || !!c.reviewed_at;
+  $("sc-unreview").hidden = !(me.rank >= 2) || !c.reviewed_at;
+  $("sc-restart").hidden = !(me.rank >= 2);
+  $("sc-reviewed").innerHTML = c.reviewed_at ? `<span>${esc("Reviewed by")}</span> ${data(c.reviewed_by)} · ${esc(when(c.reviewed_at))}` : "";
+  const show = $("sc-filter").value;
+  const items = sc.items.map((x, i) => ({ ...x, ref: i + 1 })).filter((x) => !show || (show === "open" ? x.open : x.direction === show));
+  if (!items.length) { $("sc-table").innerHTML = '<tbody><tr><td class="muted">Nothing to show.</td></tr></tbody>'; return; }
+  $("sc-table").innerHTML = `<thead><tr><th>Ref</th><th>Item</th><th>Location</th><th class="num">Unit cost</th><th class="num">Book quantity</th>
+      <th class="num">Counted</th><th class="num">Difference</th><th>Status</th><th></th></tr></thead><tbody>
+    ${items.map((x) => `<tr data-sc="${x.id}">
+      <td><bdi>SC${x.ref}</bdi><div class="tag">${esc(x.reason_label)}</div></td>
+      <td>${data(x.item)}<div class="tag">${data(x.description)}</div>${x.note ? `<div class="tag">${data(x.note)}</div>` : ""}</td>
+      <td>${data(x.location)}</td>
+      <td class="num">${money(x.unit_cost)}</td>
+      <td class="num">${x.book_qty == null ? esc("Not in the listing") : qty(x.book_qty)}${x.source_row ? `<div class="tag"><span>${esc("Row")}</span> ${x.source_row}</div>` : ""}</td>
+      <td class="num"><input type="number" step="any" class="qty-input" data-sc-qty="${x.id}" value="${esc(x.counted_qty ?? "")}" aria-label="${esc("Counted quantity")}"></td>
+      <td class="num${x.open && x.counted_qty != null ? " bad" : ""}">${x.difference_qty ? qty(x.difference_qty) : ""}${x.difference ? `<div class="tag">${money(x.difference)}</div>` : ""}</td>
+      <td><span class="pill ${SC_PILL[x.status]}">${esc(x.status_label)}</span>${x.explanation ? `<div class="tag">${data(x.explanation)}</div>` : ""}</td>
+      <td><button type="button" class="small secondary" data-sc-open>${scEditing === x.id ? "Close" : "Update"}</button></td></tr>
+      ${scEditing === x.id ? stockItemEditRow(x) : ""}`).join("")}</tbody>`;
+}
+
+async function stockChanged(id, reload = true) {
+  if (currentEngagement?.id !== id) return;
+  if (reload) await loadStockCount();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+// Saving one count, then putting the cursor back where it was, so counts can be typed in a run.
+$("sc-table").addEventListener("change", (ev) => {
+  const input = ev.target.closest("[data-sc-qty]");
+  if (!input) return;
+  const id = currentEngagement.id;
+  guard(async () => {
+    const out = await sendJSON("PATCH", `/api/stock-count-items/${input.dataset.scQty}`, { counted_qty: numOrNull(input.value) });
+    if (currentEngagement?.id !== id) return;
+    // Where the cursor went (the next count, or a row's button), by its row.
+    const at = document.activeElement?.closest?.("#sc-table [data-sc]");
+    const focused = at && (document.activeElement.matches("[data-sc-qty]") ? "[data-sc-qty]" : "[data-sc-open]");
+    sc = { ...out, engagement_id: id };
+    renderStockCount();
+    if (focused) document.querySelector(`#sc-table [data-sc="${at.dataset.sc}"] ${focused}`)?.focus();
+    await stockChanged(id, false);
+  });
+});
+
+// Enter saves a count and goes on to the next one, as in a spreadsheet.
+$("sc-table").addEventListener("keydown", (ev) => {
+  const input = ev.target.closest("[data-sc-qty]");
+  if (!input || ev.key !== "Enter") return;
+  ev.preventDefault();
+  const boxes = [...$("sc-table").querySelectorAll("[data-sc-qty]")];
+  const next = boxes[boxes.indexOf(input) + 1];
+  if (next) next.focus(); else input.blur();
+});
+
+$("sc-table").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button[data-sc-open], button[data-sc-close], button[data-sc-delete]");
+  if (!btn) return;
+  const id = currentEngagement.id;
+  const row = btn.closest("[data-sc], [data-sc-edit]");
+  const xid = Number(row.dataset.sc || row.dataset.scEdit);
+  const x = sc.items.find((i) => i.id === xid);
+  if (!x) return;
+  if (btn.hasAttribute("data-sc-delete")) {
+    if (!confirm(`Remove ${x.item || x.description} from the count?`)) return;
+    busy(btn, async () => {
+      await sendJSON("DELETE", `/api/stock-count-items/${xid}`);
+      scEditing = null;
+      await stockChanged(id);
+    });
+  } else {
+    scEditing = scEditing === xid ? null : xid;
+    renderStockCount();
+  }
+});
+
+$("sc-table").addEventListener("submit", (ev) => {
+  const form = ev.target.closest("[data-sc-form]");
+  if (!form) return;
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const xid = Number(form.closest("[data-sc-edit]").dataset.scEdit);
+  const x = sc.items.find((i) => i.id === xid);
+  const f = formObject(form);
+  busy(form.querySelector("button[type=submit]"), async () => {
+    await sendJSON("PATCH", `/api/stock-count-items/${xid}`, { note: f.note || "", explanation: f.explanation || "",
+      ...(x?.direction === "to_book" ? { book_qty: numOrNull(f.book_qty), unit_cost: numOrNull(f.unit_cost) } : {}) });
+    scEditing = null;
+    await stockChanged(id);
+  });
+});
+
+$("sc-filter").addEventListener("change", renderStockCount);
+
+$("sc-details").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  busy($("sc-save"), async () => {
+    await sendJSON("PATCH", `/api/engagements/${id}/stock-count`, { count_date: $("sc-date").value || null,
+      location: $("sc-location").value.trim(), observations: $("sc-observations").value.trim(),
+      conclusion: $("sc-conclusion").value.trim() });
+    document.activeElement?.blur();
+    await stockChanged(id);
+  });
+});
+
+for (const [button, reviewed] of [["sc-review", true], ["sc-unreview", false]]) {
+  $(button).addEventListener("click", () => {
+    const id = currentEngagement.id;
+    busy($(button), async () => {
+      await sendJSON("PATCH", `/api/engagements/${id}/stock-count`, { reviewed });
+      await stockChanged(id);
+    });
+  });
+}
+
+$("sc-restart").addEventListener("click", () => {
+  if (!confirm("Start the count over? Every item and count recorded goes.")) return;
+  const id = currentEngagement.id;
+  busy($("sc-restart"), async () => {
+    await sendJSON("DELETE", `/api/engagements/${id}/stock-count`);
+    scEditing = null;
+    $("sc-setup").open = true;
+    await stockChanged(id);
+  });
+});
+
+$("sc-add-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const f = formObject($("sc-add-form"));
+  busy($("sc-add-btn"), async () => {
+    await sendJSON("POST", `/api/engagements/${id}/stock-count/items`, { item: f.item || "",
+      description: f.description || "", location: f.location || "", counted_qty: numOrNull(f.counted_qty) });
+    $("sc-add-form").reset();
+    await stockChanged(id);
+  });
+});
+
 // Tasks and time
 
 let wp = null;       // the work plan shown
@@ -2899,6 +3312,7 @@ function refreshFinishing(id) {
   if (cp?.engagement_id === id) guard(loadCompletion);
   if (rp?.engagement_id === id) guard(loadReport);
   if (ap?.engagement_id === id && !apEditing) guard(loadExpectations);  // the actuals move too
+  if (sc?.engagement_id === id && !scEditing) guard(loadStockCount);  // against materiality
 }
 
 // Auditor's report draft
@@ -3625,7 +4039,7 @@ function renderUncorrected() {
 let samplingOptions = null;
 
 function renderSampleForm(e) {
-  $("smp-upload").innerHTML = e.uploads.filter((u) => !["prior_tb", "list"].includes(u.kind))
+  $("smp-upload").innerHTML = e.uploads.filter((u) => !["prior_tb", ...LIST_KINDS].includes(u.kind))
     .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
     .join("") || '<option value="">Upload a file first</option>';
   const pm = e.materiality?.performance_materiality;
@@ -3795,7 +4209,7 @@ let stratTab = "strata";
 
 function renderStratifyForm(e) {
   const keep = $("str-upload").value;
-  const files = e.uploads.filter((u) => !["prior_tb", "list"].includes(u.kind));
+  const files = e.uploads.filter((u) => !["prior_tb", ...LIST_KINDS].includes(u.kind));
   $("str-upload").innerHTML = files
     .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
     .join("") || '<option value="">Upload a file first</option>';
@@ -3888,7 +4302,7 @@ const LX_GROUPS = { account: "Account", user: "User", month: "Month", entry_id: 
 
 function renderExplorerForm(e) {
   const keep = $("lx-upload").value;
-  const files = e.uploads.filter((u) => !["prior_tb", "list"].includes(u.kind));
+  const files = e.uploads.filter((u) => !["prior_tb", ...LIST_KINDS].includes(u.kind));
   $("lx-upload").innerHTML = files
     .map((u) => `<option value="${u.id}">${esc(u.filename)} (${esc(u.kind_label)})</option>`)
     .join("") || '<option value="">Upload a file first</option>';

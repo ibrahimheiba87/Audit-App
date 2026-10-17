@@ -655,6 +655,101 @@
             <div class="table-wrap"><table id="ap-table"></table></div>
           </section>
 
+          <section class="panel" id="fa-panel">
+            <div class="row-between">
+              <h2>Fixed asset register</h2>
+              <button type="button" class="secondary" id="fa-export" hidden>Download Excel</button>
+            </div>
+            <p class="muted">Upload the client's register as a Fixed asset register file. The app totals it by category, lists the additions and disposals in the year, recomputes each asset's depreciation on the straight line, flags odd entries and ties the net book value and the charge to the trial balance. Nothing is saved; each look is logged.</p>
+            <form id="fa-form">
+              <div class="grid">
+                <div><label for="fa-upload">Register</label><select id="fa-upload" class="map"></select></div>
+              </div>
+              <p class="muted" id="fa-columns-note" hidden>The columns are guessed from the headers. Change any that are wrong and look again.</p>
+              <div class="grid" id="fa-columns"></div>
+              <div class="actions"><button type="submit" id="fa-run">Look at the register</button></div>
+            </form>
+            <p class="warn-box" id="fa-problem" hidden></p>
+            <div id="fa-result" hidden>
+              <div class="cards" id="fa-cards"></div>
+              <div class="tabs" role="tablist" id="fa-tabs">
+                <button type="button" role="tab" data-fa="categories" aria-selected="true">By category</button>
+                <button type="button" role="tab" data-fa="tie" aria-selected="false">Tie to the trial balance</button>
+                <button type="button" role="tab" data-fa="additions" aria-selected="false">Additions</button>
+                <button type="button" role="tab" data-fa="disposals" aria-selected="false">Disposals</button>
+                <button type="button" role="tab" data-fa="recomputed" aria-selected="false">Depreciation differences</button>
+                <button type="button" role="tab" data-fa="issues" aria-selected="false">Points to look at</button>
+              </div>
+              <p class="muted" id="fa-note"></p>
+              <div class="table-wrap"><table id="fa-table"></table></div>
+            </div>
+          </section>
+
+          <section class="panel" id="sc-panel">
+            <div class="row-between">
+              <h2>Inventory count</h2>
+              <a class="button secondary" id="sc-export" href="#" hidden>Download Excel</a>
+            </div>
+            <p class="muted">Upload the client's inventory listing as an Inventory listing file. The app picks the largest items and a random selection of the rest to count from the books to the floor; add items you pick on the floor to trace back to the books. Differences on the random items are projected over the rest of the listing and compared with performance materiality.</p>
+            <details id="sc-setup">
+              <summary>Pick the items to count</summary>
+              <form id="sc-form">
+                <div class="grid">
+                  <div><label for="sc-upload">Inventory listing</label><select id="sc-upload" class="map"></select></div>
+                </div>
+                <p class="muted" id="sc-columns-note" hidden>The columns are guessed from the headers. Change any that are wrong and look again.</p>
+                <div class="grid" id="sc-columns"></div>
+                <div class="actions"><button type="button" class="secondary" id="sc-look">Look at the listing</button></div>
+                <p class="warn-box" id="sc-problem" hidden></p>
+                <div id="sc-listing" hidden>
+                  <div class="cards" id="sc-listing-cards"></div>
+                  <ul class="muted" id="sc-checks"></ul>
+                </div>
+                <div class="grid">
+                  <div><label for="sc-largest">Largest items</label><input id="sc-largest" type="number" min="0" max="200" step="1" value="10"></div>
+                  <div><label for="sc-random">Random items from the rest</label><input id="sc-random" type="number" min="0" max="200" step="1" value="15"></div>
+                  <div><label for="sc-seed">Random seed <span class="muted">(blank for a new one)</span></label><input id="sc-seed" type="number" min="0" step="1"></div>
+                </div>
+                <div class="actions"><button type="submit" id="sc-pick">Pick the items</button></div>
+              </form>
+            </details>
+            <div id="sc-count" hidden>
+              <div class="cards" id="sc-cards"></div>
+              <p class="muted" id="sc-about"></p>
+              <form id="sc-details">
+                <div class="grid">
+                  <div><label for="sc-date">Date of the count</label><input id="sc-date" name="count_date" type="date"></div>
+                  <div><label for="sc-location">Where</label><input id="sc-location" name="location" maxlength="200"></div>
+                </div>
+                <label for="sc-observations">How the count was run <span class="muted">(instructions followed, cut-off, damaged or slow-moving items seen)</span></label>
+                <textarea id="sc-observations" name="observations" rows="2" maxlength="5000"></textarea>
+                <label for="sc-conclusion">Conclusion</label>
+                <textarea id="sc-conclusion" name="conclusion" rows="2" maxlength="5000"></textarea>
+                <div class="actions"><button type="submit" class="small" id="sc-save">Save</button>
+                  <button type="button" class="small" id="sc-review" hidden>Sign off as reviewed</button>
+                  <button type="button" class="small secondary" id="sc-unreview" hidden>Take back the sign-off</button>
+                  <button type="button" class="small secondary danger" id="sc-restart" hidden>Start the count over</button>
+                  <span class="muted" id="sc-reviewed"></span></div>
+              </form>
+              <details id="sc-add">
+                <summary>Add an item picked on the floor</summary>
+                <form id="sc-add-form">
+                  <div class="grid">
+                    <div><label for="sc-add-item">Item code</label><input id="sc-add-item" name="item" maxlength="200"></div>
+                    <div><label for="sc-add-description">Description</label><input id="sc-add-description" name="description" maxlength="200"></div>
+                    <div><label for="sc-add-location">Location</label><input id="sc-add-location" name="location" maxlength="200"></div>
+                    <div><label for="sc-add-qty">Counted quantity</label><input id="sc-add-qty" name="counted_qty" type="number" step="any"></div>
+                  </div>
+                  <div class="actions"><button type="submit" class="small" id="sc-add-btn">Add and look it up in the listing</button></div>
+                </form>
+              </details>
+              <div class="grid" style="margin-top:12px">
+                <div><label for="sc-filter">Show</label><select id="sc-filter" class="map"><option value="">All items</option><option value="open">Still open</option><option value="to_floor">Books to floor</option><option value="to_book">Floor to books</option></select></div>
+              </div>
+              <div class="table-wrap"><table id="sc-table"></table></div>
+            </div>
+          </section>
+
           <section class="panel" id="cf-panel">
             <div class="row-between">
               <h2>External confirmations</h2>
