@@ -89,6 +89,10 @@ SECTIONS = [
             "Expectations of statement lines and proofs in total, compared with the balances.",
             ("expectation.create", "expectation.update", "expectation.delete",
              "expectation.carry")),
+    Section("estimates", "Leases and credit losses",
+            "The leases recalculated under IFRS 16 and the expected credit loss matrix for "
+            "receivables.",
+            ("lease.create", "lease.update", "lease.delete", "lease.carry", "ecl.setup")),
     Section("stock", "Inventory count",
             "Attendance at the inventory count: the items counted both ways and the "
             "differences found.",
@@ -139,7 +143,8 @@ SECTION = {s.id: s for s in SECTIONS}
 # risk assessment, acceptance, independence, disclosure, controls, confirmation, analytics or
 # inventory count records outside the app) aren't held up.
 OPTIONAL = {"bank", "risks", "acceptance", "disclosures", "controls", "confirmations",
-            "finalisation", "related", "analytics", "stock", "prior", "quality"}
+            "finalisation", "related", "analytics", "stock", "prior", "quality",
+            "estimates"}
 WORK = [s for s in SECTIONS if s.id != "completion"]
 SECTIONS_CHANGED: dict[str, set[str]] = {}  # action -> the sections it changes
 for _s in WORK:
@@ -149,8 +154,8 @@ for _a, _ids in SIDE_EFFECTS.items():
     SECTIONS_CHANGED.setdefault(_a, set()).update(_ids)
 
 SectionId = Literal["acceptance", "planning", "risks", "controls", "data", "comparison",
-                    "sampling", "bank", "analytics", "stock", "confirmations", "related", "prior",
-                    "findings",
+                    "sampling", "bank", "analytics", "estimates", "stock", "confirmations",
+                    "related", "prior", "findings",
                     "statements", "disclosures", "finalisation", "quality", "completion"]
 Kind = Literal["prepared", "reviewed"]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]

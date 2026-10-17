@@ -283,6 +283,8 @@ async function openEngagement(id) {
     fs = null; fsEngagementId = null; ticks = null; renderStatementsPanel();
     fx = null; $("fx-form").reset(); $("fx-result").hidden = true; $("fx-note").textContent = "";
     grp = null; vat = null; $("gr-lines").innerHTML = ""; renderGroup(); renderVat(true);
+    ls = null; resetLeaseForm(); $("ls-add").open = false; renderLeases();
+    ecl = null; renderEcl(true);
     reg = null; $("reg-cards").innerHTML = $("reg-table").innerHTML = $("reg-count").textContent = "";
     $("reg-bulk").hidden = true;
     resetEntryForm();
@@ -387,6 +389,8 @@ async function openEngagement(id) {
   guard(loadDisclosures);
   guard(loadGroup);
   guard(loadVat);
+  guard(loadLeases);
+  guard(loadEcl);
   await loadStatements();
   await loadRegister();
   scrollToPendingPanel();
@@ -459,7 +463,7 @@ $("roll-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = $("roll-form");
   const body = { name: $("roll-name").value };
-  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "prior_points", "quality", "team"]) body[k] = f[k].checked;
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "prior_points", "quality", "plan", "vat", "group", "leases", "ecl", "team"]) body[k] = f[k].checked;
   $("roll-submit").disabled = true;
   try {
     const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
@@ -7140,6 +7144,160 @@ $("vat-table").addEventListener("click", (ev) => {
     if (currentEngagement?.id !== id) return;
     vat = out;
     renderVat(false);
+    await loadEngagementActivity();
+  });
+});
+
+// --- Leases (IFRS 16) ---------------------------------------------------------------
+
+let ls = null;  // latest /leases response
+let lsEditing = null;  // the lease whose details are in the form
+
+async function loadLeases() {
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/leases`);
+  if (currentEngagement?.id !== id) return;
+  ls = out;
+  renderLeases();
+}
+
+function resetLeaseForm() {
+  lsEditing = null;
+  $("ls-form").reset();
+  $("ls-submit").textContent = "Add lease";
+  $("ls-cancel").hidden = true;
+}
+
+function renderLeases() {
+  const t = ls?.totals;
+  $("ls-export").hidden = !ls?.leases.length;
+  if (ls) $("ls-export").href = `/api/engagements/${currentEngagement.id}/leases/export`;
+  $("ls-year").innerHTML = ls ? `<span>Year:</span> <bdi dir="ltr" translate="no">${esc(ls.year.start)} – ${esc(ls.year.end)}</bdi>` : "";
+  $("ls-cards").innerHTML = ls?.leases.length ? [[money(t.liability), "Lease liability"], [money(t.current), "Due within a year"],
+    [money(t.rou), "Right-of-use assets"], [money(t.interest), "Interest for the year"], [money(t.depreciation), "Depreciation for the year"],
+    [ls.flagged, "Leases to look at"]]
+    .map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("") : "";
+  const cell = (v, flag) => `<td class="num${flag ? " flag-cell" : ""}">${v == null ? "" : signed(v)}</td>`;
+  $("ls-table").innerHTML = ls?.leases.length ? `<tr><th>Lease</th><th>Term</th><th class="num">Payment</th><th class="num">Rate %</th>
+    <th class="num">Lease liability</th><th class="num">Due within a year</th><th class="num">Right-of-use asset</th>
+    <th class="num">Interest</th><th class="num">Depreciation</th><th class="num">Client's liability</th><th class="num">Difference</th>
+    <th class="num">Client's asset</th><th class="num">Difference</th><th></th></tr>` +
+    ls.leases.map((x) => `<tr data-ls="${x.id}"><td>${data(x.name)}${x.notes.map((n) => `<div class="muted">${esc(n)}</div>`).join("")}${x.note ? `<div class="muted">${data(x.note)}</div>` : ""}</td>
+      <td class="nowrap"><bdi dir="ltr" translate="no">${esc(x.start_date)} – ${esc(x.end_date)}</bdi><div class="muted"><span>${esc(x.frequency_label)}</span> · <span>${esc(x.timing_label.toLowerCase())}</span></div></td>
+      ${cell(x.payment)}<td class="num">${esc(x.rate_pct)}</td>${cell(x.liability)}${cell(x.current)}${cell(x.rou)}${cell(x.interest)}${cell(x.depreciation)}
+      ${cell(x.client_liability)}${cell(x.diff_liability, x.flags.includes("liability"))}${cell(x.client_rou)}${cell(x.diff_rou, x.flags.includes("rou"))}
+      <td class="nowrap"><button type="button" class="small secondary" data-ls-edit>Change</button> <button type="button" class="small secondary danger" data-ls-remove>Remove</button></td></tr>`).join("") +
+    `<tr class="total"><td colspan="4">Total</td>${cell(t.liability)}${cell(t.current)}${cell(t.rou)}${cell(t.interest)}${cell(t.depreciation)}${cell(t.client_liability)}<td></td>${cell(t.client_rou)}<td></td><td></td></tr>`
+    : '<tr><td class="muted">No leases yet.</td></tr>';
+}
+
+$("ls-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const opt = (el) => $(el).value === "" ? null : Number($(el).value);
+  const body = { name: $("ls-name").value, start_date: $("ls-start").value, term_months: Number($("ls-term").value),
+    payment: Number($("ls-payment").value), frequency: $("ls-frequency").value, timing: $("ls-timing").value,
+    rate_pct: Number($("ls-rate").value), direct_costs: Number($("ls-costs").value || 0),
+    client_liability: opt("ls-client-liability"), client_rou: opt("ls-client-rou"), note: $("ls-note").value };
+  busy(ev.submitter, async () => {
+    const out = lsEditing ? await sendJSON("PUT", `/api/leases/${lsEditing}`, body)
+      : await sendJSON("POST", `/api/engagements/${id}/leases`, body);
+    if (currentEngagement?.id !== id) return;
+    resetLeaseForm();
+    ls = out;
+    renderLeases();
+    await loadEngagementActivity();
+  });
+});
+
+$("ls-cancel").addEventListener("click", () => { resetLeaseForm(); $("ls-add").open = false; });
+
+$("ls-table").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-ls]");
+  if (!row) return;
+  const x = ls.leases.find((l) => String(l.id) === row.dataset.ls);
+  if (ev.target.closest("[data-ls-edit]")) {
+    lsEditing = x.id;
+    $("ls-name").value = x.name; $("ls-start").value = x.start_date; $("ls-term").value = x.term_months;
+    $("ls-payment").value = x.payment; $("ls-frequency").value = x.frequency; $("ls-timing").value = x.timing;
+    $("ls-rate").value = x.rate_pct; $("ls-costs").value = x.direct_costs;
+    $("ls-client-liability").value = x.client_liability ?? ""; $("ls-client-rou").value = x.client_rou ?? "";
+    $("ls-note").value = x.note;
+    $("ls-submit").textContent = "Save lease";
+    $("ls-cancel").hidden = false;
+    $("ls-add").open = true;
+    $("ls-name").focus();
+    return;
+  }
+  const btn = ev.target.closest("[data-ls-remove]");
+  if (!btn || !confirm(`Remove the lease ${x.name}?`)) return;
+  const id = currentEngagement.id;
+  busy(btn, async () => {
+    const out = await sendJSON("DELETE", `/api/leases/${x.id}`);
+    if (currentEngagement?.id !== id) return;
+    if (lsEditing === x.id) resetLeaseForm();
+    ls = out;
+    renderLeases();
+    await loadEngagementActivity();
+  });
+});
+
+// --- Expected credit losses (IFRS 9) --------------------------------------------------
+
+let ecl = null;  // latest /ecl response
+
+async function loadEcl() {
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/ecl`);
+  if (currentEngagement?.id !== id) return;
+  ecl = out;
+  renderEcl(true);
+}
+
+function renderEcl(fill) {
+  const v = ecl, s = v?.setup, r = v?.result;
+  $("ecl-export").hidden = !s;
+  if (v) $("ecl-export").href = `/api/engagements/${currentEngagement.id}/ecl/export`;
+  if (fill) {
+    $("ecl-listing").innerHTML = '<option value="">Pick a listing</option>' + (v?.listings || []).map((u) =>
+      `<option value="${u.id}"${u.id === s?.upload_id ? " selected" : ""} translate="no">${esc(u.filename)}</option>`).join("");
+    $("ecl-terms").value = s?.terms_days ?? 30;
+    $("ecl-forward").value = s?.forward_pct ?? 0;
+    $("ecl-booked").value = s?.booked ?? "";
+    $("ecl-note").value = s?.note ?? "";
+    const rates = s?.rates || v?.defaults || {};
+    $("ecl-rates").innerHTML = (v?.buckets || []).map((b) => `<div><label for="ecl-rate-${b.id}">${esc(b.label)}</label>
+      <input id="ecl-rate-${b.id}" data-bucket="${b.id}" type="number" step="any" min="0" max="100" value="${esc(rates[b.id] ?? 0)}"></div>`).join("");
+  }
+  const tb = v?.suggested_booked;
+  $("ecl-suggested").hidden = !tb;
+  $("ecl-suggested").innerHTML = tb ? `<span>Allowance in the trial balance:</span> <bdi translate="no">${esc(money(tb.amount))}</bdi> <span class="muted">(${tb.accounts.map((a) => `<bdi translate="no">${esc(a.account)}</bdi>`).join(", ")})</span>` : "";
+  const level = { material: "Material", above_trivial: "Above the trivial threshold", fine: "Within the trivial threshold" };
+  $("ecl-cards").innerHTML = r ? [[money(r.debit_total), "Receivables (debit balances)"], [money(r.expected), "Expected allowance"],
+    [s?.booked == null ? "" : money(s.booked), "Allowance booked"], [r.difference == null ? "" : signed(r.difference), "Booked less expected"],
+    ...(r.level ? [[level[r.level], "Difference is"]] : [])]
+    .map(([val, k]) => `<div class="card"><div class="v">${esc(val)}</div><div class="k">${k}</div></div>`).join("") : "";
+  const notes = [...(v?.problem ? [v.problem] : []), ...(r?.notes || [])];
+  $("ecl-notes").hidden = !notes.length;
+  $("ecl-notes").innerHTML = notes.map((n) => `<span>${esc(n)}</span>`).join(" ");
+  $("ecl-table").innerHTML = r ? `<tr><th>Age band</th><th class="num">Items</th><th class="num">Debit balances</th><th class="num">Loss rate %</th><th class="num">Rate used %</th><th class="num">Allowance</th></tr>` +
+    r.rows.map((x) => `<tr><td>${esc(x.label)}</td><td class="num">${esc(x.items)}</td><td class="num">${money(x.debit)}</td><td class="num">${esc(x.base_rate)}</td><td class="num">${esc(x.rate)}</td><td class="num">${money(x.allowance)}</td></tr>`).join("") +
+    `<tr class="total"><td colspan="2">Total</td><td class="num">${money(r.debit_total)}</td><td></td><td class="num">${r.coverage_pct == null ? "" : esc(r.coverage_pct)}</td><td class="num">${money(r.expected)}</td></tr>` : "";
+}
+
+$("ecl-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const rates = {};
+  for (const el of $("ecl-rates").querySelectorAll("[data-bucket]")) rates[el.dataset.bucket] = Number(el.value || 0);
+  busy(ev.submitter, async () => {
+    const out = await sendJSON("PUT", `/api/engagements/${id}/ecl`, {
+      upload_id: $("ecl-listing").value ? Number($("ecl-listing").value) : null, terms_days: Number($("ecl-terms").value || 0),
+      forward_pct: Number($("ecl-forward").value || 0), booked: $("ecl-booked").value === "" ? null : Number($("ecl-booked").value),
+      rates, note: $("ecl-note").value });
+    if (currentEngagement?.id !== id) return;
+    ecl = out;
+    renderEcl(true);
     await loadEngagementActivity();
   });
 });

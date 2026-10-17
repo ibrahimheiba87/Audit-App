@@ -37,6 +37,7 @@ from .db import (
     Expectation,
     Finding,
     GroupComponent,
+    Lease,
     PriorPoint,
     RelatedParty,
     RequestFile,
@@ -76,6 +77,7 @@ PARAM_MODELS = {
     "vouching_id": Vouching, "component_id": GroupComponent,
     "consolidation_entry_id": ConsolidationEntry,
     "vat_return_id": VatReturn, "tick_id": WorkpaperTick, "staff_booking_id": StaffBooking,
+    "lease_id": Lease,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is

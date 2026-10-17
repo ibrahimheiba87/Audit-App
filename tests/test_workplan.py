@@ -169,7 +169,8 @@ def test_the_work_plan_downloads_and_is_locked_with_the_file():
     r = prep.get(f"/api/engagements/{eid}/workplan/export")
     assert r.status_code == 200
     book = pd.read_excel(io.BytesIO(r.content), sheet_name=None)
-    assert list(book) == ["About", "Tasks", "Budget vs actual", "Hours by person", "Time log"]
+    assert list(book) == ["About", "Tasks", "Budget vs actual", "Hours by person", "Time log",
+                          "Staff bookings"]
     assert book["Time log"]["Note"].tolist() == ["Attended count"]
     acts = [x["action"] for x in a.get("/api/activity").json()]
     assert {"task.create", "time.log", "workplan.download"} <= set(acts)

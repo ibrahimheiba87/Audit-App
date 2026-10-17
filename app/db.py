@@ -135,6 +135,13 @@ class Engagement(Base):
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="(StaffBooking.starts_on, StaffBooking.id)"
     )
+    leases: Mapped[list[Lease]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="(Lease.start_date, Lease.id)"
+    )
+    ecl_setup: Mapped[EclSetup | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
     findings: Mapped[list[Finding]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Finding.id"
     )
@@ -1232,6 +1239,53 @@ class StaffBooking(Base):
 
     engagement: Mapped[Engagement] = relationship(back_populates="bookings")
     user: Mapped[User] = relationship()
+
+
+class Lease(Base):
+    """A lease the client holds, recalculated under IFRS 16 (leases.py)."""
+
+    __tablename__ = "leases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    start_date: Mapped[date] = mapped_column(Date)
+    term_months: Mapped[int] = mapped_column(Integer)
+    payment: Mapped[float] = mapped_column(Float)
+    frequency: Mapped[str] = mapped_column(String(20), default="monthly")  # leases.FREQUENCIES
+    timing: Mapped[str] = mapped_column(String(20), default="arrears")  # advance | arrears
+    rate_pct: Mapped[float] = mapped_column(Float)
+    direct_costs: Mapped[float] = mapped_column(Float, default=0.0)
+    # The client's own figures at the period end, to compare with.
+    client_liability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    client_rou: Mapped[float | None] = mapped_column(Float, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="leases")
+
+
+class EclSetup(Base):
+    """The provision matrix for expected credit losses on receivables (ecl.py): the listing,
+    the loss rate for each age band and the allowance the client booked."""
+
+    __tablename__ = "ecl_setups"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    upload_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # not a key: the
+    # listing can be deleted, and the matrix then asks for another
+    terms_days: Mapped[int] = mapped_column(Integer, default=30)
+    rates: Mapped[dict] = mapped_column(JSON, default=dict)  # age band -> loss rate %
+    forward_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    booked: Mapped[float | None] = mapped_column(Float, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="ecl_setup")
 
 
 class FindingNote(Base):

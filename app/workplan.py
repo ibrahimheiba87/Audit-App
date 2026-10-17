@@ -389,6 +389,9 @@ def workbook(session: Session, e: Engagement, user: User) -> tuple[str, bytes]:
     entries = [{"Date": x.worked_on.isoformat(), "Who": x.user_name,
                 "Area": AREAS.get(x.area, x.area), "Hours": x.hours, "Note": x.note}
                for x in sorted(e.time_entries, key=lambda x: (x.worked_on, x.id))]
+    bookings = [{"Who": b.user.name, "From": b.starts_on.isoformat(),
+                 "To": b.ends_on.isoformat(), "Hours": b.hours, "Note": b.note,
+                 "Booked by": b.created_by} for b in e.bookings]
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
         pd.DataFrame(about, columns=["Item", "Value"]).to_excel(xl, sheet_name="About",
@@ -403,6 +406,9 @@ def workbook(session: Session, e: Engagement, user: User) -> tuple[str, bytes]:
             xl, sheet_name="Hours by person", index=False)
         pd.DataFrame(entries, columns=["Date", "Who", "Area", "Hours", "Note"]).to_excel(
             xl, sheet_name="Time log", index=False)
+        pd.DataFrame(bookings, columns=["Who", "From", "To", "Hours", "Note",
+                                        "Booked by"]).to_excel(
+            xl, sheet_name="Staff bookings", index=False)
         finish_workbook(xl.book)
     return safe_stem(f"{e.client.name}-{e.name}-work-plan") + ".xlsx", buf.getvalue()
 

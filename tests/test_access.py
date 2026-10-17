@@ -106,6 +106,9 @@ def full_engagement(a):
         "ends_on": "2027-01-08", "hours": 8}).json()
     vat = a.post(f"/api/engagements/{eid}/vat/returns", json={
         "period_start": "2026-01-01", "period_end": "2026-01-31"}).json()
+    lease = a.post(f"/api/engagements/{eid}/leases", json={
+        "name": "x", "start_date": "2026-01-01", "term_months": 12, "payment": 1,
+        "rate_pct": 5}).json()
     assert tick.status_code == 201, tick.text
     with db.SessionLocal() as s:
         doc = db.DocumentSummary(engagement_id=eid, kind="contract", filename="lease.pdf",
@@ -137,7 +140,8 @@ def full_engagement(a):
             "component_id": group["components"][0]["id"], "sub_id": sub,
             "consolidation_entry_id": group["entries"][0]["id"],
             "vat_return_id": vat["returns"][0]["id"],
-            "staff_booking_id": booking["bookings"][0]["id"], "document": "letter"}
+            "staff_booking_id": booking["bookings"][0]["id"], "document": "letter",
+            "lease_id": lease["leases"][0]["id"]}
 
 
 def bodies(ids):
@@ -279,6 +283,18 @@ def bodies(ids):
             {"json": {"period_start": "2026-02-01", "period_end": "2026-02-28"}},
         ("DELETE", "/api/vat-returns/{vat_return_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/vat/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/leases"): {},
+        ("POST", "/api/engagements/{engagement_id}/leases"):
+            {"json": {"name": "y", "start_date": "2026-01-01", "term_months": 12, "payment": 1,
+                      "rate_pct": 5}},
+        ("PUT", "/api/leases/{lease_id}"):
+            {"json": {"name": "y", "start_date": "2026-01-01", "term_months": 12, "payment": 1,
+                      "rate_pct": 5}},
+        ("DELETE", "/api/leases/{lease_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/leases/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/ecl"): {},
+        ("PUT", "/api/engagements/{engagement_id}/ecl"): {"json": {}},
+        ("GET", "/api/engagements/{engagement_id}/ecl/export"): {},
         ("GET", "/api/engagements/{engagement_id}/planning"): {},
         ("PUT", "/api/engagements/{engagement_id}/planning"): {"json": {"fee": 1}},
         ("GET", "/api/engagements/{engagement_id}/planning/{document}"): {},
