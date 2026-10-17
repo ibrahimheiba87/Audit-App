@@ -15,6 +15,7 @@
     <nav id="nav" hidden>
       <a href="#/engagements" data-view="engagements">Engagements</a>
       <a href="#/quick" data-view="quick">Quick audit</a>
+      <a href="#/overview" data-view="overview" class="min-2">Overview</a>
       <a href="#/users" data-view="users" class="min-4">Users <span class="nav-count" id="signup-count" translate="no" title="Account requests waiting for approval" hidden></span></a>
       <a href="#/activity" data-view="activity" class="min-4">Activity</a>
     </nav>
@@ -208,6 +209,23 @@
   </div>
 
   <!-- Engagements -------------------------------------------------------->
+  <div id="view-overview" class="view" hidden>
+    <section class="panel">
+      <div class="row-between">
+        <h2>Engagement overview</h2>
+        <a class="button secondary" id="ov-export" href="/api/overview/export">Download Excel</a>
+      </div>
+      <p class="muted" id="ov-about">Every engagement you are on, with where it stands and what is holding it up. The files that need someone most come first.</p>
+      <div class="cards" id="ov-cards"></div>
+      <div class="grid" style="margin-top:12px">
+        <div><label for="ov-stage">Show</label><select id="ov-stage" class="map"><option value="">All engagements</option><option value="attention">Needing attention</option><option value="planning">Planning</option><option value="fieldwork">Fieldwork</option><option value="completion">Completion</option><option value="locked">Locked</option></select></div>
+        <div><label for="ov-search">Client or engagement contains</label><input id="ov-search" maxlength="200"></div>
+      </div>
+      <label class="check-label" style="margin-top:8px"><input type="checkbox" id="ov-archived"><span>Include archived engagements</span></label>
+      <div class="table-wrap"><table id="ov-table"></table></div>
+    </section>
+  </div>
+
   <div id="view-engagements" class="view" hidden>
     <div class="layout">
       <aside class="panel side">
@@ -966,6 +984,26 @@
               </div>
               <p class="muted" id="str-note"></p>
               <div class="table-wrap"><table id="str-table"></table></div>
+            </div>
+          </section>
+
+          <section class="panel" id="who-panel">
+            <div class="row-between">
+              <h2>Who posted what</h2>
+              <a class="button secondary" id="who-export" href="#" hidden>Download Excel</a>
+            </div>
+            <p class="muted">The general ledger by the people who posted it: how many entries each made, how much and on which statement lines. Then the entries worth a look: ones approved by the person who posted them, ones with no approver or no user, ones that move both cash and revenue, and the entries of people who post only now and then. Nothing is saved; each look is logged.</p>
+            <form id="who-form">
+              <div class="grid">
+                <div><label for="who-upload">General ledger</label><select id="who-upload" class="map"></select></div>
+              </div>
+              <div class="actions"><button type="submit" id="who-run">Look at who posted</button></div>
+            </form>
+            <div id="who-result" hidden>
+              <div class="cards" id="who-cards"></div>
+              <p class="muted" id="who-note"></p>
+              <div class="tabs" role="tablist" id="who-tabs"></div>
+              <div class="table-wrap"><table id="who-table"></table></div>
             </div>
           </section>
 

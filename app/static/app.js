@@ -168,7 +168,7 @@ function Mapper(root, onChange = () => {}) {
 // --- Views and routing ------------------------------------------------------
 
 // Lowest rank that can open each view; anything else falls back to engagements.
-const VIEW_RANK = { engagements: 1, quick: 1, users: 4, activity: 4 };
+const VIEW_RANK = { engagements: 1, quick: 1, overview: 2, users: 4, activity: 4 };
 
 function route() {
   if (!me) return;
@@ -189,6 +189,7 @@ function route() {
   if (view === "engagements") guard(() => showEngagements(id ? Number(id) : null));
   if (view === "users") guard(showUsers);
   if (view === "activity") guard(showActivity);
+  if (view === "overview") guard(showOverview);
   if (view === "portal") guard(showPortal);
 }
 window.addEventListener("hashchange", route);
@@ -291,6 +292,7 @@ async function openEngagement(id) {
     $("dash-cards").innerHTML = $("dash-steps").innerHTML = "";
     bank = null; bankChecked = null;
     strat = null; $("str-result").hidden = $("str-export").hidden = true; $("str-bands").value = "";
+    resetWho(); whoTab = "users";
     lx = null; $("lx-result").hidden = $("lx-export").hidden = true; $("lx-form").reset();
     aged = null; $("ag-result").hidden = $("ag-export").hidden = true; $("ag-terms").value = "30";
     rr = null; renderRisks(); resetRiskForm(); $("rr-add").open = false; $("ra-imported").textContent = "";
@@ -346,6 +348,7 @@ async function openEngagement(id) {
   renderMatches(e.cross_matches);
   renderStratifyForm(e);
   renderExplorerForm(e);
+  renderWhoForm(e);
   renderFixedAssetForm(e);
   renderStockForm(e);
   renderAgingForm(e);
@@ -4479,6 +4482,95 @@ function renderStrat() {
 
 // Ledger explorer
 
+// Who posted what
+
+let who = null;      // the look on show
+let whoTab = "users";
+
+function renderWhoForm(e) {
+  const keep = $("who-upload").value;
+  const files = e.uploads.filter((u) => u.kind === "gl");
+  $("who-upload").innerHTML = files
+    .map((u) => `<option value="${u.id}" translate="no">${esc(u.filename)}</option>`)
+    .join("") || '<option value="">Upload a general ledger first</option>';
+  if (files.some((u) => String(u.id) === keep)) $("who-upload").value = keep;
+  if (who && !files.some((u) => u.id === who.upload_id)) resetWho();
+}
+
+function resetWho() {
+  who = null;
+  $("who-result").hidden = $("who-export").hidden = true;
+}
+
+$("who-upload").addEventListener("change", resetWho);
+
+$("who-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("who-run"), async () => {
+    const id = Number($("who-upload").value);
+    if (!id) throw new Error("Upload a general ledger first.");
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/uploads/${id}/posters`);
+    if (currentEngagement?.id !== engagementId) return;
+    who = out;
+    renderWho();
+    await loadEngagementActivity();
+  });
+});
+
+function renderWho() {
+  const w = who;
+  $("who-result").hidden = $("who-export").hidden = false;
+  $("who-export").href = `/api/uploads/${w.upload_id}/posters/export`;
+  const flagged = Object.fromEntries(w.checks.map((c) => [c.check, c]));
+  $("who-cards").innerHTML = [
+    [w.entries.toLocaleString(LOCALE), "Entries", false],
+    [w.users.toLocaleString(LOCALE), "People who posted", false],
+    ...w.checks.filter((c) => c.check !== "no_approver" || w.has_approver)
+      .map((c) => [c.count.toLocaleString(LOCALE), c.label, c.count > 0]),
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  const notes = [];
+  if (!w.has_approver) notes.push("The file has no approver column, so approvals can't be checked. Map an Approved by column if the system records one.");
+  if (!w.has_entries) notes.push("The file has no entry numbers, so each line counts as its own entry.");
+  notes.push(w.mapped ? `${w.lines_known_pct}% of lines have a statement line, from the account mapping or the account's name.`
+    : `${w.lines_known_pct}% of lines have a statement line, guessed from the account's name. Map the trial balance for a better result.`);
+  if (w.occasional_applies) notes.push(`People with ${w.occasional_limit} entries or fewer count as posting only now and then.`);
+  $("who-note").innerHTML = notes.map((n) => `<span>${esc(n)}</span>`).join(" ");
+  const tabs = [["users", "By user"], ...w.checks.filter((c) => c.check !== "no_approver" || w.has_approver).map((c) => [c.check, c.label])];
+  if (!tabs.some(([k]) => k === whoTab)) whoTab = "users";
+  $("who-tabs").innerHTML = tabs.map(([k, label]) =>
+    `<button type="button" role="tab" data-who="${k}" aria-selected="${k === whoTab}">${esc(label)}${k !== "users" && flagged[k].count ? ` <span class="nav-count" translate="no">${flagged[k].count}</span>` : ""}</button>`).join("");
+  if (whoTab === "users") {
+    $("who-table").innerHTML = `<thead><tr><th>User</th><th class="num">Entries</th><th class="num">Share</th><th class="num">Debits</th>
+        <th class="num">Largest entry</th><th>First and last</th><th class="num">Weekend</th><th class="num">Own approval</th>
+        <th class="num">Cash and revenue</th><th>Main statement lines</th></tr></thead><tbody>
+      ${w.by_user.map((u) => `<tr><td>${u.user === "(blank)" ? esc("No user") : data(u.user)}</td>
+        <td class="num">${u.entries.toLocaleString(LOCALE)}</td><td class="num"><bdi dir="ltr">${esc(u.share_pct)}%</bdi></td>
+        <td class="num">${money(u.debits)}</td><td class="num">${money(u.largest)}</td>
+        <td class="nowrap">${u.first ? `<bdi dir="ltr" translate="no">${esc(u.first)} – ${esc(u.last)}</bdi>` : ""}</td>
+        <td class="num">${u.weekend || ""}</td><td class="num${u.self_approved ? " bad" : ""}">${u.self_approved || ""}</td>
+        <td class="num${u.cash_revenue ? " bad" : ""}">${u.cash_revenue || ""}</td>
+        <td>${u.lines_touched.map((l) => `<div class="tag">${esc(l)}</div>`).join("")}</td></tr>`).join("")}</tbody>`;
+    return;
+  }
+  const c = flagged[whoTab];
+  if (!c.items.length) { $("who-table").innerHTML = '<tbody><tr><td class="muted">Nothing to show.</td></tr></tbody>'; return; }
+  $("who-table").innerHTML = `<thead><tr><th>Entry</th><th>Date</th><th>User</th><th>Approved by</th><th>Description</th>
+      <th>Accounts</th><th class="num">Debits</th></tr></thead><tbody>
+    ${c.items.map((i) => `<tr><td>${i.entry_id ? data(i.entry_id) : `<span>${esc("Row")}</span> ${i.row}`}</td>
+      <td class="nowrap">${i.date ? `<bdi dir="ltr" translate="no">${esc(i.date)}</bdi>` : ""}</td>
+      <td>${data(i.user)}</td><td>${data(i.approver)}</td><td>${data(i.description)}</td>
+      <td>${data(i.accounts)}</td><td class="num">${money(i.debits)}</td></tr>`).join("")}</tbody>` +
+    (c.count > c.items.length ? `<tfoot><tr><td colspan="7" class="muted">${esc(`Showing the first ${c.items.length}.`)}</td></tr></tfoot>` : "");
+}
+
+$("who-tabs").addEventListener("click", (ev) => {
+  const tab = ev.target.closest("[data-who]");
+  if (!tab) return;
+  whoTab = tab.dataset.who;
+  renderWho();
+});
+
 let lx = null;  // the look on show
 let lxTab = "pivot";
 const OTHER_COLUMN = "(other)";  // the explorer pivot adds up columns beyond its limit here
@@ -5764,6 +5856,60 @@ async function showActivity() {
 }
 $("act-user").addEventListener("change", () => guard(showActivity));
 $("act-action").addEventListener("change", () => guard(showActivity));
+
+// --- Engagement overview -------------------------------------------------------
+// Every engagement the user is on, one row each, for partners and reviewers.
+
+let ov = null;
+const OV_PILL = { planning: "warn", fieldwork: "warn", completion: "good", locked: "good" };
+
+async function showOverview() {
+  const archived = $("ov-archived").checked;
+  ov = await getJSON(`/api/overview?archived=${archived}`);
+  $("ov-export").href = `/api/overview/export?archived=${archived}`;
+  renderOverview();
+}
+
+function renderOverview() {
+  if (!ov) return;
+  const t = ov.totals;
+  $("ov-about").textContent = ov.all
+    ? "Every engagement in the firm, with where it stands and what is holding it up. The files that need someone most come first."
+    : "Every engagement you are on, with where it stands and what is holding it up. The files that need someone most come first.";
+  $("ov-cards").innerHTML = [
+    [t.open, "Engagements not yet locked", false],
+    [t.needs_attention, "Needing attention", t.needs_attention > 0],
+    [t.findings_high, "High-severity findings open", t.findings_high > 0],
+    [t.requests_overdue, "Client requests overdue", t.requests_overdue > 0],
+    [t.tasks_overdue, "Tasks overdue", t.tasks_overdue > 0],
+    [t.open_notes, "Review notes open", t.open_notes > 0],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  const show = $("ov-stage").value, find = $("ov-search").value.trim().toLowerCase();
+  const rows = ov.rows.filter((r) => (!show || (show === "attention" ? r.attention > 0 : r.stage === show))
+    && (!find || `${r.client} ${r.name}`.toLowerCase().includes(find)));
+  if (!rows.length) {
+    $("ov-table").innerHTML = `<tbody><tr><td class="muted">${esc(ov.rows.length ? "Nothing to show." : "No engagements yet.")}</td></tr></tbody>`;
+    return;
+  }
+  const count = (n, bad = true) => `<td class="num${n && bad ? " bad" : ""}">${n ? esc(n) : ""}</td>`;
+  $("ov-table").innerHTML = `<thead><tr><th>Engagement</th><th>Period end</th><th>Stage</th><th>Partners</th>
+      <th class="num">Open findings</th><th class="num">High</th><th class="num">Sections reviewed</th><th class="num">Review notes</th>
+      <th class="num">Requests overdue</th><th class="num">Tasks overdue</th><th class="num">Hours</th><th>Holding it up</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr>
+      <td><a href="#/engagements/${r.id}">${data(`${r.client} · ${r.name}`)}</a>${r.archived ? `<div class="tag">${esc("Archived")}</div>` : ""}</td>
+      <td class="nowrap"><bdi dir="ltr" translate="no">${esc(r.period_end)}</bdi>${r.days_since_period_end && r.stage !== "locked" ? `<div class="tag">${esc(`${r.days_since_period_end} days ago`)}</div>` : ""}</td>
+      <td><span class="pill ${OV_PILL[r.stage]}">${esc(r.stage_label)}</span>${r.completion_signed && r.stage !== "locked" ? `<div class="tag">${esc("Completion signed off")}</div>` : ""}</td>
+      <td>${r.partners.map(data).join(", ")}</td>
+      ${count(r.findings_open, false)}${count(r.findings_high)}
+      <td class="num">${r.review_total ? `<bdi dir="ltr">${r.review_done}/${r.review_total}</bdi>` : ""}</td>
+      ${count(r.open_notes, false)}${count(r.requests_overdue)}${count(r.tasks_overdue)}
+      <td class="num">${r.hours_budget ? `<bdi dir="ltr">${esc(r.hours_actual)}/${esc(r.hours_budget)}</bdi>` : r.hours_actual ? esc(r.hours_actual) : ""}</td>
+      <td>${r.waiting.map((w) => `<div class="tag">${esc(w)}</div>`).join("")}</td></tr>`).join("")}</tbody>`;
+}
+
+$("ov-archived").addEventListener("change", () => guard(showOverview));
+$("ov-stage").addEventListener("change", renderOverview);
+$("ov-search").addEventListener("input", renderOverview);
 
 // --- Quick audit view ---------------------------------------------------------
 

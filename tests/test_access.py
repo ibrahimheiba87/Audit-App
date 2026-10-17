@@ -204,6 +204,8 @@ def bodies(ids):
         ("DELETE", "/api/document-summaries/{summary_id}"): {},
         ("POST", "/api/uploads/{upload_id}/explore"): {"json": {}},
         ("GET", "/api/uploads/{upload_id}/explore/export"): {},
+        ("POST", "/api/uploads/{upload_id}/posters"): {},
+        ("GET", "/api/uploads/{upload_id}/posters/export"): {},
         ("POST", "/api/uploads/{upload_id}/fixed-assets"): {"json": {}},
         ("POST", "/api/uploads/{upload_id}/fixed-assets/export"): {"json": {}},
         ("POST", "/api/uploads/{upload_id}/inventory"):

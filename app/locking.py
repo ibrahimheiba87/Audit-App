@@ -78,6 +78,7 @@ ALLOWED_WHEN_LOCKED = {
     ("POST", "/api/uploads/{upload_id}/fixed-assets"),
     ("POST", "/api/uploads/{upload_id}/fixed-assets/export"),
     ("POST", "/api/uploads/{upload_id}/inventory"),
+    ("POST", "/api/uploads/{upload_id}/posters"),
     ("POST", "/api/findings/{finding_id}/assistant"),
     ("POST", "/api/engagements/{engagement_id}/mapping/suggest"),
     ("POST", "/api/engagements/{engagement_id}/roll-forward"),
