@@ -279,7 +279,7 @@ async function openEngagement(id) {
     fsMapEdits = {}; $("fs-tb").innerHTML = $("fs-prior").innerHTML = "";
     // Hide the last engagement's statements and findings while this one's load, so a quick
     // click can't change an entry or finding of the engagement just left.
-    fs = null; fsEngagementId = null; renderStatementsPanel();
+    fs = null; fsEngagementId = null; ticks = null; renderStatementsPanel();
     reg = null; $("reg-cards").innerHTML = $("reg-table").innerHTML = $("reg-count").textContent = "";
     $("reg-bulk").hidden = true;
     resetEntryForm();
@@ -4034,6 +4034,7 @@ $("ds-list").addEventListener("click", (ev) => {
 
 let fs = null;          // latest /statements response
 let fsEngagementId = null;  // the engagement `fs` belongs to
+let ticks = null;       // latest /ticks response: ticks, the firm's legend and what to link to
 let fsMapEdits = {};    // unsaved mapping changes: account -> line id ("" to unmap)
 const signed = (n) => n == null ? "" : n < 0 ? `(${money(-n)})` : money(n);
 const drcr = (n) => Math.abs(n) < 0.005 ? "0.00" : `${money(Math.abs(n))} ${n > 0 ? "Dr" : "Cr"}`;
@@ -4052,14 +4053,17 @@ const FS_EMPTY = $("fs-empty").textContent;
 async function loadStatements() {
   const id = currentEngagement.id;
   let data, error = null;
+  const tickList = getJSON(`/api/engagements/${id}/ticks`).catch(() => null);
   try {
     data = await getJSON(`/api/engagements/${id}/statements?${fsQuery()}`);
   } catch (err) {
     error = err.message;  // shown in the panel, so the rest of the engagement still loads
   }
+  const tickData = await tickList;
   if (currentEngagement?.id !== id) return;  // the user has opened another engagement
   fs = error ? null : data;
   fsEngagementId = error ? null : id;
+  ticks = tickData;
   renderStatementsPanel(error);
   refreshDashboard();  // also after a failure, so the overview shows the same files
 }
@@ -4314,12 +4318,98 @@ function renderLeadSheets() {
   const nums = (r) => `<td class="num">${signed(r.unadjusted)}</td><td class="num">${signed(r.adjusting)}</td>
     <td class="num">${signed(r.reclassification)}</td><td class="num">${signed(r.adjusted)}</td>` +
     (prior ? `<td class="num">${signed(r.prior)}</td><td class="num">${signed(r.adjusted - (r.prior || 0))}</td>` : "");
-  $("fs-lead").innerHTML = fs.lead_sheets.length ? head + fs.lead_sheets.map((s) =>
-    `<tr class="line-head"><td colspan="${prior ? 8 : 6}">${esc(s.label)} <span class="tag">${esc(s.section_label)}</span></td></tr>` +
-    s.accounts.map((a) => `<tr><td>${data(a.account)}</td><td>${data(a.name)}</td>${nums(a)}</tr>`).join("") +
-    `<tr class="line-total"><td colspan="2">Total ${esc(s.label.toLowerCase())}</td>${nums(s.totals)}</tr>`).join("")
+  const byAccount = {};
+  (ticks?.ticks || []).forEach((t) => (byAccount[t.account] ||= []).push(t));
+  $("fs-lead").innerHTML = fs.lead_sheets.length ? head.replace("</tr>", "<th>Ticks</th></tr>") + fs.lead_sheets.map((s) =>
+    `<tr class="line-head"><td colspan="${prior ? 9 : 7}">${esc(s.label)} <span class="tag">${esc(s.section_label)}</span></td></tr>` +
+    s.accounts.map((a) => `<tr><td>${data(a.account)}</td><td>${data(a.name)}</td>${nums(a)}<td>${tickChips(byAccount[a.account])}</td></tr>`).join("") +
+    `<tr class="line-total"><td colspan="2">Total ${esc(s.label.toLowerCase())}</td>${nums(s.totals)}<td></td></tr>`).join("")
     : '<tr><td class="muted">Map accounts to see lead sheets.</td></tr>';
+  renderTicks();
 }
+
+// Tick marks
+
+function tickChips(list) {
+  return (list || []).map((t) => `<span class="tick" title="${esc([t.meaning, t.reference, t.link_label].filter(Boolean).join(" · "))}">${data(t.symbol)}</span>`).join(" ");
+}
+
+function renderTicks() {
+  const accounts = fs.lead_sheets.flatMap((s) => s.accounts);
+  const keep = (id) => $(id).value;
+  const [account, symbol, link] = [keep("tick-account"), keep("tick-symbol"), keep("tick-link")];
+  $("tick-account").innerHTML = '<option value="">Pick an account</option>' + accounts.map((a) =>
+    `<option value="${esc(a.account)}"${a.account === account ? " selected" : ""} translate="no">${esc(a.account)} ${esc(a.name)}</option>`).join("");
+  const legend = ticks?.legend || [];
+  $("tick-symbol").innerHTML = legend.map((m) =>
+    `<option value="${esc(m.symbol)}"${m.symbol === symbol ? " selected" : ""}>${esc(m.symbol)}: ${esc(I18N.tr(m.meaning))}</option>`).join("");
+  const groups = {};
+  (ticks?.refs || []).forEach((r) => (groups[r.group] ||= []).push(r));
+  $("tick-link").innerHTML = '<option value="">None</option>' + Object.entries(groups).map(([g, list]) =>
+    `<optgroup label="${esc(g)}">` + list.map((r) => `<option value="${esc(r.link)}"${r.link === link ? " selected" : ""}>${esc(r.label)}</option>`).join("") + "</optgroup>").join("");
+  const list = ticks?.ticks || [];
+  $("tick-table").innerHTML = list.length ? "<tr><th>Account</th><th>Tick</th><th>Meaning</th><th>Reference</th><th>Linked workpaper</th><th>Note</th><th>By</th><th></th></tr>" +
+    list.map((t) => `<tr data-tick="${t.id}"><td>${data(t.account)}</td><td><span class="tick">${data(t.symbol)}</span></td><td>${esc(t.meaning)}</td>
+      <td>${data(t.reference)}</td><td>${esc(t.link_label)}</td><td>${data(t.note)}</td><td>${data(t.created_by)} <span class="muted">${esc(when(t.created_at))}</span></td>
+      <td><button type="button" class="small secondary danger" data-tick-delete>Remove</button></td></tr>`).join("")
+    : '<tr><td class="muted">No tick marks yet.</td></tr>';
+  $("tick-legend-box").hidden = !(me.rank >= 3);
+  $("tick-legend").innerHTML = "<tr><th>Tick</th><th>Meaning</th><th></th></tr>" + legend.map((m) =>
+    `<tr data-mark="${m.id}"><td><span class="tick">${data(m.symbol)}</span></td><td>${esc(m.meaning)}</td>
+      <td>${legend.length > 1 ? '<button type="button" class="small secondary danger" data-mark-delete>Take out</button>' : ""}</td></tr>`).join("");
+}
+
+async function reloadTicks() {
+  const id = currentEngagement.id;
+  const t = await getJSON(`/api/engagements/${id}/ticks`);
+  if (currentEngagement?.id !== id || !fs) return;
+  ticks = t;
+  renderLeadSheets();
+}
+
+$("tick-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const btn = ev.submitter, id = currentEngagement.id;
+  busy(btn, async () => {
+    await sendJSON("POST", `/api/engagements/${id}/ticks`, {
+      account: $("tick-account").value, symbol: $("tick-symbol").value, reference: $("tick-reference").value,
+      link: $("tick-link").value, note: $("tick-note").value });
+    if (currentEngagement?.id !== id) return;
+    $("tick-reference").value = $("tick-note").value = "";
+    await reloadTicks();
+    await loadEngagementActivity();
+  });
+});
+
+$("tick-table").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-tick-delete]");
+  if (!btn) return;
+  const tid = btn.closest("[data-tick]").dataset.tick;
+  busy(btn, async () => {
+    await sendJSON("DELETE", `/api/ticks/${tid}`);
+    await reloadTicks();
+    await loadEngagementActivity();
+  });
+});
+
+$("tick-legend-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy(ev.submitter, async () => {
+    await sendJSON("POST", "/api/tick-marks", { symbol: $("tick-new-symbol").value, meaning: $("tick-new-meaning").value });
+    $("tick-new-symbol").value = $("tick-new-meaning").value = "";
+    await reloadTicks();
+  });
+});
+
+$("tick-legend").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-mark-delete]");
+  if (!btn) return;
+  const mid = btn.closest("[data-mark]").dataset.mark;
+  busy(btn, async () => {
+    await sendJSON("DELETE", `/api/tick-marks/${mid}`);
+    await reloadTicks();
+  });
+});
 
 function renderStatementTables() {
   const prior = fs.has_prior;
@@ -5177,8 +5267,85 @@ async function loadRegister() {
     reg.checks.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
   if (reg.checks.some((c) => c.id === chk)) $("reg-check").value = chk;
   renderRegister();
-  await loadEngagementActivity();
+  await Promise.all([loadEngagementActivity(), loadResponses()]);
 }
+
+// Management responses (findings sent to the client)
+
+async function loadResponses() {
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/responses`);
+  if (currentEngagement?.id !== id) return;
+  const s = out.summary;
+  $("mr-export").hidden = !s.total;
+  $("mr-export").href = `/api/engagements/${id}/responses/export`;
+  $("mr-cards").innerHTML = [["Sent to the client", s.total], ["Waiting for the client", s.waiting], ["Answered", s.answered], ["Action overdue", s.overdue]]
+    .map(([k, v]) => `<div class="card"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+  $("mr-table").innerHTML = out.rows.length ? "<tr><th>Finding</th><th>Severity</th><th>Recommendation</th><th>Management response</th><th>Owner</th><th>Due</th><th>State</th><th>Follow-up</th></tr>" +
+    out.rows.map((r) => `<tr><td><button type="button" class="link" data-mr-open="${r.id}">#${r.id}</button> ${data(r.detail)}</td>
+      <td><span class="sev ${esc(r.severity)}">${esc(r.severity)}</span></td><td>${data(r.recommendation)}</td>
+      <td>${data(r.response)}${r.action_plan ? `<div class="muted">${data(r.action_plan)}</div>` : ""}</td><td>${data(r.owner)}</td>
+      <td class="nowrap">${esc(r.due_on || "")}</td><td><span class="pill mr-${r.state}">${esc(r.state_label)}</span></td><td>${esc(r.follow_up_label)}</td></tr>`).join("")
+    : '<tr><td class="muted">No findings sent to the client yet.</td></tr>';
+}
+
+$("mr-table").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-mr-open]");
+  if (btn) guard(async () => openFinding(await getJSON(`/api/findings/${btn.dataset.mrOpen}`)));
+});
+
+const FOLLOW_UPS = [["open", "Not followed up yet"], ["implemented", "Implemented"], ["partly", "Partly implemented"], ["not_implemented", "Not implemented"]];
+
+function renderResponse(f) {
+  const r = f.response;
+  if (!r) {
+    $("fd-response").innerHTML = `<p class="muted">Send this finding to the client so management can give their response and action plan in the client portal.</p>
+      <label for="fd-rec">Recommendation</label><textarea id="fd-rec" rows="2" maxlength="5000"></textarea>
+      <div class="actions"><button type="button" class="small" data-resp="ask">Send to the client</button></div>`;
+    return;
+  }
+  const answered = !!r.response, open = r.follow_up === "open";
+  const show = (label, v) => v ? `<div><strong>${label}</strong>: ${data(v)}</div>` : "";
+  let html = `<p><span class="pill mr-${r.state}">${esc(r.state_label)}</span> <span class="muted"><span>Sent by</span> ${data(r.asked_by)} · ${esc(when(r.asked_at))}</span></p>` +
+    show("Recommendation", r.recommendation);
+  if (answered) {
+    html += show("Management response", r.response) + show("Action plan", r.action_plan) + show("Owner", r.owner) + show("Due", r.due_on) +
+      `<p class="muted"><span>${r.from_client ? "Answered in the client portal by" : "Recorded by the team:"}</span> ${data(r.responded_by)} · ${esc(when(r.responded_at))}</p>`;
+    html += `<div class="grid"><div><label for="fd-fu">Follow-up</label><select id="fd-fu" class="map">${FOLLOW_UPS.map(([k, v]) =>
+      `<option value="${k}"${k === r.follow_up ? " selected" : ""}>${v}</option>`).join("")}</select></div>
+      <div><label for="fd-fu-note">What you checked</label><input id="fd-fu-note" maxlength="5000" value="${esc(r.follow_up_note)}"></div></div>
+      ${r.followed_up_by ? `<p class="muted"><span>Followed up by</span> ${data(r.followed_up_by)} · ${esc(when(r.followed_up_at))}</p>` : ""}
+      <div class="actions"><button type="button" class="small" data-resp="follow">Save the follow-up</button></div>`;
+  } else {
+    html += `<div class="actions"><button type="button" class="small secondary danger" data-resp="withdraw">Take it back from the client</button></div>`;
+  }
+  if (open) {
+    html += `<details${answered ? "" : " open"}><summary>${answered ? "Change the response" : "Record a response given by email or in a meeting"}</summary>
+      <label for="fd-ans">Management response</label><textarea id="fd-ans" rows="2" maxlength="5000">${esc(r.response)}</textarea>
+      <label for="fd-plan">Action plan</label><textarea id="fd-plan" rows="2" maxlength="5000">${esc(r.action_plan)}</textarea>
+      <div class="grid"><div><label for="fd-owner">Owner</label><input id="fd-owner" maxlength="200" value="${esc(r.owner)}"></div>
+      <div><label for="fd-due">Due</label><input id="fd-due" type="date" value="${esc(r.due_on || "")}"></div></div>
+      <div class="actions"><button type="button" class="small secondary" data-resp="answer">Save the response</button></div></details>`;
+  }
+  $("fd-response").innerHTML = html;
+}
+
+$("fd-response").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-resp]");
+  if (!btn) return;
+  const id = currentFinding.id, base = `/api/findings/${id}`;
+  busy(btn, async () => {
+    const kind = btn.dataset.resp;
+    if (kind === "ask") await sendJSON("PUT", `${base}/response-request`, { recommendation: $("fd-rec").value });
+    else if (kind === "withdraw") {
+      if (!confirm("Take this finding back from the client?")) return;
+      await sendJSON("DELETE", `${base}/response-request`);
+    } else if (kind === "answer") await sendJSON("PUT", `${base}/response`, {
+      response: $("fd-ans").value, action_plan: $("fd-plan").value, owner: $("fd-owner").value, due_on: $("fd-due").value || null });
+    else if (kind === "follow") await sendJSON("PUT", `${base}/follow-up`, { status: $("fd-fu").value, note: $("fd-fu-note").value });
+    if (currentFinding?.id === id) await refreshFinding(await getJSON(base));
+  });
+});
 
 async function loadEngagementActivity() {
   renderActivity($("eng-activity"), await getJSON(`/api/activity?engagement_id=${currentEngagement.id}&limit=100`), false);
@@ -5499,9 +5666,53 @@ document.querySelectorAll("[data-rq-export]").forEach((btn) => btn.addEventListe
 // The client portal
 
 async function showPortal() {
-  portal = await getJSON("/api/portal/requests");
+  const [requests, found] = await Promise.all([getJSON("/api/portal/requests"), getJSON("/api/portal/findings")]);
+  portal = requests;
+  portalFindings = found;
   renderPortal();
+  renderPortalFindings();
 }
+
+let portalFindings = null;
+
+function renderPortalFindings() {
+  const list = portalFindings?.engagements || [];
+  $("pt-findings").innerHTML = list.map((e) => `<section class="panel">
+    <h2><span>Points for your response</span> · ${data(e.name)} <span class="muted">· period ending ${esc(e.period_end)}</span></h2>
+    <p class="tag" style="margin-top:-6px">Your auditors would like management's response to these points: what you will do, who will do it and by when.</p>
+    ${e.locked ? '<p class="warn-box">Your auditors have closed this audit file, so nothing more can be sent for it.</p>' : ""}
+    ${e.findings.map((f) => portalFinding(f, e.locked)).join("")}</section>`).join("");
+}
+
+function portalFinding(f, locked) {
+  const fixed = locked || f.follow_up !== "open";
+  const show = (label, v) => v ? `<div><strong>${label}</strong>: ${data(v)}</div>` : "";
+  return `<div class="rq" data-pf="${f.id}">
+    <div class="head"><strong>Point #${f.id}</strong> <span class="sev ${esc(f.severity)}">${esc(f.severity)}</span> <span class="pill mr-${f.state}">${esc(f.state === "waiting" ? "Waiting for your response" : f.state_label)}</span></div>
+    <p>${[f.description && data(f.description), f.detail && data(f.detail)].filter(Boolean).join(": ")}</p>
+    ${show("Recommendation", f.recommendation)}
+    ${fixed ? show("Your response", f.response) + show("Action plan", f.action_plan) + show("Owner", f.owner) + show("Due", f.due_on)
+      + (f.follow_up !== "open" ? `<p class="muted"><span>Followed up by your auditors</span>: <span>${esc(f.follow_up_label)}</span></p>` : "")
+      : `<form data-pf-form>
+      <label>Your response<textarea name="response" rows="2" maxlength="5000" required>${esc(f.response)}</textarea></label>
+      <label>Action plan<textarea name="action_plan" rows="2" maxlength="5000">${esc(f.action_plan)}</textarea></label>
+      <div class="grid"><div><label>Owner<input name="owner" maxlength="200" value="${esc(f.owner)}"></label></div>
+      <div><label>Due<input name="due_on" type="date" value="${esc(f.due_on || "")}"></label></div></div>
+      <div class="actions"><button type="submit" class="small">${f.response ? "Update the response" : "Send the response"}</button></div></form>`}
+  </div>`;
+}
+
+$("pt-findings").addEventListener("submit", (ev) => {
+  const form = ev.target.closest("[data-pf-form]");
+  if (!form) return;
+  ev.preventDefault();
+  const id = form.closest("[data-pf]").dataset.pf;
+  const body = formObject(form);
+  busy(ev.submitter, async () => {
+    await sendJSON("PUT", `/api/findings/${id}/response`, { ...body, due_on: body.due_on || null });
+    await showPortal();
+  });
+});
 
 function renderPortal() {
   if (!portal.client) {
@@ -5626,7 +5837,7 @@ function openFinding(f, scroll = true) {
   $("fd-severity").value = f.severity;
   $("fd-severity").disabled = me.rank < 2;
   $("fd-note").value = "";
-  $("fd-delete").hidden = f.source !== "manual";
+  $("fd-delete").hidden = f.source !== "manual" || !!f.response;  // sent to the client: kept
   $("fd-evidence").innerHTML = f.attachments.length
     ? "<tr><th>File</th><th>Size</th><th>Added</th><th>SHA-256</th><th></th></tr>" + f.attachments.map((a) => `<tr>
         <td>${data(a.filename)}</td><td class="num">${fileSize(a.size)}</td>
@@ -5635,6 +5846,7 @@ function openFinding(f, scroll = true) {
         <td><div class="cell-actions"><a class="button" href="/api/evidence/${a.id}">Download</a>
           ${f.status === "cleared" ? "" : `<button type="button" class="small secondary danger min-2" data-remove-ev="${a.id}">Remove</button>`}</div></td></tr>`).join("")
     : '<tr><td class="muted">No evidence attached.</td></tr>';
+  renderResponse(f);
   $("fd-trail").innerHTML = f.trail.length ? [...f.trail].reverse().map((n) => `<li>
       <div class="who">${esc(when(n.created_at))}${n.author ? " · " + data(n.author) : ""}</div>
       ${n.status_to ? `<div>Status: ${esc(n.status_from)} → <strong>${esc(n.status_to)}</strong></div>` : ""}

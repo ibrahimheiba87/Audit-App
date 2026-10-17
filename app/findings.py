@@ -18,6 +18,7 @@ from .db import Engagement, Evidence, Finding, FindingNote, User, get_session
 from .engagements import get_or_404, safe_stem
 from .exports import attachment
 from .register import STATUSES
+from .responses import response_out
 
 router = APIRouter(prefix="/api")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -85,7 +86,8 @@ def finding_out(f: Finding) -> dict:
     return {**finding_brief(f), "engagement_id": f.engagement_id,
             "created_at": f.created_at.isoformat(),
             "trail": [note_out(n) for n in f.notes],
-            "attachments": [evidence_out(ev) for ev in f.evidence]}
+            "attachments": [evidence_out(ev) for ev in f.evidence],
+            "response": response_out(f.response)}
 
 
 # --- Helpers ----------------------------------------------------------------
@@ -230,9 +232,15 @@ def update_finding(finding_id: int, body: FindingPatch, user: User = Depends(req
 @router.delete("/findings/{finding_id}", status_code=204)
 def delete_finding(finding_id: int, user: User = Depends(require("review")),
                    session: Session = Depends(get_session)) -> Response:
+    get_or_404(session, Finding, finding_id, user)
+    auth.hold(session, f"finding:{finding_id}")
+    session.expire_all()  # the client may have answered it meanwhile
     f = get_or_404(session, Finding, finding_id, user)
     if f.source != "manual":
         raise HTTPException(400, "Findings from a check run can't be deleted; clear them instead.")
+    if f.response is not None:
+        raise HTTPException(409, "This finding was sent to the client, so it stays on file. "
+                                 "Take it back from the client first if they haven't answered.")
     log(session, user, "finding.delete", f"Deleted finding #{f.id}: {f.detail}", f.engagement,
         details={"finding_id": f.id})
     session.delete(f)

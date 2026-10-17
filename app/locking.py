@@ -50,6 +50,7 @@ from .db import (
     Upload,
     User,
     Vouching,
+    WorkpaperTick,
     get_session,
     utcnow,
 )
@@ -68,7 +69,7 @@ PARAM_MODELS = {
     "task_id": Task, "time_entry_id": TimeEntry, "event_id": SubsequentEvent,
     "party_id": RelatedParty, "summary_id": DocumentSummary, "expectation_id": Expectation,
     "stock_item_id": StockCountItem, "point_id": PriorPoint,
-    "vouching_id": Vouching,
+    "vouching_id": Vouching, "tick_id": WorkpaperTick,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is
@@ -104,8 +105,11 @@ def can_see(session: Session, user: User, obj, engagement_id: int) -> bool:
     already find out; anyone else gets the route's usual 404."""
     if user.role == "client":
         e = session.get(Engagement, engagement_id)
-        return (e is not None and user.client_id == e.client_id
-                and isinstance(obj, (DocumentRequest, RequestFile)))
+        if e is None or user.client_id != e.client_id:
+            return False
+        # Clients see their requests, and the findings sent to them for a response.
+        return isinstance(obj, (DocumentRequest, RequestFile)) or (
+            isinstance(obj, Finding) and obj.response is not None)
     return auth.on_engagement(session, user, engagement_id)
 
 

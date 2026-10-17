@@ -50,7 +50,8 @@ CLIENT_PATHS = {"/", "/api/auth/status", "/api/auth/setup", "/api/auth/login", "
                 "/api/auth/me", "/api/auth/password", "/api/auth/language", "/api/health",
                 "/api/portal/requests",
                 "/api/requests/{request_id}/files", "/api/requests/{request_id}/messages",
-                "/api/request-files/{file_id}"}
+                "/api/request-files/{file_id}", "/api/portal/findings",
+                "/api/findings/{finding_id}/response"}
 
 
 def test_client_users_are_refused_everywhere_but_the_portal():

@@ -39,6 +39,7 @@ from . import (
     reconciliations,
     related_parties,
     report_draft,
+    responses,
     review,
     risks,
     samples,
@@ -170,6 +171,9 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
                        lambda: summaries.workbook(e))
     if e.findings:
         pack.workpaper(testing, "Findings register", lambda: findings.workbook(session, e))
+        if any(f.response for f in e.findings):
+            pack.workpaper(testing, "Management responses",
+                           lambda: responses.workbook(session, e))
     if e.document_requests:
         pack.workpaper(testing, "Client requests", lambda: portal.workbook(e))
 
