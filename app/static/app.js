@@ -5646,6 +5646,7 @@ function setUser(user) {
   $("nav").hidden = user.role === "client";
   if (user.role === "admin") refreshSignupCount();
   startBell();
+  $("search").hidden = user.role === "client";
 }
 
 function showLogin(needsSetup) {
@@ -5655,7 +5656,8 @@ function showLogin(needsSetup) {
   $("pt-list").innerHTML = $("rq-list").innerHTML = "";
   delete document.body.dataset.rank;
   clearInterval(bellTimer); bellItems = []; closeBell();
-  $("user-chip").hidden = $("nav").hidden = $("bell").hidden = true;
+  $("user-chip").hidden = $("nav").hidden = $("bell").hidden = $("search").hidden = true;
+  closeSearch(); $("search-q").value = ""; searchHits = [];
   document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== "view-login"; });
   $("results").hidden = true;
   $("login-form").hidden = needsSetup;
@@ -5832,12 +5834,80 @@ $("bell-list").addEventListener("click", (ev) => {
   }
 });
 
-// After an engagement opens: the panel a bell item pointed at.
+// After an engagement opens: the panel a bell item or a search hit pointed at.
 function scrollToPendingPanel() {
   const panel = pendingPanel;
-  pendingPanel = null;
+  const finding = pendingFinding;
+  pendingPanel = pendingFinding = null;
+  if (finding) { guard(async () => openFinding(await getJSON(`/api/findings/${finding}`))); return; }
   if (panel) $(panel)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+// Search: one box in the header for every engagement the user may see.
+
+let searchHits = [];
+let searchTimer = null;
+let searchLoads = 0;
+let pendingFinding = null;  // the finding a search hit opens once its engagement is open
+
+function closeSearch() {
+  $("search-menu").hidden = true;
+}
+
+async function runSearch() {
+  const q = $("search-q").value.trim();
+  const load = ++searchLoads;
+  if (q.length < 2) { searchHits = []; closeSearch(); return; }
+  const out = await getJSON(`/api/search?${new URLSearchParams({ q })}`);
+  if (load !== searchLoads) return;
+  searchHits = out.groups.flatMap((g) => g.items);
+  let n = 0;
+  $("search-out").innerHTML = out.groups.length ? out.groups.map((g) => `<h4>${esc(g.label)}</h4><ul>
+    ${g.items.map((x) => `<li><button type="button" class="bell-item" data-hit="${n++}">
+      <span class="bell-text">${x.kind === "finding" ? `<span class="sev ${esc(x.severity)}">${esc(x.severity)}</span> ` : ""}${data(x.title)}</span>
+      ${x.snippet ? `<span class="tag">${data(x.snippet)}</span>` : ""}
+      ${x.kind === "engagement" ? `<span class="tag"><span>Period end</span> <bdi dir="ltr" translate="no">${esc(x.period_end)}</bdi>${x.archived ? ` · <span>${esc("Archived")}</span>` : ""}</span>`
+        : `<span class="tag">${data(x.engagement)}</span>`}</button></li>`).join("")}</ul>
+    ${g.more ? `<p class="tag">${esc("More found. Type more to narrow the search.")}</p>` : ""}`).join("")
+    : `<p class="muted">${esc("Nothing found.")}</p>`;
+  $("search-menu").hidden = false;
+}
+
+$("search-q").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => guard(runSearch), 250);
+});
+$("search-q").addEventListener("focus", () => { if (searchHits.length) $("search-menu").hidden = false; });
+$("search-q").addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") closeSearch();
+  if (ev.key === "Enter") { ev.preventDefault(); $("search-out").querySelector("[data-hit]")?.click(); }
+  if (ev.key === "ArrowDown") { ev.preventDefault(); $("search-out").querySelector("[data-hit]")?.focus(); }
+});
+$("search-out").addEventListener("keydown", (ev) => {
+  if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp" && ev.key !== "Escape") return;
+  ev.preventDefault();
+  if (ev.key === "Escape") { closeSearch(); $("search-q").focus(); return; }
+  const all = [...$("search-out").querySelectorAll("[data-hit]")];
+  const i = all.indexOf(document.activeElement) + (ev.key === "ArrowDown" ? 1 : -1);
+  (i < 0 ? $("search-q") : all[Math.min(i, all.length - 1)]).focus();
+});
+document.addEventListener("click", (ev) => { if (!ev.target.closest("#search")) closeSearch(); });
+
+$("search-out").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-hit]");
+  if (!btn) return;
+  const x = searchHits[Number(btn.dataset.hit)];
+  closeSearch();
+  const hash = `#/engagements/${x.engagement_id}`;
+  pendingFinding = x.kind === "finding" ? x.id : null;
+  if (location.hash === hash && currentEngagement?.id === x.engagement_id) {
+    pendingPanel = x.panel;
+    scrollToPendingPanel();
+  } else {
+    pendingPanel = x.panel;
+    location.hash = hash;
+  }
+});
 
 let clients = [];  // for linking client users
 

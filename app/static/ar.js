@@ -2675,3 +2675,14 @@ I18N.add({
     "Carried the quality review set-up from {name}": "تم نقل إعداد مراجعة الجودة من {name}",
   },
 });
+
+// Search.
+I18N.add({
+  exact: {
+    "Search": "بحث",
+    "Search engagements, findings, tasks and more": "ابحث في الارتباطات والنتائج والمهام وغيرها",
+    "More found. Type more to narrow the search.": "توجد نتائج أخرى. اكتب المزيد لتضييق البحث.",
+    "Nothing found.": "لم يُعثر على شيء.",
+  },
+  patterns: {},
+});

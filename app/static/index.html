@@ -19,6 +19,10 @@
       <a href="#/users" data-view="users" class="min-4">Users <span class="nav-count" id="signup-count" translate="no" title="Account requests waiting for approval" hidden></span></a>
       <a href="#/activity" data-view="activity" class="min-4">Activity</a>
     </nav>
+    <div class="search" id="search" role="search" hidden>
+      <input type="search" id="search-q" maxlength="100" autocomplete="off" placeholder="Search" aria-label="Search engagements, findings, tasks and more" aria-controls="search-menu">
+      <div class="bell-menu search-menu" id="search-menu" hidden><div id="search-out"></div></div>
+    </div>
     <div class="bell" id="bell" hidden>
       <button type="button" class="link bell-btn" id="bell-btn" aria-haspopup="true" aria-expanded="false" title="What needs you">&#128276; <span class="nav-count" id="bell-count" translate="no" hidden></span></button>
       <div class="bell-menu" id="bell-menu" hidden>
@@ -1331,7 +1335,7 @@
             <div id="qr-status"></div>
             <form id="qr-setup" class="min-3">
               <h3>Set-up</h3>
-              <label><input type="checkbox" id="qr-required"> This engagement needs a quality review</label>
+              <label class="check-label" style="margin-top:8px"><input type="checkbox" id="qr-required"><span>This engagement needs a quality review</span></label>
               <div class="grid">
                 <div><label for="qr-reason">Why it is needed</label><select id="qr-reason" class="map"></select></div>
                 <div><label for="qr-reviewer">Quality reviewer</label><select id="qr-reviewer" class="map"></select></div>
