@@ -327,3 +327,4 @@ td.bad { color: var(--high); }
 .pill.mr-overdue { color: var(--high); background: var(--high-bg); }
 #fd-response label { display: block; margin-top: 8px; }
 #pt-findings label { display: block; margin-top: 6px; }
+.flag-cell { color: var(--high); font-weight: 600; }

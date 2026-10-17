@@ -281,6 +281,7 @@ async function openEngagement(id) {
     // click can't change an entry or finding of the engagement just left.
     fs = null; fsEngagementId = null; ticks = null; renderStatementsPanel();
     fx = null; $("fx-form").reset(); $("fx-result").hidden = true; $("fx-note").textContent = "";
+    grp = null; vat = null; $("gr-lines").innerHTML = ""; renderGroup(); renderVat(true);
     reg = null; $("reg-cards").innerHTML = $("reg-table").innerHTML = $("reg-count").textContent = "";
     $("reg-bulk").hidden = true;
     resetEntryForm();
@@ -379,6 +380,8 @@ async function openEngagement(id) {
   guard(loadSummaries);
   guard(loadAcceptance);
   guard(loadDisclosures);
+  guard(loadGroup);
+  guard(loadVat);
   await loadStatements();
   await loadRegister();
   scrollToPendingPanel();
@@ -6734,6 +6737,226 @@ async function startApp() {
   route();
 }
 
+// --- Group consolidation ----------------------------------------------------------
+
+let grp = null;  // latest /group response
+
+async function loadGroup() {
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/group`);
+  if (currentEngagement?.id !== id) return;
+  grp = out;
+  renderGroup();
+}
+
+function grLineOptions() {
+  return '<option value="">Pick a line</option>' + (grp?.lines || []).map((l) => `<option value="${l.id}">${esc(l.label)}</option>`).join("");
+}
+
+function grLineRow() {
+  return `<tr><td><select class="map" data-gl>${grLineOptions()}</select></td>
+    <td><input type="number" step="any" min="0" placeholder="Debit" data-gd></td><td><input type="number" step="any" min="0" placeholder="Credit" data-gc></td></tr>`;
+}
+
+function renderGroup() {
+  const g = grp;
+  $("gr-export").hidden = !g?.components.length;
+  if (g) $("gr-export").href = `/api/engagements/${currentEngagement.id}/group/export`;
+  const keep = $("gr-engagement").value;
+  $("gr-engagement").innerHTML = '<option value="">Pick an engagement</option>' + (g?.choices || []).map((c) =>
+    `<option value="${c.id}"${String(c.id) === keep ? " selected" : ""} translate="no">${esc(c.label)}</option>`).join("");
+  if (g && !$("gr-lines").innerHTML) $("gr-lines").innerHTML = "<tr><th>Line</th><th>Debit</th><th>Credit</th></tr>" + grLineRow() + grLineRow();
+  const comps = g?.components || [];
+  $("gr-components").innerHTML = comps.length ? "<tr><th>Component</th><th>Owned %</th><th>Scope</th><th class=\"num\">Materiality</th><th class=\"num\">Share of revenue</th><th class=\"num\">Share of assets</th><th>To look at</th><th></th></tr>" +
+    comps.map((c) => `<tr data-comp="${c.id}"><td>${data(c.client)} · ${data(c.engagement)}${c.currency ? ` <span class="tag" translate="no">${esc(c.currency)}</span>` : ""}${c.significant ? ' <span class="pill warn">Significant</span>' : ""}</td>
+      <td><input type="number" step="any" min="0.01" max="100" value="${c.ownership_pct}" data-own style="width:90px"></td>
+      <td><select class="map" data-scope>${[["full", "Full audit"], ["specific", "Specific balances"], ["analytical", "Analytical procedures only"]].map(([k, v]) => `<option value="${k}"${k === c.scope ? " selected" : ""}>${v}</option>`).join("")}</select></td>
+      <td class="num"><input type="number" step="any" min="0" value="${c.materiality ?? ""}" data-mat style="width:120px"></td>
+      <td class="num">${c.revenue_pct == null ? "" : esc(c.revenue_pct) + "%"}</td><td class="num">${c.assets_pct == null ? "" : esc(c.assets_pct) + "%"}</td>
+      <td>${(c.flags || []).map((f) => `<div>${esc(f)}</div>`).join("")}</td>
+      <td><div class="cell-actions"><button type="button" class="small secondary" data-comp-save>Save</button><button type="button" class="small secondary danger" data-comp-remove>Remove</button></div></td></tr>`).join("")
+    : '<tr><td class="muted">No components yet.</td></tr>';
+  const entries = g?.entries || [];
+  $("gr-entries").innerHTML = entries.length ? "<tr><th>Elimination</th><th>Line</th><th class=\"num\">Debit</th><th class=\"num\">Credit</th><th></th></tr>" +
+    entries.map((x) => x.lines.map((ln, i) => `<tr${i ? "" : ` data-ge="${x.id}"`}><td>${i ? "" : data(x.description)}</td><td>${esc(ln.label)}</td>
+      <td class="num">${ln.debit ? signed(ln.debit) : ""}</td><td class="num">${ln.credit ? signed(ln.credit) : ""}</td>
+      <td>${i ? "" : '<button type="button" class="small secondary danger" data-ge-remove>Remove</button>'}</td></tr>`).join("")).join("")
+    : "";
+  const r = g?.result;
+  $("gr-result").hidden = !r;
+  if (!r) return;
+  const head = "<tr><th></th>" + r.columns.map((c) => `<th class="num">${c.key === "parent" || c.key === "eliminations" || c.key === "group" ? esc(c.key === "parent" ? "This engagement" : c.label) : data(c.label)}</th>`).join("") + "</tr>";
+  const table = (rows) => head + rows.map((x) => `<tr class="${x.kind}"><td>${esc(x.label)}</td>` +
+    x.values.map((v) => `<td class="num">${x.kind === "heading" ? "" : signed(v)}</td>`).join("") + "</tr>").join("");
+  $("gr-is").innerHTML = table(r.income_statement);
+  $("gr-bs").innerHTML = table(r.balance_sheet);
+  const a = r.attributable;
+  $("gr-attr").innerHTML = [["Profit attributable to owners of the parent", a.profit_owners], ["Profit attributable to non-controlling interests", a.profit_nci],
+    ["Equity attributable to owners of the parent", a.equity_owners], ["Non-controlling interests", a.equity_nci]]
+    .map(([k, v]) => `<tr><td>${k}</td><td class="num">${signed(v)}</td></tr>`).join("");
+  $("gr-warn").hidden = !r.unbalanced.length;
+  $("gr-warn").innerHTML = r.unbalanced.map((u) => `<span>${u.label === "Eliminations" || u.label === "Group" ? esc(u.label) : data(u.label)}</span>: <span>${esc(`out of balance by ${signed(u.difference)}`)}</span>`).join("<br>");
+}
+
+$("gr-add").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  busy(ev.submitter, async () => {
+    const out = await sendJSON("POST", `/api/engagements/${id}/group/components`, {
+      component_engagement_id: Number($("gr-engagement").value), ownership_pct: Number($("gr-own").value),
+      materiality: $("gr-mat").value === "" ? null : Number($("gr-mat").value), scope: $("gr-scope").value });
+    if (currentEngagement?.id !== id) return;
+    $("gr-add").reset();
+    grp = { ...out, choices: grp.choices.filter((c) => !out.components.some((x) => x.component_engagement_id === c.id)) };
+    renderGroup();
+    await loadEngagementActivity();
+  });
+});
+
+$("gr-components").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-comp-save], [data-comp-remove]");
+  if (!btn) return;
+  const row = btn.closest("[data-comp]"), cid = row.dataset.comp, id = currentEngagement.id;
+  busy(btn, async () => {
+    let out;
+    if (btn.matches("[data-comp-remove]")) {
+      if (!confirm("Take this component out of the group?")) return;
+      out = await sendJSON("DELETE", `/api/group-components/${cid}`);
+    } else {
+      const mat = row.querySelector("[data-mat]").value;
+      out = await sendJSON("PATCH", `/api/group-components/${cid}`, {
+        ownership_pct: Number(row.querySelector("[data-own]").value), scope: row.querySelector("[data-scope]").value,
+        materiality: mat === "" ? null : Number(mat) });
+    }
+    if (currentEngagement?.id !== id) return;
+    await loadGroup();
+    await loadEngagementActivity();
+  });
+});
+
+$("gr-more").addEventListener("click", () => $("gr-lines").insertAdjacentHTML("beforeend", grLineRow()));
+
+$("gr-entry").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const lines = [...$("gr-lines").querySelectorAll("tr")].filter((tr) => tr.querySelector("[data-gl]")).map((tr) => ({
+    line: tr.querySelector("[data-gl]").value, debit: Number(tr.querySelector("[data-gd]").value || 0), credit: Number(tr.querySelector("[data-gc]").value || 0),
+  })).filter((ln) => ln.line || ln.debit || ln.credit);
+  busy(ev.submitter, async () => {
+    const out = await sendJSON("POST", `/api/engagements/${id}/group/entries`, { description: $("gr-desc").value, lines });
+    if (currentEngagement?.id !== id) return;
+    $("gr-desc").value = ""; $("gr-lines").innerHTML = "";
+    grp = { ...out, choices: grp.choices };
+    renderGroup();
+    await loadEngagementActivity();
+  });
+});
+
+$("gr-entries").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-ge-remove]");
+  if (!btn) return;
+  const xid = btn.closest("[data-ge]").dataset.ge, id = currentEngagement.id;
+  busy(btn, async () => {
+    const out = await sendJSON("DELETE", `/api/consolidation-entries/${xid}`);
+    if (currentEngagement?.id !== id) return;
+    grp = { ...out, choices: grp.choices };
+    renderGroup();
+    await loadEngagementActivity();
+  });
+});
+
+// --- VAT reconciliation -------------------------------------------------------------
+
+let vat = null;  // latest /vat response
+
+async function loadVat() {
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/vat`);
+  if (currentEngagement?.id !== id) return;
+  vat = out;
+  renderVat(true);
+}
+
+function renderVat(fill) {
+  const v = vat, s = v?.setup;
+  $("vat-export").hidden = !v?.result;
+  if (v) $("vat-export").href = `/api/engagements/${currentEngagement.id}/vat/export`;
+  if (fill) {
+    $("vat-gl").innerHTML = '<option value="">Pick a ledger</option>' + (v?.ledgers || []).map((u) =>
+      `<option value="${u.id}"${u.id === s?.upload_id ? " selected" : ""} translate="no">${esc(u.filename)}</option>`).join("");
+    $("vat-rate").value = s?.rate_pct ?? 14;
+    const accounts = v?.suggested?.accounts || [];
+    const opts = (picked, suggested) => {
+      const chosen = new Set(picked?.length ? picked : suggested || []);
+      return [...new Set([...accounts, ...chosen])].map((a) => `<option value="${esc(a)}"${chosen.has(a) ? " selected" : ""} translate="no">${esc(a)}</option>`).join("");
+    };
+    $("vat-out").innerHTML = opts(s?.output_accounts, v?.suggested?.output);
+    $("vat-in").innerHTML = opts(s?.input_accounts, v?.suggested?.input);
+  }
+  const r = v?.result;
+  const t = r?.totals;
+  $("vat-cards").innerHTML = r ? [[signed(t.diff_sales), "Sales difference"], [signed(t.diff_output), "Output VAT difference"],
+    [signed(t.diff_input), "Input VAT difference"], [r.flagged, "Returns to look at"]]
+    .map(([val, k]) => `<div class="card"><div class="v">${esc(val)}</div><div class="k">${k}</div></div>`).join("") : "";
+  const vatNotes = [...(v?.problem ? [v.problem] : []), ...(r?.notes || [])];
+  $("vat-notes").hidden = !vatNotes.length;
+  $("vat-notes").innerHTML = vatNotes.map((n) => `<span>${esc(n)}</span>`).join(" ");
+  const rows = r?.rows || (v?.returns || []).map((x) => ({ ...x, flags: [] }));
+  const cell = (val, flag) => `<td class="num${flag ? " flag-cell" : ""}">${val == null ? "" : signed(val)}</td>`;
+  $("vat-table").innerHTML = rows.length ? `<tr><th>Period</th><th>Reference</th><th class="num">Sales declared</th><th class="num">Sales in the ledger</th><th class="num">Difference</th>
+    <th class="num">Output VAT declared</th><th class="num">In the ledger</th><th class="num">Difference</th><th class="num">At the rate</th>
+    <th class="num">Input VAT declared</th><th class="num">In the ledger</th><th class="num">Difference</th><th></th></tr>` +
+    rows.map((x) => `<tr data-vr="${x.id}"><td class="nowrap">${esc(x.period_start)} – ${esc(x.period_end)}</td><td>${data(x.reference)}</td>
+      ${cell(x.taxable_sales)}${cell(x.ledger_sales)}${cell(x.diff_sales, x.flags.includes("sales"))}
+      ${cell(x.output_vat)}${cell(x.ledger_output)}${cell(x.diff_output, x.flags.includes("output"))}${cell(x.expected_output, x.flags.includes("rate"))}
+      ${cell(x.input_vat)}${cell(x.ledger_input)}${cell(x.diff_input, x.flags.includes("input"))}
+      <td><button type="button" class="small secondary danger" data-vr-remove>Remove</button></td></tr>`).join("")
+    : '<tr><td class="muted">No returns yet.</td></tr>';
+}
+
+$("vat-setup").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const picked = (sel) => [...$(sel).selectedOptions].map((o) => o.value);
+  busy(ev.submitter, async () => {
+    const out = await sendJSON("PUT", `/api/engagements/${id}/vat`, {
+      upload_id: $("vat-gl").value ? Number($("vat-gl").value) : null, rate_pct: Number($("vat-rate").value || 0),
+      output_accounts: picked("vat-out"), input_accounts: picked("vat-in") });
+    if (currentEngagement?.id !== id) return;
+    vat = out;
+    renderVat(true);
+    await loadEngagementActivity();
+  });
+});
+
+$("vat-return").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  busy(ev.submitter, async () => {
+    const out = await sendJSON("POST", `/api/engagements/${id}/vat/returns`, {
+      period_start: $("vat-from").value, period_end: $("vat-to").value, taxable_sales: Number($("vat-sales").value || 0),
+      output_vat: Number($("vat-output").value || 0), input_vat: Number($("vat-input").value || 0), reference: $("vat-ref").value });
+    if (currentEngagement?.id !== id) return;
+    $("vat-return").reset();
+    vat = out;
+    renderVat(false);
+    await loadEngagementActivity();
+  });
+});
+
+$("vat-table").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-vr-remove]");
+  if (!btn) return;
+  const rid = btn.closest("[data-vr]").dataset.vr, id = currentEngagement.id;
+  busy(btn, async () => {
+    const out = await sendJSON("DELETE", `/api/vat-returns/${rid}`);
+    if (currentEngagement?.id !== id) return;
+    vat = out;
+    renderVat(false);
+    await loadEngagementActivity();
+  });
+});
+
 (async () => {
   const status = await getJSON("/api/auth/status");
   roles = status.roles;
@@ -6746,3 +6969,4 @@ async function startApp() {
     showLogin(status.needs_setup);
   }
 })();
+

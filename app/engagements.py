@@ -128,10 +128,30 @@ def lock_out(lock: EngagementLock | None) -> dict | None:
 
 
 def refuse_locked(engagements: list[Engagement]) -> None:
-    """For deletes: a locked engagement's file is kept."""
+    """For deletes: a locked engagement's file is kept, and so is a locked group's record of
+    its components."""
     locked = [e for e in engagements if e.lock is not None]
     if locked:
         raise HTTPException(409, f"{locked[0].name} is locked, so it can't be deleted.")
+    going = {e.id for e in engagements}
+    groups = [c.engagement for e in engagements for c in e.component_of
+              if c.engagement_id not in going and c.engagement.lock is not None]
+    if groups:
+        raise HTTPException(409, f"{engagements[0].name} is a component of the group "
+                                 f"engagement {groups[0].name}, which is locked, so it can't "
+                                 "be deleted.")
+
+
+def log_component_removals(session: Session, user: User,
+                           engagements: list[Engagement]) -> None:
+    """Note on each group's activity log that a component is going with its engagement."""
+    going = {e.id for e in engagements}
+    for e in engagements:
+        for c in e.component_of:
+            if c.engagement_id not in going:
+                log(session, user, "group.component_remove",
+                    f"Took {e.client.name} out of the group: its engagement {e.name} was "
+                    "deleted", c.engagement, details={"component_engagement_id": e.id})
 
 
 def materiality_out(e: Engagement) -> dict | None:
@@ -420,6 +440,7 @@ def delete_client(client_id: int, user: User = Depends(require("manage")),
     hold_for_delete(session, ids)
     client = deletable()
     refuse_locked(client.engagements)
+    log_component_removals(session, user, client.engagements)
     log(session, user, "client.delete",
         f"Deleted client {client.name} and its {len(client.engagements)} engagements",
         details={"request_files": request_files(client.engagements)})
@@ -479,6 +500,7 @@ def delete_engagement(engagement_id: int, user: User = Depends(require("manage")
     hold_for_delete(session, [engagement_id])
     e = get_or_404(session, Engagement, engagement_id, user)
     refuse_locked([e])
+    log_component_removals(session, user, [e])
     log(session, user, "engagement.delete", f"Deleted engagement {e.name} with "
         f"{len(e.uploads)} files and {len(e.findings)} findings", e,
         details={"request_files": request_files([e])})
