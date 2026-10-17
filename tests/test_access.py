@@ -90,6 +90,17 @@ def full_engagement(a):
     point = a.post(f"/api/engagements/{eid}/prior-points", json={"title": "Old point"})
     assert point.status_code == 201, point.text
     tick = a.post(f"/api/engagements/{eid}/ticks", json={"account": "4000", "symbol": "TB"})
+    sub_client = a.post("/api/clients", json={"name": "Sub Co"}).json()["id"]
+    sub = a.post(f"/api/clients/{sub_client}/engagements",
+                 json={"name": "FY2026", "period_end": "2026-12-31"}).json()["id"]
+    group = a.post(f"/api/engagements/{eid}/group/components",
+                   json={"component_engagement_id": sub})
+    assert group.status_code == 201, group.text
+    group = a.post(f"/api/engagements/{eid}/group/entries", json={
+        "description": "x", "lines": [{"line": "payables", "debit": 1},
+                                      {"line": "receivables", "credit": 1}]}).json()
+    vat = a.post(f"/api/engagements/{eid}/vat/returns", json={
+        "period_start": "2026-01-01", "period_end": "2026-01-31"}).json()
     assert tick.status_code == 201, tick.text
     with db.SessionLocal() as s:
         doc = db.DocumentSummary(engagement_id=eid, kind="contract", filename="lease.pdf",
@@ -117,7 +128,10 @@ def full_engagement(a):
             "expectation_id": expectation.json()["expectations"][0]["id"],
             "stock_upload_id": stock, "point_id": point.json()["points"][0]["id"],
             "stock_item_id": count.json()["items"][0]["id"], "row": row,
-            "vouching_id": vouching_id, "tick_id": tick.json()["id"]}
+            "vouching_id": vouching_id, "tick_id": tick.json()["id"],
+            "component_id": group["components"][0]["id"], "sub_id": sub,
+            "consolidation_entry_id": group["entries"][0]["id"],
+            "vat_return_id": vat["returns"][0]["id"]}
 
 
 def bodies(ids):
@@ -242,6 +256,23 @@ def bodies(ids):
                       "average_rate": 1, "equity_rate": 1}},
         ("DELETE", "/api/engagements/{engagement_id}/translation"): {},
         ("GET", "/api/engagements/{engagement_id}/translation/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/group"): {},
+        ("POST", "/api/engagements/{engagement_id}/group/components"):
+            {"json": {"component_engagement_id": ids["sub_id"]}},
+        ("PATCH", "/api/group-components/{component_id}"):
+            {"json": {"ownership_pct": 50, "scope": "full"}},
+        ("DELETE", "/api/group-components/{component_id}"): {},
+        ("POST", "/api/engagements/{engagement_id}/group/entries"):
+            {"json": {"description": "y", "lines": [{"line": "payables", "debit": 1},
+                                                    {"line": "receivables", "credit": 1}]}},
+        ("DELETE", "/api/consolidation-entries/{consolidation_entry_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/group/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/vat"): {},
+        ("PUT", "/api/engagements/{engagement_id}/vat"): {"json": {}},
+        ("POST", "/api/engagements/{engagement_id}/vat/returns"):
+            {"json": {"period_start": "2026-02-01", "period_end": "2026-02-28"}},
+        ("DELETE", "/api/vat-returns/{vat_return_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/vat/export"): {},
         ("GET", "/api/uploads/{upload_id}/posters/export"): {},
         ("POST", "/api/uploads/{upload_id}/fixed-assets"): {"json": {}},
         ("POST", "/api/uploads/{upload_id}/fixed-assets/export"): {"json": {}},

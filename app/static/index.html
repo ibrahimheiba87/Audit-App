@@ -1025,6 +1025,73 @@
             </div>
           </section>
 
+          <section class="panel" id="gr-panel">
+            <div class="row-between">
+              <h2>Group consolidation</h2>
+              <a class="button secondary" id="gr-export" hidden>Download Excel</a>
+            </div>
+            <p class="muted">For a group audit: add the components (other engagements in the app, such as subsidiaries) and the eliminations. Each component is added line by line from its own mapped trial balance, in the presentation currency if it has a currency translation. Set each component's materiality and scope; a component with 15% or more of the group's revenue or assets is significant.</p>
+            <form id="gr-add">
+              <div class="grid">
+                <div><label for="gr-engagement">Component</label><select id="gr-engagement" class="map" required></select></div>
+                <div><label for="gr-own">Owned %</label><input id="gr-own" type="number" step="any" min="0.01" max="100" value="100" required></div>
+                <div><label for="gr-mat">Component materiality</label><input id="gr-mat" type="number" step="any" min="0"></div>
+                <div><label for="gr-scope">Scope</label><select id="gr-scope" class="map"><option value="full">Full audit</option><option value="specific">Specific balances</option><option value="analytical">Analytical procedures only</option></select></div>
+              </div>
+              <div class="actions"><button type="submit" class="small">Add component</button></div>
+            </form>
+            <div class="table-wrap"><table id="gr-components"></table></div>
+            <details id="gr-entry-box">
+              <summary>Add an elimination</summary>
+              <form id="gr-entry">
+                <div><label for="gr-desc">Description</label><input id="gr-desc" maxlength="2000" required placeholder="e.g. Intra-group balances"></div>
+                <div class="table-wrap"><table id="gr-lines"></table></div>
+                <div class="actions"><button type="button" class="small secondary" id="gr-more">Add a line</button><button type="submit" class="small">Save elimination</button></div>
+              </form>
+            </details>
+            <div class="table-wrap"><table id="gr-entries"></table></div>
+            <div id="gr-result" hidden>
+              <p class="warn-box" id="gr-warn" hidden></p>
+              <h3>Consolidated income statement</h3>
+              <div class="table-wrap"><table id="gr-is" class="fs-table"></table></div>
+              <h3>Consolidated balance sheet</h3>
+              <div class="table-wrap"><table id="gr-bs" class="fs-table"></table></div>
+              <div class="table-wrap"><table id="gr-attr"></table></div>
+            </div>
+          </section>
+
+          <section class="panel" id="vat-panel">
+            <div class="row-between">
+              <h2>VAT reconciliation</h2>
+              <a class="button secondary" id="vat-export" hidden>Download Excel</a>
+            </div>
+            <p class="muted">Compare the VAT returns the client filed with the general ledger, period by period: the sales, the output VAT and the input VAT, and the output VAT declared against the sales at the VAT rate.</p>
+            <form id="vat-setup">
+              <div class="grid">
+                <div><label for="vat-gl">General ledger</label><select id="vat-gl" class="map"></select></div>
+                <div><label for="vat-rate">VAT rate %</label><input id="vat-rate" type="number" step="any" min="0" max="100" value="14"></div>
+                <div><label for="vat-out">Output VAT accounts</label><select id="vat-out" class="map" multiple size="4"></select></div>
+                <div><label for="vat-in">Input VAT accounts</label><select id="vat-in" class="map" multiple size="4"></select></div>
+              </div>
+              <div class="actions"><button type="submit" class="small">Save</button></div>
+            </form>
+            <form id="vat-return">
+              <h3>Add a return</h3>
+              <div class="grid">
+                <div><label for="vat-from">Period from</label><input id="vat-from" type="date" required></div>
+                <div><label for="vat-to">Period to</label><input id="vat-to" type="date" required></div>
+                <div><label for="vat-sales">Sales declared</label><input id="vat-sales" type="number" step="any" value="0"></div>
+                <div><label for="vat-output">Output VAT declared</label><input id="vat-output" type="number" step="any" value="0"></div>
+                <div><label for="vat-input">Input VAT declared</label><input id="vat-input" type="number" step="any" value="0"></div>
+                <div><label for="vat-ref">Reference</label><input id="vat-ref" maxlength="200"></div>
+              </div>
+              <div class="actions"><button type="submit" class="small">Add return</button></div>
+            </form>
+            <div class="cards" id="vat-cards"></div>
+            <p class="warn-box" id="vat-notes" hidden></p>
+            <div class="table-wrap"><table id="vat-table"></table></div>
+          </section>
+
           <section class="panel">
             <h2>Stratification and summaries</h2>
             <p class="muted">See where the value sits before you choose what to test: lines split into bands by size, totals by account, user and month, and statistics for each column.</p>

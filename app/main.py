@@ -27,6 +27,7 @@ from .auth import current_user, log
 from .comparisons import router as comparisons_router
 from .completion import router as completion_router
 from .confirmations import router as confirmations_router
+from .consolidation import router as consolidation_router
 from .controls import router as controls_router
 from .crossmatch import router as crossmatch_router
 from .dashboard import router as dashboard_router
@@ -62,6 +63,7 @@ from .templates import router as templates_router
 from .ticks import router as ticks_router
 from .translation import router as translation_router
 from .uploads import FORM_OVERHEAD, MAX_UPLOAD_BYTES, BodyLimit, parse_mapping, read_upload
+from .vat import router as vat_router
 from .vouching import router as vouching_router
 from .workplan import router as workplan_router
 
@@ -91,7 +93,8 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                explorer_router, expectations_router, fixed_assets_router,
                stock_count_router, prior_points_router, notifications_router, overview_router,
                posters_router, quality_router, search_router, account_pairs_router,
-               vouching_router, ticks_router, translation_router):
+               vouching_router, ticks_router, translation_router,
+               consolidation_router, vat_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

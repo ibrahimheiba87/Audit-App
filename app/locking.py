@@ -26,6 +26,7 @@ from .db import (
     BankReconciliation,
     Comparison,
     Confirmation,
+    ConsolidationEntry,
     Control,
     CrossMatch,
     DocumentRequest,
@@ -35,6 +36,7 @@ from .db import (
     Evidence,
     Expectation,
     Finding,
+    GroupComponent,
     PriorPoint,
     RelatedParty,
     RequestFile,
@@ -49,6 +51,7 @@ from .db import (
     TimeEntry,
     Upload,
     User,
+    VatReturn,
     Vouching,
     WorkpaperTick,
     get_session,
@@ -69,7 +72,9 @@ PARAM_MODELS = {
     "task_id": Task, "time_entry_id": TimeEntry, "event_id": SubsequentEvent,
     "party_id": RelatedParty, "summary_id": DocumentSummary, "expectation_id": Expectation,
     "stock_item_id": StockCountItem, "point_id": PriorPoint,
-    "vouching_id": Vouching, "tick_id": WorkpaperTick,
+    "vouching_id": Vouching, "component_id": GroupComponent,
+    "consolidation_entry_id": ConsolidationEntry,
+    "vat_return_id": VatReturn, "tick_id": WorkpaperTick,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is

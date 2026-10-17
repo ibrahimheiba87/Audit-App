@@ -108,6 +108,26 @@ class Engagement(Base):
     translation: Mapped[CurrencyTranslation | None] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", uselist=False
     )
+    components: Mapped[list[GroupComponent]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        foreign_keys="GroupComponent.engagement_id", order_by="GroupComponent.id"
+    )
+    # The groups this engagement is a component of; deleting it takes it out of them.
+    component_of: Mapped[list[GroupComponent]] = relationship(
+        back_populates="component", cascade="all, delete-orphan",
+        foreign_keys="GroupComponent.component_engagement_id"
+    )
+    consolidation_entries: Mapped[list[ConsolidationEntry]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="ConsolidationEntry.id"
+    )
+    vat_setup: Mapped[VatSetup | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
+    vat_returns: Mapped[list[VatReturn]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="(VatReturn.period_start, VatReturn.id)"
+    )
     findings: Mapped[list[Finding]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Finding.id"
     )
@@ -1080,6 +1100,83 @@ class CurrencyTranslation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="translation")
+
+
+class GroupComponent(Base):
+    """A component of a group audit (consolidation.py): another engagement in the app whose
+    statements are added into the group's, with the group's share of it and the materiality
+    the group team sets for its auditors."""
+
+    __tablename__ = "group_components"
+    __table_args__ = (UniqueConstraint("engagement_id", "component_engagement_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    component_engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"),
+                                                         index=True)
+    ownership_pct: Mapped[float] = mapped_column(Float, default=100.0)
+    materiality: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scope: Mapped[str] = mapped_column(String(20), default="full")  # consolidation.SCOPES
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="components",
+                                                  foreign_keys=[engagement_id])
+    component: Mapped[Engagement] = relationship(back_populates="component_of",
+                                                 foreign_keys=[component_engagement_id])
+
+
+class ConsolidationEntry(Base):
+    """An elimination or other consolidation adjustment, by statement line."""
+
+    __tablename__ = "consolidation_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    description: Mapped[str] = mapped_column(Text)
+    lines: Mapped[list] = mapped_column(JSON)  # [{"line", "debit", "credit"}]
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="consolidation_entries")
+
+
+class VatSetup(Base):
+    """How VAT is reconciled for an engagement (vat.py): the ledger, the VAT rate and the
+    ledger accounts for output and input VAT."""
+
+    __tablename__ = "vat_setups"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    upload_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # not a key: the
+    # ledger can be deleted, and the reconciliation then asks for another
+    rate_pct: Mapped[float] = mapped_column(Float, default=14.0)
+    output_accounts: Mapped[list] = mapped_column(JSON, default=list)
+    input_accounts: Mapped[list] = mapped_column(JSON, default=list)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="vat_setup")
+
+
+class VatReturn(Base):
+    """One VAT return as filed: its period and the figures declared."""
+
+    __tablename__ = "vat_returns"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    taxable_sales: Mapped[float] = mapped_column(Float, default=0.0)
+    output_vat: Mapped[float] = mapped_column(Float, default=0.0)
+    input_vat: Mapped[float] = mapped_column(Float, default=0.0)
+    reference: Mapped[str] = mapped_column(String(200), default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="vat_returns")
 
 
 class FindingNote(Base):
