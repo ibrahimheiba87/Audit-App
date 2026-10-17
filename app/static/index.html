@@ -18,6 +18,13 @@
       <a href="#/users" data-view="users" class="min-4">Users <span class="nav-count" id="signup-count" translate="no" title="Account requests waiting for approval" hidden></span></a>
       <a href="#/activity" data-view="activity" class="min-4">Activity</a>
     </nav>
+    <div class="bell" id="bell" hidden>
+      <button type="button" class="link bell-btn" id="bell-btn" aria-haspopup="true" aria-expanded="false" title="What needs you">&#128276; <span class="nav-count" id="bell-count" translate="no" hidden></span></button>
+      <div class="bell-menu" id="bell-menu" hidden>
+        <div class="row-between"><strong>What needs you</strong><button type="button" class="link" id="bell-refresh">Refresh</button></div>
+        <ul id="bell-list"></ul>
+      </div>
+    </div>
     <div class="user-chip" id="user-chip" hidden>
       <span><strong id="user-name" translate="no"></strong> <span class="muted" id="user-role"></span></span>
       <button type="button" class="link" id="pw-open">Change password</button>
@@ -107,6 +114,7 @@
         <label><input type="checkbox" name="workplan" checked> The task list and the time budget, without owners or dates</label>
         <label><input type="checkbox" name="related_parties" checked> The related parties register, without last year's scan or conclusions</label>
         <label><input type="checkbox" name="expectations" checked> How each analytical procedure and proof is built, without last year's figures or conclusions</label>
+        <label><input type="checkbox" name="prior_points" checked> This year's management letter points and open findings, to follow up next year</label>
         <label><input type="checkbox" name="team" checked> The team</label>
       </fieldset>
       <div class="actions"><button type="submit" id="roll-submit">Create next year's engagement</button><button type="button" class="secondary" id="roll-cancel">Cancel</button></div>
@@ -470,6 +478,39 @@
               </form>
             </details>
             <div id="ct-list"></div>
+          </section>
+
+          <section class="panel" id="py-panel">
+            <div class="row-between">
+              <h2>Last year's points</h2>
+              <a class="button secondary" id="py-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">The management letter points and open findings from last year's file, brought in when the engagement was rolled forward. Record whether the client dealt with each one and how you checked. A point that is not resolved can become one of this year's findings.</p>
+            <div class="cards" id="py-cards"></div>
+            <form id="py-import" class="min-1" hidden>
+              <div class="grid">
+                <div><label for="py-source">Bring in the points from</label><select id="py-source" class="map"></select></div>
+              </div>
+              <div class="actions"><button type="submit" class="secondary" id="py-import-btn">Bring them in</button><span class="muted" id="py-imported"></span></div>
+            </form>
+            <details id="py-add">
+              <summary>Add a point by hand</summary>
+              <form id="py-form">
+                <div class="grid">
+                  <div><label for="py-title">Point</label><input id="py-title" name="title" maxlength="300" required></div>
+                  <div><label for="py-priority">Priority</label><select id="py-priority" name="priority" class="map"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select></div>
+                </div>
+                <label for="py-detail">What was found</label>
+                <textarea id="py-detail" name="detail" rows="2" maxlength="5000"></textarea>
+                <label for="py-recommendation">Recommendation</label>
+                <textarea id="py-recommendation" name="recommendation" rows="2" maxlength="5000"></textarea>
+                <div class="actions"><button type="submit" id="py-save">Add point</button></div>
+              </form>
+            </details>
+            <div class="grid" style="margin-top:12px">
+              <div><label for="py-filter">Show</label><select id="py-filter" class="map"><option value="">All points</option><option value="open">To follow up</option><option value="unresolved">Not resolved</option><option value="unreviewed">Not signed off</option></select></div>
+            </div>
+            <div class="table-wrap"><table id="py-table"></table></div>
           </section>
 
           <section class="panel" id="files-panel">

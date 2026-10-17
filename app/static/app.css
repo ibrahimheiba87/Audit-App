@@ -296,3 +296,16 @@ td.bad { color: var(--high); }
 .ds-item h3 { margin-top: 0; }
 .ds-item h4 { margin: 10px 0 4px; }
 .qty-input { width: 100px; text-align: end; }
+
+/* The bell: what needs the signed-in user */
+.bell { position: relative; }
+.bell-btn { font-size: 18px; text-decoration: none; }
+.bell-menu { position: absolute; inset-inline-end: 0; top: calc(100% + 6px); z-index: 20; width: min(380px, calc(100vw - 32px));
+             max-height: 70vh; overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+             padding: 12px; box-shadow: 0 6px 24px rgb(0 0 0 / 18%); }
+.bell-menu ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.bell-item { display: grid; gap: 2px; width: 100%; text-align: start; background: none; border: 1px solid transparent; border-radius: 6px;
+             padding: 7px 8px; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.bell-item:hover, .bell-item:focus-visible { border-color: var(--border); background: var(--bg); }
+.bell-item.new .bell-text { font-weight: 600; }
+.bell-item .tag { font-size: 12px; color: var(--muted); }

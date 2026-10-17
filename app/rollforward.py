@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from . import auth, loader
+from . import auth, loader, prior_points
 from .auth import log, require
 from .db import (
     AccountMapping,
@@ -51,6 +51,7 @@ class RollForwardIn(BaseModel):
     workplan: bool = True
     related_parties: bool = True
     expectations: bool = True
+    prior_points: bool = True
 
 
 # The names and periods of an expectation's inputs; the amounts and rates are this year's.
@@ -160,6 +161,11 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
                 basis=x.basis, source=f"rolled:{x.id}", created_by=user.name,
                 updated_by=user.name))
         carried["expectations"] = len(old.expectations)
+    if body.prior_points:
+        # Last year's management letter points and open findings, to follow up this year.
+        added = prior_points.carry(new, old, user)
+        if added:
+            carried["prior_points"] = added
     session.flush()
 
     upload = None
@@ -197,6 +203,10 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
         log(session, user, "related.carry",
             f"Carried {carried['related_parties']} related parties from {old.name}", new,
             details={"from_engagement_id": old.id, "parties": carried["related_parties"]})
+    if carried.get("prior_points"):  # and the last year's points section
+        log(session, user, "prior.carry",
+            f"Carried {carried['prior_points']} points from {old.name} to follow up", new,
+            details={"from_engagement_id": old.id, "points": carried["prior_points"]})
     if upload is not None:
         log(session, user, "upload.create",
             f"Uploaded {upload.filename} (Prior-year trial balance) from {old.name}", new,

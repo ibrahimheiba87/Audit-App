@@ -185,6 +185,7 @@ function route() {
   document.querySelectorAll("nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
   $("results").hidden = true;
   showError("");
+  refreshBell();
   if (view === "engagements") guard(() => showEngagements(id ? Number(id) : null));
   if (view === "users") guard(showUsers);
   if (view === "activity") guard(showActivity);
@@ -296,6 +297,8 @@ async function openEngagement(id) {
     ct = null; renderControls(); resetControlForm(); $("ct-add").open = false; $("ct-calc-out").textContent = "";
     ap = null; apEditing = null; renderExpectations(); $("ap-form").reset(); $("ap-add").open = false;
     resetFixedAssets(); faTab = "categories";
+    py = null; pyEditing = null; renderPriorPoints(); $("py-form").reset(); $("py-add").open = false;
+    $("py-filter").value = ""; $("py-imported").textContent = "";
     sc = null; scEditing = null; resetStockListing(); renderStockCount(); $("sc-filter").value = "";
     $("sc-setup").open = false; $("sc-form").reset(); $("sc-add-form").reset(); $("sc-details").reset();
     cf = null; cfEditing = null; renderConfirmations(); $("cf-form").reset(); $("cf-pick-form").reset();
@@ -361,6 +364,7 @@ async function openEngagement(id) {
   guard(loadConfirmations);
   guard(loadExpectations);
   guard(loadStockCount);
+  guard(loadPriorPoints);
   guard(loadWorkplan);
   guard(loadCompletion);
   guard(loadReport);
@@ -370,6 +374,7 @@ async function openEngagement(id) {
   guard(loadDisclosures);
   await loadStatements();
   await loadRegister();
+  scrollToPendingPanel();
 }
 
 // Engagement team: who (besides admins) can see the engagement. Admins change it.
@@ -439,7 +444,7 @@ $("roll-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = $("roll-form");
   const body = { name: $("roll-name").value };
-  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "team"]) body[k] = f[k].checked;
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "prior_points", "team"]) body[k] = f[k].checked;
   $("roll-submit").disabled = true;
   try {
     const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
@@ -2915,6 +2920,185 @@ $("sc-add-form").addEventListener("submit", (ev) => {
   });
 });
 
+// Last year's points
+
+let py = null;         // {engagement_id, points, summary, sources}
+let pyEditing = null;  // the point whose follow-up is open
+let pyLoads = 0;
+const PY_PILL = { to_follow_up: "warn", resolved: "good", partly: "bad", not_resolved: "bad", not_applicable: "good" };
+const PY_STATUSES = [["to_follow_up", "To follow up"], ["resolved", "Resolved"], ["partly", "Partly resolved"],
+  ["not_resolved", "Not resolved"], ["not_applicable", "No longer applies"]];
+const pyUnresolved = (p) => p.status === "partly" || p.status === "not_resolved";
+
+async function loadPriorPoints() {
+  const id = currentEngagement.id;
+  const load = ++pyLoads;
+  const out = await getJSON(`/api/engagements/${id}/prior-points`);
+  if (load !== pyLoads || currentEngagement?.id !== id) return;
+  py = { ...out, engagement_id: id };
+  renderPriorPoints();
+}
+
+function priorPointEditRow(p) {
+  const status = PY_STATUSES.map(([v, k]) => `<option value="${v}"${v === p.status ? " selected" : ""}>${esc(k)}</option>`).join("");
+  const priority = Object.entries(SEVERITY_LABEL).map(([v, k]) => `<option value="${v}"${v === p.priority ? " selected" : ""}>${esc(k)}</option>`).join("");
+  const signed = !!p.reviewed_at;
+  return `<tr class="cf-edit" data-py-edit="${p.id}"><td colspan="7"><form data-py-form>
+    <div class="grid">
+      <div><label>This year</label><select name="status" class="map">${status}</select></div>
+      <div><label>Priority</label><select name="priority" class="map">${priority}</select></div>
+    </div>
+    <label>How it was followed up <span class="muted">(what you saw or asked, and when)</span></label><textarea name="follow_up" rows="2" maxlength="5000">${esc(p.follow_up)}</textarea>
+    <label>Management's response</label><textarea name="management_response" rows="2" maxlength="5000">${esc(p.management_response)}</textarea>
+    <details><summary>Change the point itself</summary>
+      <label>Point</label><input name="title" maxlength="300" value="${esc(p.title)}" required>
+      <label>What was found</label><textarea name="detail" rows="2" maxlength="5000">${esc(p.detail)}</textarea>
+      <label>Recommendation</label><textarea name="recommendation" rows="2" maxlength="5000">${esc(p.recommendation)}</textarea>
+    </details>
+    <div class="actions"><button type="submit" class="small">Save</button>
+      <button type="button" class="small secondary" data-py-close>Close</button>
+      ${pyUnresolved(p) && !p.finding_id ? '<button type="button" class="small" data-py-finding>Make it one of this year\'s findings</button>' : ""}
+      ${me.rank >= 2 && p.status !== "to_follow_up" ? `<button type="button" class="small${signed ? " secondary" : ""}" data-py-review="${signed ? "0" : "1"}">${signed ? "Take back the sign-off" : "Sign off as reviewed"}</button>` : ""}
+      ${!signed || me.rank >= 2 ? '<button type="button" class="small secondary danger" data-py-delete>Remove</button>' : ""}</div>
+  </form></td></tr>`;
+}
+
+function renderPriorPoints() {
+  if (!py) {
+    $("py-cards").innerHTML = $("py-table").innerHTML = "";
+    $("py-import").hidden = true;
+    return;
+  }
+  const s = py.summary, st = s.statuses;
+  $("py-export").href = `/api/engagements/${py.engagement_id}/prior-points/export`;
+  $("py-cards").innerHTML = [
+    [s.points, "Points from last year", false],
+    [st.to_follow_up, "To follow up", st.to_follow_up > 0],
+    [st.resolved + st.not_applicable, "Resolved", false],
+    [st.partly + st.not_resolved, "Not resolved", st.partly + st.not_resolved > 0],
+    [s.unresolved_without_finding, "Not yet in this year's findings", s.unresolved_without_finding > 0],
+    [s.not_reviewed, "Not signed off", s.not_reviewed > 0],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  const keep = $("py-source").value;
+  $("py-import").hidden = !py.sources.length;
+  $("py-source").innerHTML = py.sources.map((x) =>
+    `<option value="${x.id}" translate="no">${esc(x.name)} (${esc(x.period_end)})</option>`).join("");
+  if (py.sources.some((x) => String(x.id) === keep)) $("py-source").value = keep;
+  const show = $("py-filter").value;
+  const points = py.points.map((p, i) => ({ ...p, ref: i + 1 })).filter((p) => !show
+    || (show === "open" ? p.open : show === "unresolved" ? pyUnresolved(p) : p.status !== "to_follow_up" && !p.reviewed_at));
+  if (!points.length) {
+    $("py-table").innerHTML = `<tbody><tr><td class="muted">${esc(py.points.length ? "Nothing to show."
+      : py.sources.length ? "No points yet. Bring them in from last year's engagement, or add them by hand."
+        : "No points yet. They come in when last year's engagement is rolled forward, or add them by hand.")}</td></tr></tbody>`;
+    return;
+  }
+  $("py-table").innerHTML = `<thead><tr><th>Ref</th><th>Point</th><th>Priority</th><th>Management's response</th>
+      <th>How it was followed up</th><th>This year</th><th></th></tr></thead><tbody>
+    ${points.map((p) => `<tr data-py="${p.id}">
+      <td><bdi>PY${p.ref}</bdi></td>
+      <td><strong>${data(p.title)}</strong>${p.detail ? `<div class="tag">${data(p.detail)}</div>` : ""}
+        ${p.recommendation ? `<div class="tag"><span>${esc("Recommendation:")}</span> ${data(p.recommendation)}</div>` : ""}
+        <div class="tag"><span>${esc(p.origin_label)}</span>${p.first_raised ? ` · <span>${esc("First raised")}</span> ${data(p.first_raised)}` : ""}${p.repeated ? ` <span class="pill bad">${esc("Raised before")}</span>` : ""}</div></td>
+      <td><span class="sev ${esc(p.priority)}">${esc(SEVERITY_LABEL[p.priority])}</span></td>
+      <td>${data(p.management_response)}</td>
+      <td>${data(p.follow_up)}${p.checked_at ? `<div class="tag">${data(p.checked_by)} · <span>${esc(when(p.checked_at))}</span></div>` : ""}</td>
+      <td><span class="pill ${PY_PILL[p.status]}">${esc(p.status_label)}</span>
+        ${p.finding_id ? `<div class="tag"><a href="#" data-open-finding="${p.finding_id}"><span>${esc("This year's finding")}</span> <bdi translate="no">#${p.finding_id}</bdi></a></div>` : ""}
+        ${p.reviewed_at ? `<div class="tag"><span>${esc("Reviewed by")}</span> ${data(p.reviewed_by)}</div>` : ""}</td>
+      <td><button type="button" class="small secondary" data-py-open>${pyEditing === p.id ? "Close" : "Update"}</button></td></tr>
+      ${pyEditing === p.id ? priorPointEditRow(p) : ""}`).join("")}</tbody>`;
+}
+
+async function priorPointsChanged(id, out) {
+  if (currentEngagement?.id !== id) return;
+  if (out) { py = { ...out, engagement_id: id }; renderPriorPoints(); } else await loadPriorPoints();
+  refreshDashboard();
+  await loadEngagementActivity();
+}
+
+$("py-filter").addEventListener("change", renderPriorPoints);
+
+$("py-import").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  busy($("py-import-btn"), async () => {
+    const out = await sendJSON("POST", `/api/engagements/${id}/prior-points/import`, { from_engagement_id: Number($("py-source").value) });
+    if (currentEngagement?.id !== id) return;
+    $("py-imported").textContent = out.added === 1 ? "Brought in 1 point." : `Brought in ${out.added} points.`;
+    await priorPointsChanged(id, out);
+  });
+});
+
+$("py-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  busy($("py-save"), async () => {
+    const out = await sendJSON("POST", `/api/engagements/${id}/prior-points`, formObject($("py-form")));
+    $("py-form").reset();
+    $("py-add").open = false;
+    await priorPointsChanged(id, out);
+  });
+});
+
+$("py-table").addEventListener("click", (ev) => {
+  const link = ev.target.closest("[data-open-finding]");
+  if (link) {
+    ev.preventDefault();
+    guard(async () => openFinding(await getJSON(`/api/findings/${link.dataset.openFinding}`)));
+    return;
+  }
+  const btn = ev.target.closest("button[data-py-open], button[data-py-close], button[data-py-finding], button[data-py-review], button[data-py-delete]");
+  if (!btn) return;
+  const id = currentEngagement.id;
+  const row = btn.closest("[data-py], [data-py-edit]");
+  const pid = Number(row.dataset.py || row.dataset.pyEdit);
+  const p = py.points.find((x) => x.id === pid);
+  if (!p) return;
+  if (btn.hasAttribute("data-py-delete")) {
+    if (!confirm(`Remove the point ${p.title}?`)) return;
+    busy(btn, async () => {
+      const out = await sendJSON("DELETE", `/api/prior-points/${pid}`);
+      pyEditing = null;
+      await priorPointsChanged(id, out);
+    });
+  } else if (btn.hasAttribute("data-py-finding")) {
+    busy(btn, async () => {
+      const out = await sendJSON("POST", `/api/prior-points/${pid}/finding`);
+      pyEditing = null;
+      await priorPointsChanged(id, out);
+      if (currentEngagement?.id !== id) return;
+      await loadRegister();
+      openFinding(await getJSON(`/api/findings/${out.finding_id}`));
+    });
+  } else if (btn.hasAttribute("data-py-review")) {
+    busy(btn, async () => {
+      const out = await sendJSON("PATCH", `/api/prior-points/${pid}`, { reviewed: btn.dataset.pyReview === "1" });
+      await priorPointsChanged(id, out);
+    });
+  } else {
+    pyEditing = pyEditing === pid ? null : pid;
+    renderPriorPoints();
+  }
+});
+
+$("py-table").addEventListener("submit", (ev) => {
+  const form = ev.target.closest("[data-py-form]");
+  if (!form) return;
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const pid = Number(form.closest("[data-py-edit]").dataset.pyEdit);
+  const p = py.points.find((x) => x.id === pid);
+  const f = formObject(form);
+  // Only what changed, so saving an unchanged point doesn't take its sign-off away.
+  const body = Object.fromEntries(Object.entries(f).filter(([k, v]) => p && v !== (p[k] ?? "")));
+  busy(form.querySelector("button[type=submit]"), async () => {
+    const out = Object.keys(body).length ? await sendJSON("PATCH", `/api/prior-points/${pid}`, body) : null;
+    pyEditing = null;
+    if (out) await priorPointsChanged(id, out); else renderPriorPoints();
+  });
+});
+
 // Tasks and time
 
 let wp = null;       // the work plan shown
@@ -5226,6 +5410,7 @@ function setUser(user) {
   $("user-chip").hidden = false;
   $("nav").hidden = user.role === "client";
   if (user.role === "admin") refreshSignupCount();
+  startBell();
 }
 
 function showLogin(needsSetup) {
@@ -5234,7 +5419,8 @@ function showLogin(needsSetup) {
   rqDrafts = {}; rvDrafts = {}; rq = null; portal = null;
   $("pt-list").innerHTML = $("rq-list").innerHTML = "";
   delete document.body.dataset.rank;
-  $("user-chip").hidden = $("nav").hidden = true;
+  clearInterval(bellTimer); bellItems = []; closeBell();
+  $("user-chip").hidden = $("nav").hidden = $("bell").hidden = true;
   document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== "view-login"; });
   $("results").hidden = true;
   $("login-form").hidden = needsSetup;
@@ -5336,6 +5522,86 @@ function showSignupCount(n) {
 }
 async function refreshSignupCount() {
   try { showSignupCount((await getJSON("/api/signups")).length); } catch {}
+}
+
+// The bell: what needs the signed-in user across their engagements, looked at every
+// two minutes. Opening it marks what is there as seen.
+let bellItems = [];
+let bellTimer = null;
+let pendingPanel = null;  // where to scroll once the engagement a bell item names is open
+
+async function refreshBell() {
+  if (!me || me.role === "client") return;
+  try {
+    const out = await getJSON("/api/notifications");
+    bellItems = out.items;
+    $("bell-count").textContent = out.new || "";
+    $("bell-count").hidden = !out.new;
+    if (!$("bell-menu").hidden) renderBell();
+  } catch {}
+}
+
+function startBell() {
+  clearInterval(bellTimer);
+  $("bell").hidden = me.role === "client";
+  if (me.role === "client") return;
+  refreshBell();
+  bellTimer = setInterval(refreshBell, 120000);
+}
+
+function renderBell() {
+  $("bell-list").innerHTML = bellItems.length ? bellItems.map((x, i) => {
+    const what = x.kind === "task" ? `${data(x.title)} · <span>${esc("Due")}</span> <bdi dir="ltr" translate="no">${esc(x.due_on)}</bdi>`
+      : x.kind === "request" ? data(x.title)
+        : x.kind === "signup" ? `<span>${esc(x.count === 1 ? "1 waiting" : `${x.count} waiting`)}</span>`
+          : `${data(x.by)}: ${data(x.note)}`;
+    return `<li><button type="button" class="bell-item${x.new ? " new" : ""}" data-bell="${i}">
+      <span class="bell-text">${x.urgent ? `<span class="pill bad">${esc("Overdue")}</span> ` : ""}<span>${esc(x.text)}</span></span>
+      <span class="tag">${what}</span>
+      ${x.engagement ? `<span class="tag">${data(x.engagement)}</span>` : ""}
+      ${x.kind === "task" ? "" : `<span class="tag">${esc(when(x.at))}</span>`}</button></li>`;
+  }).join("") : `<li class="muted">${esc("Nothing needs you right now.")}</li>`;
+}
+
+function closeBell() {
+  $("bell-menu").hidden = true;
+  $("bell-btn").setAttribute("aria-expanded", "false");
+}
+
+$("bell-btn").addEventListener("click", () => {
+  if (!$("bell-menu").hidden) { closeBell(); return; }
+  renderBell();
+  $("bell-menu").hidden = false;
+  $("bell-btn").setAttribute("aria-expanded", "true");
+  if (!$("bell-count").hidden) {
+    $("bell-count").hidden = true;
+    sendJSON("POST", "/api/notifications/seen").catch(() => {});
+  }
+});
+$("bell-refresh").addEventListener("click", () => guard(refreshBell));
+document.addEventListener("click", (ev) => { if (!ev.target.closest("#bell")) closeBell(); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("bell-menu").hidden) { closeBell(); $("bell-btn").focus(); } });
+
+$("bell-list").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-bell]");
+  if (!btn) return;
+  const x = bellItems[Number(btn.dataset.bell)];
+  closeBell();
+  if (x.kind === "signup") { location.hash = "#/users"; return; }
+  const hash = `#/engagements/${x.engagement_id}`;
+  if (location.hash === hash && currentEngagement?.id === x.engagement_id) {
+    $(x.panel)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else {
+    pendingPanel = x.panel;
+    location.hash = hash;
+  }
+});
+
+// After an engagement opens: the panel a bell item pointed at.
+function scrollToPendingPanel() {
+  const panel = pendingPanel;
+  pendingPanel = null;
+  if (panel) $(panel)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 let clients = [];  // for linking client users

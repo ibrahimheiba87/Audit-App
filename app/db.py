@@ -180,6 +180,9 @@ class Engagement(Base):
     expectations: Mapped[list[Expectation]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Expectation.id"
     )
+    prior_points: Mapped[list[PriorPoint]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="PriorPoint.id"
+    )
     stock_count: Mapped[StockCount | None] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", uselist=False
     )
@@ -634,6 +637,42 @@ class Expectation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="expectations")
+
+
+class PriorPoint(Base):
+    """A point raised last year (a management letter point, a finding added by hand, or a
+    point still open the year before) and what was found when following it up this year
+    (prior_points.py)."""
+
+    __tablename__ = "prior_points"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    origin: Mapped[str] = mapped_column(String(20), default="manual")  # prior_points.ORIGINS
+    # Where it came from, so the same point isn't brought in twice: "letter:<draft>:<n>",
+    # "finding:<id>" or "point:<id>"; blank for points added by hand.
+    ref: Mapped[str] = mapped_column(String(100), default="")
+    from_engagement_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    from_name: Mapped[str] = mapped_column(String(200), default="")
+    first_raised: Mapped[str] = mapped_column(String(200), default="")  # engagement name
+    title: Mapped[str] = mapped_column(String(300))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    recommendation: Mapped[str] = mapped_column(Text, default="")
+    priority: Mapped[str] = mapped_column(String(10), default="medium")
+    management_response: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="to_follow_up")
+    follow_up: Mapped[str] = mapped_column(Text, default="")  # what was done to check
+    finding_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # raised this year
+    checked_by: Mapped[str] = mapped_column(String(200), default="")
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reviewed_by: Mapped[str] = mapped_column(String(200), default="")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="prior_points")
 
 
 class StockCount(Base):
@@ -1140,6 +1179,8 @@ class UserSetting(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     language: Mapped[str] = mapped_column(String(10), default="en")
+    # When the notifications were last looked at: later ones show as new.
+    notifications_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class EngagementMember(Base):
@@ -1252,6 +1293,7 @@ def init() -> None:
 
 # Columns added to a table after it first shipped: create_all doesn't add them.
 ADDED_COLUMNS = {
+    "user_settings": {"notifications_seen_at": "TIMESTAMP"},
     "related_parties": {"scan_upload_id": "INTEGER",
                         "scan_fingerprint": "VARCHAR(64) NOT NULL DEFAULT ''"},
 }

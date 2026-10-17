@@ -237,7 +237,7 @@ def user_out(u: User) -> dict:
             "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
             "client_id": u.client_id,
             "client_name": u.client_link.client.name if u.client_link else None,
-            "language": u.settings.language if u.settings else None}
+            "language": (u.settings.language if u.settings else None) or None}
 
 
 def activity_out(a: Activity) -> dict:
