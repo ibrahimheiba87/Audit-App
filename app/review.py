@@ -89,10 +89,13 @@ SECTIONS = [
             "Expectations of statement lines and proofs in total, compared with the balances.",
             ("expectation.create", "expectation.update", "expectation.delete",
              "expectation.carry")),
-    Section("estimates", "Leases and credit losses",
-            "The leases recalculated under IFRS 16 and the expected credit loss matrix for "
-            "receivables.",
-            ("lease.create", "lease.update", "lease.delete", "lease.carry", "ecl.setup")),
+    Section("estimates", "Leases, loans and estimates",
+            "The leases recalculated under IFRS 16, the expected credit loss matrix for "
+            "receivables, the loans and their covenants, and the accounting estimates.",
+            ("lease.create", "lease.update", "lease.delete", "lease.carry", "ecl.setup",
+             "loan.create", "loan.update", "loan.delete", "covenant.create",
+             "covenant.update", "covenant.delete", "estimate.create", "estimate.update",
+             "estimate.delete", "estimate.carry", "loan.carry")),
     Section("stock", "Inventory count",
             "Attendance at the inventory count: the items counted both ways and the "
             "differences found.",

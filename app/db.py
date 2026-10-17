@@ -142,6 +142,16 @@ class Engagement(Base):
     ecl_setup: Mapped[EclSetup | None] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", uselist=False
     )
+    loans: Mapped[list[Loan]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Loan.id"
+    )
+    covenants: Mapped[list[Covenant]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Covenant.id"
+    )
+    estimates: Mapped[list[AccountingEstimate]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="AccountingEstimate.id"
+    )
     findings: Mapped[list[Finding]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Finding.id"
     )
@@ -1286,6 +1296,82 @@ class EclSetup(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="ecl_setup")
+
+
+class Loan(Base):
+    """A loan on the borrowings schedule (loans.py): the year's movements and the client's
+    figures to compare with."""
+
+    __tablename__ = "loans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    lender: Mapped[str] = mapped_column(String(200), default="")
+    opening: Mapped[float] = mapped_column(Float, default=0.0)
+    drawn: Mapped[float] = mapped_column(Float, default=0.0)
+    repaid: Mapped[float] = mapped_column(Float, default=0.0)
+    client_closing: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rate_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    client_interest: Mapped[float | None] = mapped_column(Float, nullable=True)
+    client_current: Mapped[float | None] = mapped_column(Float, nullable=True)
+    maturity: Mapped[date | None] = mapped_column(Date, nullable=True)
+    security: Mapped[str] = mapped_column(Text, default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="loans")
+
+
+class Covenant(Base):
+    """A loan covenant, tested on the draft statements (loans.py)."""
+
+    __tablename__ = "covenants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    loan_id: Mapped[int | None] = mapped_column(ForeignKey("loans.id"), nullable=True)
+    title: Mapped[str] = mapped_column(String(200))
+    metric: Mapped[str] = mapped_column(String(30))  # loans.METRICS
+    operator: Mapped[str] = mapped_column(String(10), default="min")  # min | max
+    limit: Mapped[float] = mapped_column("limit_value", Float)
+    actual: Mapped[float | None] = mapped_column(Float, nullable=True)  # for "other" only
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="covenants")
+    loan: Mapped[Loan | None] = relationship()
+
+
+class AccountingEstimate(Base):
+    """An accounting estimate and how it was tested (estimates.py, ISA 540)."""
+
+    __tablename__ = "accounting_estimates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    line: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    management: Mapped[float] = mapped_column(Float)
+    method: Mapped[str] = mapped_column(Text, default="")
+    assumptions: Mapped[str] = mapped_column(Text, default="")
+    uncertainty: Mapped[str] = mapped_column(String(20), default="moderate")
+    approach: Mapped[str] = mapped_column(String(20), default="test_method")
+    low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    prior_estimate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    prior_outcome: Mapped[float | None] = mapped_column(Float, nullable=True)
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="estimates")
 
 
 class FindingNote(Base):

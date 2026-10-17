@@ -330,3 +330,7 @@ td.bad { color: var(--high); }
 .flag-cell { color: var(--high); font-weight: 600; }
 #ls-table tr.total td, #ecl-table tr.total td { font-weight: 700; border-top: 1px solid var(--muted); }
 #ls-table td:first-child { min-width: 14em; }
+.warn-cell { color: var(--medium, #b45309); font-weight: 600; }
+#ls-form select, #ecl-panel select, #ln-form select, #cv-form select, #es-form select {
+  width: 100%; padding: 7px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--text); font: inherit; }

@@ -23,8 +23,10 @@ from sqlalchemy.orm import Session
 from . import auth, leases, loader, prior_points
 from .auth import log, require
 from .db import (
+    AccountingEstimate,
     AccountMapping,
     Control,
+    Covenant,
     DocumentRequest,
     EclSetup,
     Engagement,
@@ -33,6 +35,7 @@ from .db import (
     Expectation,
     GroupComponent,
     Lease,
+    Loan,
     QualityReview,
     RelatedParty,
     Task,
@@ -66,6 +69,8 @@ class RollForwardIn(BaseModel):
     group: bool = True
     leases: bool = True
     ecl: bool = True
+    loans: bool = True
+    estimates: bool = True
 
 
 # The names and periods of an expectation's inputs; the amounts and rates are this year's.
@@ -237,6 +242,37 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
         new.ecl_setup = EclSetup(terms_days=c.terms_days, rates=dict(c.rates or {}),
                                  forward_pct=c.forward_pct, updated_by=user.name)
         carried["ecl"] = True
+    if body.loans and (old.loans or old.covenants):
+        # Each loan opens next year at this year's closing balance (the client's, when
+        # entered); the movements and the client's figures are next year's.
+        moved = {}
+        for x in old.loans:
+            closing = x.client_closing if x.client_closing is not None \
+                else x.opening + x.drawn - x.repaid
+            if x.maturity is not None and x.maturity <= old.period_end and abs(closing) < 0.005:
+                continue  # repaid and done with
+            y = Loan(name=x.name, lender=x.lender, opening=closing, rate_pct=x.rate_pct,
+                     maturity=x.maturity, security=x.security, note=x.note,
+                     created_by=user.name, updated_by=user.name)
+            new.loans.append(y)
+            moved[x.id] = y
+        for c in old.covenants:
+            if c.loan_id is not None and c.loan_id not in moved:
+                continue  # its loan is repaid
+            new.covenants.append(Covenant(
+                title=c.title, loan=moved.get(c.loan_id), metric=c.metric,
+                operator=c.operator, limit=c.limit, note=c.note, created_by=user.name))
+        carried["loans"] = len(moved)
+        carried["covenants"] = len(new.covenants)
+    if body.estimates and old.estimates:
+        # What each estimate is and how it's made; this year's amount becomes next year's
+        # "last year's estimate", for the look back.
+        for x in old.estimates:
+            new.estimates.append(AccountingEstimate(
+                title=x.title, line=x.line, management=0.0, method=x.method,
+                assumptions=x.assumptions, uncertainty=x.uncertainty, approach=x.approach,
+                prior_estimate=x.management, created_by=user.name, updated_by=user.name))
+        carried["estimates"] = len(old.estimates)
     session.flush()
 
     upload = None
@@ -287,6 +323,16 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
         log(session, user, "lease.carry",
             f"Carried {carried['leases']} leases from {old.name}", new,
             details={"from_engagement_id": old.id, "leases": carried["leases"]})
+    if carried.get("loans") or carried.get("covenants"):  # and the estimates section
+        log(session, user, "loan.carry",
+            f"Carried {carried['loans']} loans and {carried['covenants']} covenants from "
+            f"{old.name}", new,
+            details={"from_engagement_id": old.id, "loans": carried["loans"],
+                     "covenants": carried["covenants"]})
+    if carried.get("estimates"):  # and the leases, loans and estimates section
+        log(session, user, "estimate.carry",
+            f"Carried {carried['estimates']} estimates from {old.name}", new,
+            details={"from_engagement_id": old.id, "estimates": carried["estimates"]})
     if upload is not None:
         log(session, user, "upload.create",
             f"Uploaded {upload.filename} (Prior-year trial balance) from {old.name}", new,
