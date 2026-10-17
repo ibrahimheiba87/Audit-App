@@ -167,6 +167,9 @@ class Engagement(Base):
     completion: Mapped[CompletionChecklist | None] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", uselist=False
     )
+    quality_review: Mapped[QualityReview | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
     subsequent_events: Mapped[list[SubsequentEvent]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="SubsequentEvent.id"
@@ -500,6 +503,29 @@ class CompletionChecklist(Base):
     signed_note: Mapped[str] = mapped_column(Text, default="")
 
     engagement: Mapped[Engagement] = relationship(back_populates="completion")
+
+
+class QualityReview(Base):
+    """The engagement quality review (ISQM 2): whether one is needed and why, the partner
+    named to do it, their checklist and conclusion, and their sign-off (quality.py)."""
+
+    __tablename__ = "quality_reviews"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    required: Mapped[bool] = mapped_column(Boolean, default=False)
+    reason: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    reason_note: Mapped[str] = mapped_column(Text, default="")
+    reviewer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reviewer_name: Mapped[str] = mapped_column(String(200), default="")
+    answers: Mapped[dict] = mapped_column(JSON, default=dict)  # {question: {answer, comment}}
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    signed_by: Mapped[str] = mapped_column(String(200), default="")
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    signed_note: Mapped[str] = mapped_column(Text, default="")
+
+    engagement: Mapped[Engagement] = relationship(back_populates="quality_review")
 
 
 class SubsequentEvent(Base):

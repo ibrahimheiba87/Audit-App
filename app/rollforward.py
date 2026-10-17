@@ -27,6 +27,7 @@ from .db import (
     Engagement,
     EngagementMember,
     Expectation,
+    QualityReview,
     RelatedParty,
     Task,
     TimeBudget,
@@ -52,6 +53,7 @@ class RollForwardIn(BaseModel):
     related_parties: bool = True
     expectations: bool = True
     prior_points: bool = True
+    quality: bool = True
 
 
 # The names and periods of an expectation's inputs; the amounts and rates are this year's.
@@ -166,6 +168,13 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
         added = prior_points.carry(new, old, user)
         if added:
             carried["prior_points"] = added
+    q = old.quality_review
+    if body.quality and q is not None and q.required:
+        # Whether a quality review is needed, why and by whom; the checklist is this year's.
+        new.quality_review = QualityReview(
+            required=True, reason=q.reason, reason_note=q.reason_note, reviewer_id=q.reviewer_id,
+            reviewer_name=q.reviewer_name, updated_by=user.name)
+        carried["quality"] = True
     session.flush()
 
     upload = None
@@ -207,6 +216,11 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
         log(session, user, "prior.carry",
             f"Carried {carried['prior_points']} points from {old.name} to follow up", new,
             details={"from_engagement_id": old.id, "points": carried["prior_points"]})
+    if carried.get("quality"):  # and the quality review section
+        log(session, user, "quality.setup",
+            f"Carried the quality review set-up from {old.name}", new,
+            details={"from_engagement_id": old.id, "reason": q.reason,
+                     "reviewer": q.reviewer_name})
     if upload is not None:
         log(session, user, "upload.create",
             f"Uploaded {upload.filename} (Prior-year trial balance) from {old.name}", new,

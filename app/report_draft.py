@@ -18,7 +18,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
-from . import completion, docx
+from . import completion, docx, quality
 from .auth import current_user, log, require
 from .db import AuditReport, Engagement, User, get_session, utcnow
 from .engagements import get_or_404, held_engagement, safe_stem
@@ -110,6 +110,9 @@ def warnings(e: Engagement, r: AuditReport | None, suggested: dict) -> list[str]
                        "dated as close as possible to, and not after, the report.")
         if not c["signed"]:
             out.append("The completion procedures aren't signed off yet.")
+        q = quality.summary(e)
+        if q["required"] and not q["signed"]:
+            out.append("The engagement quality review isn't signed off yet.")
     if c["pending_events"]:
         out.append("Some subsequent events still need a decision.")
     if not c["going_concern"]:

@@ -32,11 +32,21 @@ import secrets
 from datetime import timedelta
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import func, select, union
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
-from .db import Activity, AuthSession, Engagement, EngagementMember, Guard, User, get_session, utcnow
+from .db import (
+    Activity,
+    AuthSession,
+    Engagement,
+    EngagementMember,
+    Guard,
+    QualityReview,
+    User,
+    get_session,
+    utcnow,
+)
 
 ROLES = {"client": "Client", "preparer": "Preparer", "reviewer": "Reviewer",
          "partner": "Partner", "admin": "Admin"}
@@ -174,12 +184,20 @@ def on_engagement(session: Session, user: User, engagement_id: int) -> bool:
         return False
     if sees_all_engagements(user):
         return True
-    return session.get(EngagementMember, (engagement_id, user.id)) is not None
+    if session.get(EngagementMember, (engagement_id, user.id)) is not None:
+        return True
+    # The engagement quality reviewer sees the file without joining the team (quality.py).
+    q = session.get(QualityReview, engagement_id)
+    return bool(q and q.required and q.reviewer_id == user.id)
 
 
 def assigned_engagement_ids(user: User):
-    """A subquery of the engagements `user` is assigned to, for filtering lists."""
-    return select(EngagementMember.engagement_id).where(EngagementMember.user_id == user.id)
+    """A subquery of the engagements `user` is assigned to, or is the quality reviewer of,
+    for filtering lists."""
+    return union(
+        select(EngagementMember.engagement_id).where(EngagementMember.user_id == user.id),
+        select(QualityReview.engagement_id).where(QualityReview.reviewer_id == user.id,
+                                                  QualityReview.required.is_(True)))
 
 
 # --- Activity log -------------------------------------------------------------

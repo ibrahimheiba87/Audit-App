@@ -45,6 +45,7 @@ from .pack import router as pack_router
 from .portal import router as portal_router
 from .posters import router as posters_router
 from .prior_points import router as prior_points_router
+from .quality import router as quality_router
 from .reconciliations import router as reconciliations_router
 from .related_parties import router as related_router
 from .report_draft import router as report_router
@@ -83,7 +84,7 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                completion_router, report_router, related_router, summaries_router,
                explorer_router, expectations_router, fixed_assets_router,
                stock_count_router, prior_points_router, notifications_router, overview_router,
-               posters_router):
+               posters_router, quality_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

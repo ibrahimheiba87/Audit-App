@@ -35,6 +35,7 @@ from . import (
     leadsheets,
     portal,
     prior_points,
+    quality,
     reconciliations,
     related_parties,
     report_draft,
@@ -192,6 +193,8 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
     if e.completion is not None or e.subsequent_events:
         pack.workpaper(completion, "Completion procedures",
                        lambda: completion_module.workbook(session, e))
+    if e.quality_review is not None and e.quality_review.required:
+        pack.workpaper(completion, "Engagement quality review", lambda: quality.workbook(e))
     if e.audit_report is not None:
         pack.workpaper(completion, "Draft auditor's report",
                        lambda: report_draft.word_file(session, e))

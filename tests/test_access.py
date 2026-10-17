@@ -181,6 +181,12 @@ def bodies(ids):
         ("POST", "/api/engagements/{engagement_id}/completion/events"):
             {"json": {"description": "x"}},
         ("POST", "/api/engagements/{engagement_id}/completion/signoff"): {"json": {}},
+        ("GET", "/api/engagements/{engagement_id}/quality-review"): {},
+        ("PUT", "/api/engagements/{engagement_id}/quality-review/setup"): {"json": {}},
+        ("PUT", "/api/engagements/{engagement_id}/quality-review"): {"json": {}},
+        ("POST", "/api/engagements/{engagement_id}/quality-review/signoff"): {"json": {}},
+        ("DELETE", "/api/engagements/{engagement_id}/quality-review/signoff"): {},
+        ("GET", "/api/engagements/{engagement_id}/quality-review/export"): {},
         ("GET", "/api/engagements/{engagement_id}/completion/export"): {},
         ("GET", "/api/engagements/{engagement_id}/completion/representation-letter"): {},
         ("PATCH", "/api/subsequent-events/{event_id}"): {"json": {"treatment": "disclosed"}},
