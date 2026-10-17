@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from . import (
     acceptance,
     ai_writer,
+    checklists,
     comparisons,
     confirmations,
     consolidation,
@@ -213,6 +214,8 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
                        lambda: consolidation.workbook(session, e))
     if e.vat_setup is not None or e.vat_returns:
         pack.workpaper(testing, "VAT reconciliation", lambda: vat.workbook(session, e))
+    if e.checklists:
+        pack.workpaper(completion, "Firm checklists", lambda: checklists.workbook(session, e))
     if e.disclosures is not None:
         pack.workpaper(completion, "Disclosure checklist", lambda: disclosures.workbook(e))
     if e.completion is not None or e.subsequent_events:

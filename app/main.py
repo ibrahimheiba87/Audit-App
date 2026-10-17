@@ -24,6 +24,7 @@ from .ai_writer import router as ai_writer_router
 from .analysis import router as analysis_router
 from .assistant import router as assistant_router
 from .auth import current_user, log
+from .checklists import router as checklists_router
 from .comparisons import router as comparisons_router
 from .completion import router as completion_router
 from .confirmations import router as confirmations_router
@@ -56,6 +57,7 @@ from .quality import router as quality_router
 from .reconciliations import router as reconciliations_router
 from .related_parties import router as related_router
 from .report_draft import router as report_router
+from .request_lists import router as request_lists_router
 from .responses import router as responses_router
 from .review import router as review_router
 from .risks import router as risks_router
@@ -101,7 +103,8 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                posters_router, quality_router, search_router, account_pairs_router,
                vouching_router, ticks_router, translation_router,
                consolidation_router, vat_router, planning_router, schedule_router,
-               leases_router, ecl_router, loans_router, estimates_router):
+               leases_router, ecl_router, loans_router, estimates_router,
+               checklists_router, request_lists_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

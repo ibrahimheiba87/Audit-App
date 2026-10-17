@@ -114,6 +114,11 @@ def full_engagement(a):
         "title": "x", "metric": "current_ratio", "limit": 1}).json()
     estimate = a.post(f"/api/engagements/{eid}/estimates", json={
         "title": "x", "management": 1}).json()
+    firm_list = a.post("/api/checklists", json={"name": f"List {eid}", "items": ["Q"]}).json()
+    checklist = a.post(f"/api/engagements/{eid}/checklists",
+                       json={"checklist_id": firm_list["id"]}).json()
+    request_list = a.post("/api/request-templates", json={
+        "name": f"Requests {eid}", "items": [{"title": "Minutes"}]}).json()
     assert tick.status_code == 201, tick.text
     with db.SessionLocal() as s:
         doc = db.DocumentSummary(engagement_id=eid, kind="contract", filename="lease.pdf",
@@ -148,7 +153,9 @@ def full_engagement(a):
             "staff_booking_id": booking["bookings"][0]["id"], "document": "letter",
             "lease_id": lease["leases"][0]["id"], "loan_id": loan["loans"][0]["id"],
             "covenant_id": covenant["covenants"][0]["id"],
-            "estimate_id": estimate["estimates"][0]["id"]}
+            "estimate_id": estimate["estimates"][0]["id"],
+            "engagement_checklist_id": checklist["checklists"][0]["id"],
+            "firm_checklist_id": firm_list["id"], "request_template_id": request_list["id"]}
 
 
 def bodies(ids):
@@ -318,6 +325,19 @@ def bodies(ids):
         ("PUT", "/api/estimates/{estimate_id}"): {"json": {"title": "y", "management": 1}},
         ("DELETE", "/api/estimates/{estimate_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/estimates/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/checklists"): {},
+        ("POST", "/api/engagements/{engagement_id}/checklists"):
+            {"json": {"checklist_id": ids["firm_checklist_id"]}},
+        ("PUT", "/api/engagement-checklists/{engagement_checklist_id}"):
+            {"json": {"answers": [{"answer": "yes"}]}},
+        ("POST", "/api/engagement-checklists/{engagement_checklist_id}/complete"): {},
+        ("POST", "/api/engagement-checklists/{engagement_checklist_id}/latest"): {},
+        ("DELETE", "/api/engagement-checklists/{engagement_checklist_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/checklists/export"): {},
+        ("POST", "/api/engagements/{engagement_id}/requests/from-template"):
+            {"json": {"template_id": ids["request_template_id"]}},
+        ("POST", "/api/engagements/{engagement_id}/requests/save-template"):
+            {"json": {"name": "Saved"}},
         ("GET", "/api/engagements/{engagement_id}/planning"): {},
         ("PUT", "/api/engagements/{engagement_id}/planning"): {"json": {"fee": 1}},
         ("GET", "/api/engagements/{engagement_id}/planning/{document}"): {},
@@ -443,6 +463,10 @@ NOT_ENGAGEMENT_ROUTES = {
     ("PUT", "/api/test-templates/{template_id}"),  # firm-wide, not an engagement's
     ("DELETE", "/api/test-templates/{template_id}"),
     ("DELETE", "/api/tick-marks/{tick_mark_id}"),  # the firm's legend
+    ("PUT", "/api/checklists/{checklist_id}"),  # the firm's library
+    ("DELETE", "/api/checklists/{checklist_id}"),
+    ("PUT", "/api/request-templates/{template_id}"),
+    ("DELETE", "/api/request-templates/{template_id}"),
 }
 
 

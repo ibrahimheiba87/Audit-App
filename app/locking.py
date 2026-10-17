@@ -34,6 +34,7 @@ from .db import (
     DocumentRequest,
     DocumentSummary,
     Engagement,
+    EngagementChecklist,
     EngagementLock,
     Evidence,
     Expectation,
@@ -82,12 +83,14 @@ PARAM_MODELS = {
     "vat_return_id": VatReturn, "tick_id": WorkpaperTick, "staff_booking_id": StaffBooking,
     "lease_id": Lease, "loan_id": Loan, "covenant_id": Covenant,
     "estimate_id": AccountingEstimate,
+    "engagement_checklist_id": EngagementChecklist,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is
 # on the team, and locking itself.
 ALLOWED_WHEN_LOCKED = {
     ("POST", "/api/uploads/{upload_id}/stratify"),
+    ("POST", "/api/engagements/{engagement_id}/requests/save-template"),  # a firm record
     ("POST", "/api/uploads/{upload_id}/aging"),
     ("POST", "/api/uploads/{upload_id}/explore"),
     ("POST", "/api/uploads/{upload_id}/fixed-assets"),

@@ -126,6 +126,10 @@ SECTIONS = [
              "group.component_add", "group.component_update", "group.component_remove",
              "group.entry_add", "group.entry_delete", "vat.setup", "vat.return_add",
              "vat.return_delete")),
+    Section("checklists", "Firm checklists",
+            "The firm's own checklists added to this engagement, and their answers.",
+            ("checklist.add", "checklist.update", "checklist.complete", "checklist.latest",
+             "checklist.remove", "checklist.carry")),
     Section("disclosures", "Disclosure checklist",
             "The disclosures in the draft financial statements, checked item by item.",
             ("disclosure.update", "disclosure.accept_ai")),
@@ -147,7 +151,7 @@ SECTION = {s.id: s for s in SECTIONS}
 # inventory count records outside the app) aren't held up.
 OPTIONAL = {"bank", "risks", "acceptance", "disclosures", "controls", "confirmations",
             "finalisation", "related", "analytics", "stock", "prior", "quality",
-            "estimates"}
+            "estimates", "checklists"}
 WORK = [s for s in SECTIONS if s.id != "completion"]
 SECTIONS_CHANGED: dict[str, set[str]] = {}  # action -> the sections it changes
 for _s in WORK:
@@ -159,7 +163,7 @@ for _a, _ids in SIDE_EFFECTS.items():
 SectionId = Literal["acceptance", "planning", "risks", "controls", "data", "comparison",
                     "sampling", "bank", "analytics", "estimates", "stock", "confirmations",
                     "related", "prior", "findings",
-                    "statements", "disclosures", "finalisation", "quality", "completion"]
+                    "statements", "checklists", "disclosures", "finalisation", "quality", "completion"]
 Kind = Literal["prepared", "reviewed"]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
 
