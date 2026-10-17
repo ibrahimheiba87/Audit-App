@@ -109,6 +109,11 @@ def full_engagement(a):
     lease = a.post(f"/api/engagements/{eid}/leases", json={
         "name": "x", "start_date": "2026-01-01", "term_months": 12, "payment": 1,
         "rate_pct": 5}).json()
+    loan = a.post(f"/api/engagements/{eid}/loans", json={"name": "x"}).json()
+    covenant = a.post(f"/api/engagements/{eid}/covenants", json={
+        "title": "x", "metric": "current_ratio", "limit": 1}).json()
+    estimate = a.post(f"/api/engagements/{eid}/estimates", json={
+        "title": "x", "management": 1}).json()
     assert tick.status_code == 201, tick.text
     with db.SessionLocal() as s:
         doc = db.DocumentSummary(engagement_id=eid, kind="contract", filename="lease.pdf",
@@ -141,7 +146,9 @@ def full_engagement(a):
             "consolidation_entry_id": group["entries"][0]["id"],
             "vat_return_id": vat["returns"][0]["id"],
             "staff_booking_id": booking["bookings"][0]["id"], "document": "letter",
-            "lease_id": lease["leases"][0]["id"]}
+            "lease_id": lease["leases"][0]["id"], "loan_id": loan["loans"][0]["id"],
+            "covenant_id": covenant["covenants"][0]["id"],
+            "estimate_id": estimate["estimates"][0]["id"]}
 
 
 def bodies(ids):
@@ -295,6 +302,22 @@ def bodies(ids):
         ("GET", "/api/engagements/{engagement_id}/ecl"): {},
         ("PUT", "/api/engagements/{engagement_id}/ecl"): {"json": {}},
         ("GET", "/api/engagements/{engagement_id}/ecl/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/loans"): {},
+        ("POST", "/api/engagements/{engagement_id}/loans"): {"json": {"name": "y"}},
+        ("PUT", "/api/loans/{loan_id}"): {"json": {"name": "y"}},
+        ("DELETE", "/api/loans/{loan_id}"): {},
+        ("POST", "/api/engagements/{engagement_id}/covenants"):
+            {"json": {"title": "y", "metric": "current_ratio", "limit": 1}},
+        ("PUT", "/api/covenants/{covenant_id}"):
+            {"json": {"title": "y", "metric": "current_ratio", "limit": 1}},
+        ("DELETE", "/api/covenants/{covenant_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/loans/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/estimates"): {},
+        ("POST", "/api/engagements/{engagement_id}/estimates"):
+            {"json": {"title": "y", "management": 1}},
+        ("PUT", "/api/estimates/{estimate_id}"): {"json": {"title": "y", "management": 1}},
+        ("DELETE", "/api/estimates/{estimate_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/estimates/export"): {},
         ("GET", "/api/engagements/{engagement_id}/planning"): {},
         ("PUT", "/api/engagements/{engagement_id}/planning"): {"json": {"fee": 1}},
         ("GET", "/api/engagements/{engagement_id}/planning/{document}"): {},

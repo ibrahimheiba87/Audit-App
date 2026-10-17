@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from . import auth
 from .auth import log, require, signed_in_user
 from .db import (
+    AccountingEstimate,
     AdjustingEntry,
     AiDraft,
     BankReconciliation,
@@ -28,6 +29,7 @@ from .db import (
     Confirmation,
     ConsolidationEntry,
     Control,
+    Covenant,
     CrossMatch,
     DocumentRequest,
     DocumentSummary,
@@ -38,6 +40,7 @@ from .db import (
     Finding,
     GroupComponent,
     Lease,
+    Loan,
     PriorPoint,
     RelatedParty,
     RequestFile,
@@ -77,7 +80,8 @@ PARAM_MODELS = {
     "vouching_id": Vouching, "component_id": GroupComponent,
     "consolidation_entry_id": ConsolidationEntry,
     "vat_return_id": VatReturn, "tick_id": WorkpaperTick, "staff_booking_id": StaffBooking,
-    "lease_id": Lease,
+    "lease_id": Lease, "loan_id": Loan, "covenant_id": Covenant,
+    "estimate_id": AccountingEstimate,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is

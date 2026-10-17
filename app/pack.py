@@ -32,10 +32,12 @@ from . import (
     crossmatch,
     disclosures,
     ecl,
+    estimates,
     expectations,
     findings,
     leadsheets,
     leases,
+    loans,
     portal,
     prior_points,
     quality,
@@ -168,6 +170,10 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
     if e.ecl_setup is not None:
         pack.workpaper(testing, "Expected credit losses (IFRS 9)",
                        lambda: ecl.workbook(session, e))
+    if e.loans or e.covenants:
+        pack.workpaper(testing, "Loans and covenants", lambda: loans.workbook(session, e))
+    if e.estimates:
+        pack.workpaper(testing, "Accounting estimates", lambda: estimates.workbook(e))
     if e.stock_count is not None:
         pack.workpaper(testing, "Inventory count", lambda: stock_count.workbook(e))
     if e.confirmations:

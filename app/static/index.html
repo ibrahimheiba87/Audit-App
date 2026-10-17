@@ -127,6 +127,8 @@
         <label><input type="checkbox" name="group" checked> The group's components that already have next year's engagement</label>
         <label><input type="checkbox" name="leases" checked> The leases still running next year, without the client's figures</label>
         <label><input type="checkbox" name="ecl" checked> The credit loss rates for each age band</label>
+        <label><input type="checkbox" name="loans" checked> The loans, opening at this year's closing balance, and their covenants</label>
+        <label><input type="checkbox" name="estimates" checked> The accounting estimates, with this year's amounts as last year's estimates</label>
         <label><input type="checkbox" name="team" checked> The team</label>
       </fieldset>
       <div class="actions"><button type="submit" id="roll-submit">Create next year's engagement</button><button type="button" class="secondary" id="roll-cancel">Cancel</button></div>
@@ -1229,6 +1231,85 @@
             <div class="cards" id="ecl-cards"></div>
             <p class="warn-box" id="ecl-notes" hidden></p>
             <div class="table-wrap"><table id="ecl-table"></table></div>
+          </section>
+
+          <section class="panel" id="ln-panel">
+            <div class="row-between">
+              <h2>Loans and covenants</h2>
+              <a class="button secondary" id="ln-export" hidden>Download Excel</a>
+            </div>
+            <p class="muted">Roll each loan forward and compare it with the client's closing balance, check the interest booked against the average balance at the rate, check what is shown as current, and test the covenants on the draft statements.</p>
+            <details id="ln-add">
+              <summary>Add a loan</summary>
+              <form id="ln-form">
+                <div class="grid">
+                  <div><label for="ln-name">Loan</label><input id="ln-name" maxlength="200" required placeholder="e.g. Term loan"></div>
+                  <div><label for="ln-lender">Lender</label><input id="ln-lender" maxlength="200"></div>
+                  <div><label for="ln-opening">Balance at the start of the year</label><input id="ln-opening" type="number" step="any" value="0"></div>
+                  <div><label for="ln-drawn">Drawn in the year</label><input id="ln-drawn" type="number" step="any" min="0" value="0"></div>
+                  <div><label for="ln-repaid">Repaid in the year</label><input id="ln-repaid" type="number" step="any" min="0" value="0"></div>
+                  <div><label for="ln-closing">Client's closing balance</label><input id="ln-closing" type="number" step="any"></div>
+                  <div><label for="ln-rate">Interest rate % a year</label><input id="ln-rate" type="number" step="any" min="0" max="100" value="0"></div>
+                  <div><label for="ln-interest">Interest booked</label><input id="ln-interest" type="number" step="any"></div>
+                  <div><label for="ln-current">Shown as current</label><input id="ln-current" type="number" step="any"></div>
+                  <div><label for="ln-maturity">Matures on</label><input id="ln-maturity" type="date"></div>
+                </div>
+                <div><label for="ln-security">Security</label><input id="ln-security" maxlength="2000"></div>
+                <div><label for="ln-note">Note</label><input id="ln-note" maxlength="2000"></div>
+                <div class="actions"><button type="submit" class="small" id="ln-submit">Add loan</button><button type="button" class="small secondary" id="ln-cancel" hidden>Cancel</button></div>
+              </form>
+            </details>
+            <div class="cards" id="ln-cards"></div>
+            <p class="warn-box" id="ln-notes" hidden></p>
+            <div class="table-wrap"><table id="ln-table"></table></div>
+            <h3>Covenants</h3>
+            <details id="cv-add">
+              <summary>Add a covenant</summary>
+              <form id="cv-form">
+                <div class="grid">
+                  <div><label for="cv-title">Covenant</label><input id="cv-title" maxlength="200" required placeholder="e.g. Current ratio at least 1.2"></div>
+                  <div><label for="cv-loan">Loan</label><select id="cv-loan"></select></div>
+                  <div><label for="cv-metric">Measure</label><select id="cv-metric"></select></div>
+                  <div><label for="cv-operator">Rule</label><select id="cv-operator"><option value="min">At least</option><option value="max">At most</option></select></div>
+                  <div><label for="cv-limit">Limit</label><input id="cv-limit" type="number" step="any" required></div>
+                  <div id="cv-actual-row" hidden><label for="cv-actual">Actual figure</label><input id="cv-actual" type="number" step="any"></div>
+                </div>
+                <div><label for="cv-note">Note</label><input id="cv-note" maxlength="2000"></div>
+                <div class="actions"><button type="submit" class="small" id="cv-submit">Add covenant</button><button type="button" class="small secondary" id="cv-cancel" hidden>Cancel</button></div>
+              </form>
+            </details>
+            <div class="table-wrap"><table id="cv-table"></table></div>
+          </section>
+
+          <section class="panel" id="es-panel">
+            <div class="row-between">
+              <h2>Accounting estimates</h2>
+              <a class="button secondary" id="es-export" hidden>Download Excel</a>
+            </div>
+            <p class="muted">Record each estimate in the statements, how management made it and how uncertain it is, and your own range. Amounts outside the range are misstatements to consider. With last year's estimate and what it turned out to be, you can see how good management's estimates have been.</p>
+            <details id="es-add">
+              <summary>Add an estimate</summary>
+              <form id="es-form">
+                <div class="grid">
+                  <div><label for="es-title">Estimate</label><input id="es-title" maxlength="200" required placeholder="e.g. Warranty provision"></div>
+                  <div><label for="es-line">Statement line</label><select id="es-line"></select></div>
+                  <div><label for="es-management">Management's amount</label><input id="es-management" type="number" step="any" required></div>
+                  <div><label for="es-uncertainty">Uncertainty</label><select id="es-uncertainty"></select></div>
+                  <div><label for="es-approach">How we test it</label><select id="es-approach"></select></div>
+                  <div><label for="es-low">Our range from</label><input id="es-low" type="number" step="any"></div>
+                  <div><label for="es-high">Our range to</label><input id="es-high" type="number" step="any"></div>
+                  <div><label for="es-prior">Last year's estimate</label><input id="es-prior" type="number" step="any"></div>
+                  <div><label for="es-outcome">What it turned out to be</label><input id="es-outcome" type="number" step="any"></div>
+                </div>
+                <div><label for="es-method">How management made it</label><textarea id="es-method" rows="2" maxlength="5000"></textarea></div>
+                <div><label for="es-assumptions">Key assumptions</label><textarea id="es-assumptions" rows="2" maxlength="5000"></textarea></div>
+                <div><label for="es-conclusion">Conclusion</label><textarea id="es-conclusion" rows="2" maxlength="5000"></textarea></div>
+                <div class="actions"><button type="submit" class="small" id="es-submit">Add estimate</button><button type="button" class="small secondary" id="es-cancel" hidden>Cancel</button></div>
+              </form>
+            </details>
+            <div class="cards" id="es-cards"></div>
+            <p class="warn-box" id="es-notes" hidden></p>
+            <div class="table-wrap"><table id="es-table"></table></div>
           </section>
 
           <section class="panel">

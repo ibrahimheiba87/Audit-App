@@ -285,6 +285,8 @@ async function openEngagement(id) {
     grp = null; vat = null; $("gr-lines").innerHTML = ""; renderGroup(); renderVat(true);
     ls = null; resetLeaseForm(); $("ls-add").open = false; renderLeases();
     ecl = null; renderEcl(true);
+    ln = null; resetLoanForm(); resetCovenantForm(); $("ln-add").open = $("cv-add").open = false; renderLoans();
+    es = null; resetEstimateForm(); $("es-add").open = false; renderEstimates();
     reg = null; $("reg-cards").innerHTML = $("reg-table").innerHTML = $("reg-count").textContent = "";
     $("reg-bulk").hidden = true;
     resetEntryForm();
@@ -391,6 +393,8 @@ async function openEngagement(id) {
   guard(loadVat);
   guard(loadLeases);
   guard(loadEcl);
+  guard(loadLoans);
+  guard(loadEstimates);
   await loadStatements();
   await loadRegister();
   scrollToPendingPanel();
@@ -463,7 +467,7 @@ $("roll-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = $("roll-form");
   const body = { name: $("roll-name").value };
-  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "prior_points", "quality", "plan", "vat", "group", "leases", "ecl", "team"]) body[k] = f[k].checked;
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "prior_points", "quality", "plan", "vat", "group", "leases", "ecl", "loans", "estimates", "team"]) body[k] = f[k].checked;
   $("roll-submit").disabled = true;
   try {
     const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
@@ -7298,6 +7302,264 @@ $("ecl-form").addEventListener("submit", (ev) => {
     if (currentEngagement?.id !== id) return;
     ecl = out;
     renderEcl(true);
+    await loadEngagementActivity();
+  });
+});
+
+// --- Loans and covenants ---------------------------------------------------------------
+
+let ln = null;  // latest /loans response
+let lnEditing = null, cvEditing = null;
+const optNum = (el) => $(el).value === "" ? null : Number($(el).value);
+
+async function loadLoans() {
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/loans`);
+  if (currentEngagement?.id !== id) return;
+  ln = out;
+  renderLoans();
+}
+
+function resetLoanForm() {
+  lnEditing = null;
+  $("ln-form").reset();
+  $("ln-submit").textContent = "Add loan";
+  $("ln-cancel").hidden = true;
+}
+
+function resetCovenantForm() {
+  cvEditing = null;
+  $("cv-form").reset();
+  $("cv-submit").textContent = "Add covenant";
+  $("cv-cancel").hidden = true;
+  $("cv-actual-row").hidden = true;
+}
+
+function renderLoans() {
+  const t = ln?.totals, tb = ln?.tb;
+  $("ln-export").hidden = !(ln?.loans.length || ln?.covenants.length);
+  if (ln) $("ln-export").href = `/api/engagements/${currentEngagement.id}/loans/export`;
+  $("ln-cards").innerHTML = ln?.loans.length ? [[money(t.client_closing ?? t.closing), "Loans at the period end"],
+    ...(tb ? [[money(tb.borrowings), "Borrowings in the trial balance"], [tb.difference == null ? "" : signed(tb.difference), "Difference"]] : []),
+    [money(t.expected_interest), "Expected interest"], [t.client_interest == null ? "" : money(t.client_interest), "Interest booked"],
+    [ln.flagged, "Loans to look at"], [ln.breached, "Covenants breached"]]
+    .map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("") : "";
+  $("ln-notes").hidden = !ln?.notes.length;
+  $("ln-notes").innerHTML = (ln?.notes || []).map((n) => `<span>${esc(n)}</span>`).join(" ");
+  const cell = (v, flag) => `<td class="num${flag ? " flag-cell" : ""}">${v == null ? "" : signed(v)}</td>`;
+  $("ln-table").innerHTML = ln?.loans.length ? `<tr><th>Loan</th><th class="num">Opening</th><th class="num">Drawn</th><th class="num">Repaid</th>
+    <th class="num">Closing</th><th class="num">Client's closing</th><th class="num">Difference</th><th class="num">Rate %</th>
+    <th class="num">Expected interest</th><th class="num">Interest booked</th><th class="num">Difference</th><th class="num">Shown as current</th><th>Matures on</th><th></th></tr>` +
+    ln.loans.map((x) => `<tr data-ln="${x.id}"><td>${data(x.name)}${x.lender ? `<div class="muted">${data(x.lender)}</div>` : ""}${x.notes.map((n) => `<div class="muted">${esc(n)}</div>`).join("")}</td>
+      ${cell(x.opening)}${cell(x.drawn)}${cell(x.repaid)}${cell(x.closing)}${cell(x.client_closing)}${cell(x.diff_closing, x.flags.includes("closing"))}
+      <td class="num">${esc(x.rate_pct)}</td>${cell(x.expected_interest)}${cell(x.client_interest)}${cell(x.diff_interest, x.flags.includes("interest"))}
+      ${cell(x.client_current, x.flags.includes("current"))}<td class="nowrap"><bdi dir="ltr" translate="no">${esc(x.maturity || "")}</bdi></td>
+      <td class="nowrap"><button type="button" class="small secondary" data-ln-edit>Change</button> <button type="button" class="small secondary danger" data-ln-remove>Remove</button></td></tr>`).join("")
+    : '<tr><td class="muted">No loans yet.</td></tr>';
+  const keepLoan = $("cv-loan").value, keepMetric = $("cv-metric").value;
+  $("cv-loan").innerHTML = '<option value="">The whole company</option>' + (ln?.loans || []).map((x) =>
+    `<option value="${x.id}" translate="no">${esc(x.name)}</option>`).join("");
+  $("cv-loan").value = keepLoan && ln?.loans.some((x) => String(x.id) === keepLoan) ? keepLoan : "";
+  $("cv-metric").innerHTML = (ln?.metrics || []).map((m) => `<option value="${m.id}">${esc(m.label)}</option>`).join("");
+  if (keepMetric) $("cv-metric").value = keepMetric;
+  const status = { met: "", close: "warn-cell", breached: "flag-cell", unknown: "" };
+  const fig = (c, v) => v == null ? "" : c.unit === "amount" ? signed(v) : `${Number(v).toLocaleString(LOCALE, { maximumFractionDigits: 2 })}${c.unit === "%" ? "%" : c.unit === "x" ? "×" : ""}`;
+  $("cv-table").innerHTML = ln?.covenants.length ? `<tr><th>Covenant</th><th>Loan</th><th>Measure</th><th>Rule</th><th class="num">Limit</th><th class="num">Actual</th><th class="num">Headroom</th><th>Result</th><th></th></tr>` +
+    ln.covenants.map((c) => `<tr data-cv="${c.id}"><td>${data(c.title)}${c.note ? `<div class="muted">${data(c.note)}</div>` : ""}</td>
+      <td>${c.loan ? data(c.loan) : '<span class="muted">The whole company</span>'}</td><td>${esc(c.metric_label)}</td><td>${esc(c.operator_label)}</td>
+      <td class="num">${fig(c, c.limit)}</td><td class="num">${fig(c, c.actual)}</td><td class="num">${fig(c, c.headroom)}</td>
+      <td class="${status[c.status]}">${esc(ln.status_labels[c.status])}</td>
+      <td class="nowrap"><button type="button" class="small secondary" data-cv-edit>Change</button> <button type="button" class="small secondary danger" data-cv-remove>Remove</button></td></tr>`).join("")
+    : '<tr><td class="muted">No covenants yet.</td></tr>';
+  $("cv-actual-row").hidden = $("cv-metric").value !== "other";
+}
+
+$("cv-metric").addEventListener("change", () => { $("cv-actual-row").hidden = $("cv-metric").value !== "other"; });
+
+$("ln-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const body = { name: $("ln-name").value, lender: $("ln-lender").value, opening: Number($("ln-opening").value || 0),
+    drawn: Number($("ln-drawn").value || 0), repaid: Number($("ln-repaid").value || 0), client_closing: optNum("ln-closing"),
+    rate_pct: Number($("ln-rate").value || 0), client_interest: optNum("ln-interest"), client_current: optNum("ln-current"),
+    maturity: $("ln-maturity").value || null, security: $("ln-security").value, note: $("ln-note").value };
+  busy(ev.submitter, async () => {
+    const out = lnEditing ? await sendJSON("PUT", `/api/loans/${lnEditing}`, body)
+      : await sendJSON("POST", `/api/engagements/${id}/loans`, body);
+    if (currentEngagement?.id !== id) return;
+    resetLoanForm();
+    ln = out;
+    renderLoans();
+    await loadEngagementActivity();
+  });
+});
+$("ln-cancel").addEventListener("click", () => { resetLoanForm(); $("ln-add").open = false; });
+
+$("ln-table").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-ln]");
+  if (!row) return;
+  const x = ln.loans.find((l) => String(l.id) === row.dataset.ln);
+  if (ev.target.closest("[data-ln-edit]")) {
+    lnEditing = x.id;
+    for (const [el, v] of [["ln-name", x.name], ["ln-lender", x.lender], ["ln-opening", x.opening], ["ln-drawn", x.drawn],
+      ["ln-repaid", x.repaid], ["ln-closing", x.client_closing], ["ln-rate", x.rate_pct], ["ln-interest", x.client_interest],
+      ["ln-current", x.client_current], ["ln-maturity", x.maturity], ["ln-security", x.security], ["ln-note", x.note]]) $(el).value = v ?? "";
+    $("ln-submit").textContent = "Save loan";
+    $("ln-cancel").hidden = false;
+    $("ln-add").open = true;
+    $("ln-name").focus();
+    return;
+  }
+  const btn = ev.target.closest("[data-ln-remove]");
+  if (!btn || !confirm(`Remove the loan ${x.name}?`)) return;
+  const id = currentEngagement.id;
+  busy(btn, async () => {
+    const out = await sendJSON("DELETE", `/api/loans/${x.id}`);
+    if (currentEngagement?.id !== id) return;
+    if (lnEditing === x.id) resetLoanForm();
+    ln = out;
+    renderLoans();
+    await loadEngagementActivity();
+  });
+});
+
+$("cv-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const body = { title: $("cv-title").value, loan_id: $("cv-loan").value ? Number($("cv-loan").value) : null,
+    metric: $("cv-metric").value, operator: $("cv-operator").value, limit: Number($("cv-limit").value),
+    actual: $("cv-metric").value === "other" ? optNum("cv-actual") : null, note: $("cv-note").value };
+  busy(ev.submitter, async () => {
+    const out = cvEditing ? await sendJSON("PUT", `/api/covenants/${cvEditing}`, body)
+      : await sendJSON("POST", `/api/engagements/${id}/covenants`, body);
+    if (currentEngagement?.id !== id) return;
+    resetCovenantForm();
+    ln = out;
+    renderLoans();
+    await loadEngagementActivity();
+  });
+});
+$("cv-cancel").addEventListener("click", () => { resetCovenantForm(); $("cv-add").open = false; });
+
+$("cv-table").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-cv]");
+  if (!row) return;
+  const c = ln.covenants.find((x) => String(x.id) === row.dataset.cv);
+  if (ev.target.closest("[data-cv-edit]")) {
+    cvEditing = c.id;
+    $("cv-title").value = c.title; $("cv-loan").value = c.loan_id ?? ""; $("cv-metric").value = c.metric;
+    $("cv-operator").value = c.operator; $("cv-limit").value = c.limit;
+    $("cv-actual").value = c.metric === "other" ? c.actual ?? "" : ""; $("cv-note").value = c.note;
+    $("cv-actual-row").hidden = c.metric !== "other";
+    $("cv-submit").textContent = "Save covenant";
+    $("cv-cancel").hidden = false;
+    $("cv-add").open = true;
+    $("cv-title").focus();
+    return;
+  }
+  const btn = ev.target.closest("[data-cv-remove]");
+  if (!btn || !confirm(`Remove the covenant ${c.title}?`)) return;
+  const id = currentEngagement.id;
+  busy(btn, async () => {
+    const out = await sendJSON("DELETE", `/api/covenants/${c.id}`);
+    if (currentEngagement?.id !== id) return;
+    if (cvEditing === c.id) resetCovenantForm();
+    ln = out;
+    renderLoans();
+    await loadEngagementActivity();
+  });
+});
+
+// --- Accounting estimates (ISA 540) ------------------------------------------------------
+
+let es = null;  // latest /estimates response
+let esEditing = null;
+
+async function loadEstimates() {
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/estimates`);
+  if (currentEngagement?.id !== id) return;
+  es = out;
+  renderEstimates();
+}
+
+function resetEstimateForm() {
+  esEditing = null;
+  $("es-form").reset();
+  $("es-submit").textContent = "Add estimate";
+  $("es-cancel").hidden = true;
+}
+
+function renderEstimates() {
+  $("es-export").hidden = !es?.estimates.length;
+  if (es) $("es-export").href = `/api/engagements/${currentEngagement.id}/estimates/export`;
+  const fill = (sel, list, blank, start) => {
+    const keep = $(sel).value;
+    $(sel).innerHTML = (blank ? `<option value="">${blank}</option>` : "") + (list || []).map((o) => `<option value="${o.id}"${o.id === start ? " selected" : ""}>${esc(o.label)}</option>`).join("");
+    if (keep) $(sel).value = keep;
+  };
+  fill("es-line", es?.lines, "None");
+  fill("es-uncertainty", es?.uncertainties, null, "moderate");
+  fill("es-approach", es?.approaches);
+  $("es-cards").innerHTML = es?.estimates.length ? [[es.estimates.length, "Estimates"], [signed(es.above), "Above our ranges in total"], [signed(es.below), "Below our ranges in total"],
+    [es.flagged, "Estimates to look at"]]
+    .map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("") : "";
+  $("es-notes").hidden = !es?.notes.length;
+  $("es-notes").innerHTML = (es?.notes || []).map((n) => `<span>${esc(n)}</span>`).join(" ");
+  const cell = (v, flag) => `<td class="num${flag ? " flag-cell" : ""}">${v == null ? "" : signed(v)}</td>`;
+  $("es-table").innerHTML = es?.estimates.length ? `<tr><th>Estimate</th><th>Uncertainty</th><th class="num">Management's amount</th><th class="num">Our range from</th><th class="num">Our range to</th>
+    <th class="num">Outside our range by</th><th class="num">Last year's estimate</th><th class="num">What it turned out to be</th><th class="num">Off by %</th><th>Conclusion</th><th></th></tr>` +
+    es.estimates.map((x) => `<tr data-es="${x.id}"><td>${data(x.title)}${x.line_label ? `<div class="muted">${esc(x.line_label)}</div>` : ""}<div class="muted">${esc(x.approach_label)}</div></td>
+      <td class="${x.flags.includes("high_uncertainty") ? "flag-cell" : ""}">${esc(x.uncertainty_label)}</td>${cell(x.management)}${cell(x.low)}${cell(x.high)}
+      ${cell(x.outside, x.flags.includes("outside"))}${cell(x.prior_estimate)}${cell(x.prior_outcome)}
+      <td class="num${x.flags.includes("look_back") ? " flag-cell" : ""}">${x.look_back_pct == null ? "" : esc(x.look_back_pct)}</td><td>${data(x.conclusion)}</td>
+      <td class="nowrap"><button type="button" class="small secondary" data-es-edit>Change</button> <button type="button" class="small secondary danger" data-es-remove>Remove</button></td></tr>`).join("")
+    : '<tr><td class="muted">No estimates yet.</td></tr>';
+}
+
+$("es-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const body = { title: $("es-title").value, line: $("es-line").value || null, management: Number($("es-management").value),
+    uncertainty: $("es-uncertainty").value, approach: $("es-approach").value, low: optNum("es-low"), high: optNum("es-high"),
+    prior_estimate: optNum("es-prior"), prior_outcome: optNum("es-outcome"), method: $("es-method").value,
+    assumptions: $("es-assumptions").value, conclusion: $("es-conclusion").value };
+  busy(ev.submitter, async () => {
+    const out = esEditing ? await sendJSON("PUT", `/api/estimates/${esEditing}`, body)
+      : await sendJSON("POST", `/api/engagements/${id}/estimates`, body);
+    if (currentEngagement?.id !== id) return;
+    resetEstimateForm();
+    es = out;
+    renderEstimates();
+    await loadEngagementActivity();
+  });
+});
+$("es-cancel").addEventListener("click", () => { resetEstimateForm(); $("es-add").open = false; renderEstimates(); });
+
+$("es-table").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-es]");
+  if (!row) return;
+  const x = es.estimates.find((r) => String(r.id) === row.dataset.es);
+  if (ev.target.closest("[data-es-edit]")) {
+    esEditing = x.id;
+    for (const [el, v] of [["es-title", x.title], ["es-line", x.line], ["es-management", x.management], ["es-uncertainty", x.uncertainty],
+      ["es-approach", x.approach], ["es-low", x.low], ["es-high", x.high], ["es-prior", x.prior_estimate], ["es-outcome", x.prior_outcome],
+      ["es-method", x.method], ["es-assumptions", x.assumptions], ["es-conclusion", x.conclusion]]) $(el).value = v ?? "";
+    $("es-submit").textContent = "Save estimate";
+    $("es-cancel").hidden = false;
+    $("es-add").open = true;
+    $("es-title").focus();
+    return;
+  }
+  const btn = ev.target.closest("[data-es-remove]");
+  if (!btn || !confirm(`Remove the estimate ${x.title}?`)) return;
+  const id = currentEngagement.id;
+  busy(btn, async () => {
+    const out = await sendJSON("DELETE", `/api/estimates/${x.id}`);
+    if (currentEngagement?.id !== id) return;
+    if (esEditing === x.id) resetEstimateForm();
+    es = out;
+    renderEstimates();
     await loadEngagementActivity();
   });
 });
