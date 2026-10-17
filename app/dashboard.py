@@ -21,7 +21,8 @@ MATERIAL_UNCORRECTED = "Uncorrected misstatements are material"
 # Report draft warnings the completion steps already cover.
 COMPLETION_WARNINGS = {"Some subsequent events still need a decision.",
                        "Conclude on going concern in the completion checklist.",
-                       "The completion procedures aren't signed off yet."}
+                       "The completion procedures aren't signed off yet.",
+                       "The engagement quality review isn't signed off yet."}
 
 
 def _plural(n: int, one: str, many: str | None = None) -> str:
@@ -73,7 +74,8 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
                confirmations: dict | None = None, workplan: dict | None = None,
                finishing: dict | None = None, related: dict | None = None,
                documents: dict | None = None, analytics: dict | None = None,
-               stock: dict | None = None, prior: dict | None = None) -> list[dict]:
+               stock: dict | None = None, prior: dict | None = None,
+               quality: dict | None = None) -> list[dict]:
     """The to-do list, most pressing first. Each step names the panel (and tab) that deals
     with it."""
     steps: list[dict] = []
@@ -186,6 +188,15 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
         if missing:
             add("low", f"Finish the inputs of {_plural(missing, 'analytical procedure')}.",
                 "ap-panel")
+    if quality and quality["required"]:
+        if not quality["named"]:
+            add("high", "Name the engagement quality reviewer.", "qr-panel")
+        elif quality["stale"]:
+            add("medium", "The quality review changed after its sign-off: have the reviewer "
+                          "look at it again.", "qr-panel")
+        elif not quality["signed"]:
+            add("medium", "Have the quality reviewer sign off the quality review before the "
+                          "report is signed.", "qr-panel")
     if prior and prior["points"]:
         if prior["statuses"]["to_follow_up"]:
             add("medium", f"Follow up {_plural(prior['statuses']['to_follow_up'], 'point')} "
@@ -289,6 +300,7 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     from .disclosures import summary as disclosure_summary
     from .expectations import summary as analytics_summary
     from .prior_points import summary as prior_summary
+    from .quality import summary as quality_summary
     from .related_parties import summary as related_summary
     from .report_draft import state as report_state
     from .risks import summary
@@ -307,6 +319,7 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     analytics = analytics_summary(session, e)
     stock = stock_summary(e)
     prior = prior_summary(e)
+    quality = quality_summary(e)
     finishing = {**finishing, "reps_dated": None, "signed_at": None,
                  "report_warnings": report_state(session, e)["warnings"]
                  if e.audit_report else []}
@@ -343,12 +356,13 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
         "analytics": analytics,
         "stock": stock,
         "prior": prior,
+        "quality": quality,
         "completion": {k: finishing[k] for k in ("started", "signed", "going_concern",
                                                  "pending_events")},
         "next_steps": next_steps(e, mat, kinds, gl_runs, findings,
                                  open_by_severity.get("high", 0), rv, rq, fs, bank,
                                  risk_summary, acceptance_summary(e), disclosure_summary(e),
                                  controls, confirmations, workplan, finishing, related,
-                                 documents, analytics, stock, prior)
+                                 documents, analytics, stock, prior, quality)
         if e.lock is None else [],
     }

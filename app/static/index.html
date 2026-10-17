@@ -19,6 +19,10 @@
       <a href="#/users" data-view="users" class="min-4">Users <span class="nav-count" id="signup-count" translate="no" title="Account requests waiting for approval" hidden></span></a>
       <a href="#/activity" data-view="activity" class="min-4">Activity</a>
     </nav>
+    <div class="search" id="search" role="search" hidden>
+      <input type="search" id="search-q" maxlength="100" autocomplete="off" placeholder="Search" aria-label="Search engagements, findings, tasks and more" aria-controls="search-menu">
+      <div class="bell-menu search-menu" id="search-menu" hidden><div id="search-out"></div></div>
+    </div>
     <div class="bell" id="bell" hidden>
       <button type="button" class="link bell-btn" id="bell-btn" aria-haspopup="true" aria-expanded="false" title="What needs you">&#128276; <span class="nav-count" id="bell-count" translate="no" hidden></span></button>
       <div class="bell-menu" id="bell-menu" hidden>
@@ -116,6 +120,7 @@
         <label><input type="checkbox" name="related_parties" checked> The related parties register, without last year's scan or conclusions</label>
         <label><input type="checkbox" name="expectations" checked> How each analytical procedure and proof is built, without last year's figures or conclusions</label>
         <label><input type="checkbox" name="prior_points" checked> This year's management letter points and open findings, to follow up next year</label>
+        <label><input type="checkbox" name="quality" checked> Whether a quality review is needed, why and by whom (not the checklist)</label>
         <label><input type="checkbox" name="team" checked> The team</label>
       </fieldset>
       <div class="actions"><button type="submit" id="roll-submit">Create next year's engagement</button><button type="button" class="secondary" id="roll-cancel">Cancel</button></div>
@@ -1317,6 +1322,43 @@
               <label for="cp-sign-note">Note <span class="muted">(needed when an answer needs a second look)</span></label>
               <textarea id="cp-sign-note" rows="2" maxlength="5000"></textarea>
               <div class="actions"><button type="submit" id="cp-sign-btn">Sign off completion</button></div>
+            </form>
+          </section>
+
+          <section class="panel" id="qr-panel">
+            <div class="row-between">
+              <h2>Engagement quality review</h2>
+              <a class="button secondary" id="qr-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">An objective look at the team's significant judgments by a partner outside the team, before the report is signed. A partner says whether the engagement needs one and names the reviewer.</p>
+            <div class="cards" id="qr-cards"></div>
+            <div id="qr-status"></div>
+            <form id="qr-setup" class="min-3">
+              <h3>Set-up</h3>
+              <label class="check-label" style="margin-top:8px"><input type="checkbox" id="qr-required"><span>This engagement needs a quality review</span></label>
+              <div class="grid">
+                <div><label for="qr-reason">Why it is needed</label><select id="qr-reason" class="map"></select></div>
+                <div><label for="qr-reviewer">Quality reviewer</label><select id="qr-reviewer" class="map"></select></div>
+              </div>
+              <label for="qr-reason-note">Note</label>
+              <input id="qr-reason-note" maxlength="5000">
+              <div class="actions"><button type="submit" id="qr-setup-save">Save set-up</button></div>
+            </form>
+            <p class="muted" id="qr-who"></p>
+            <details id="qr-check">
+              <summary>Quality review checklist</summary>
+              <form id="qr-form">
+                <div id="qr-questions"></div>
+                <label for="qr-conclusion">Reviewer's conclusion</label>
+                <textarea id="qr-conclusion" rows="2" maxlength="5000"></textarea>
+                <div class="actions"><button type="submit" id="qr-save">Save checklist</button><span class="muted" id="qr-saved"></span></div>
+              </form>
+            </details>
+            <form id="qr-sign" class="min-3">
+              <h3>Reviewer's sign-off</h3>
+              <label for="qr-sign-note">Note <span class="muted">(needed when an answer needs a second look)</span></label>
+              <textarea id="qr-sign-note" rows="2" maxlength="5000"></textarea>
+              <div class="actions"><button type="submit" id="qr-sign-btn">Sign off the quality review</button><button type="button" class="secondary" id="qr-unsign">Take back the sign-off</button></div>
             </form>
           </section>
 

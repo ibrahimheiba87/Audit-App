@@ -306,6 +306,7 @@ async function openEngagement(id) {
     cf = null; cfEditing = null; renderConfirmations(); $("cf-form").reset(); $("cf-pick-form").reset();
     $("cf-picked").textContent = ""; $("cf-filter").value = "";
     cp = null; renderCompletion(); $("cp-check").open = false; $("cp-event-form").reset(); $("cp-sign").reset();
+    qr = null; renderQuality(); $("qr-check").open = false; $("qr-sign").reset();
     rp = null; renderReport(); $("rp-preview-box").open = false;
     rpt = null; rptFound = null; renderRelated(); $("rpt-form").reset(); $("rpt-add").open = false;
     ds = null; renderSummaries(); $("ds-form").reset(); $("ds-wait").hidden = dsReading === 0;
@@ -370,6 +371,7 @@ async function openEngagement(id) {
   guard(loadPriorPoints);
   guard(loadWorkplan);
   guard(loadCompletion);
+  guard(loadQuality);
   guard(loadReport);
   guard(loadRelated);
   guard(loadSummaries);
@@ -447,7 +449,7 @@ $("roll-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = $("roll-form");
   const body = { name: $("roll-name").value };
-  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "prior_points", "team"]) body[k] = f[k].checked;
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "prior_points", "quality", "team"]) body[k] = f[k].checked;
   $("roll-submit").disabled = true;
   try {
     const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
@@ -3492,6 +3494,147 @@ $("cp-letter").addEventListener("click", () => {  // in the language the page is
   if (cp) $("cp-letter").href = `/api/engagements/${cp.engagement_id}/completion/representation-letter?language=${I18N.lang === "ar" ? "ar" : "en"}`;
 });
 
+// Engagement quality review
+
+let qr = null;
+let qrLoads = 0;
+
+async function loadQuality() {
+  const id = currentEngagement.id;
+  const load = ++qrLoads;
+  const q = await getJSON(`/api/engagements/${id}/quality-review`);
+  if (load !== qrLoads || currentEngagement?.id !== id) return;
+  qr = { ...q, engagement_id: id };
+  renderQuality();
+}
+
+function renderQuality() {
+  if (!qr) {
+    for (const t of ["qr-cards", "qr-status", "qr-questions", "qr-who"]) $(t).innerHTML = "";
+    $("qr-saved").textContent = "";
+    $("qr-export").removeAttribute("href");
+    $("qr-setup").reset(); $("qr-form").reset();
+    $("qr-reason").innerHTML = $("qr-reviewer").innerHTML = "";
+    delete $("qr-form").dataset.dirty; delete $("qr-form").dataset.engagement;
+    delete $("qr-setup").dataset.dirty; delete $("qr-setup").dataset.engagement;
+    return;
+  }
+  const id = qr.engagement_id;
+  const fills = qr.required && (qr.is_reviewer || me.role === "admin");
+  $("qr-export").href = `/api/engagements/${id}/quality-review/export`;
+  $("qr-cards").innerHTML = !qr.required ? "" : [
+    [`${qr.answered}/${qr.questions.length}`, "Questions answered", false],
+    [qr.flags.length, "Answers needing a second look", qr.flags.length > 0],
+    [qr.signed_by && !qr.changed_since_signoff ? "Signed off" : "Not signed off", "Sign-off", !qr.signed_by || qr.changed_since_signoff],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("qr-status").innerHTML = !qr.required ? '<p class="muted">No quality review is needed for this engagement.</p>'
+    : qr.signed_by
+      ? `<p><strong>Signed off</strong> <span class="muted">${data(qr.signed_by)} · <span>${esc(when(qr.signed_at))}</span></span></p>
+       ${qr.signed_note ? `<p>${data(qr.signed_note)}</p>` : ""}
+       ${qr.changed_since_signoff ? '<p class="warn-box">The quality review changed after the sign-off. The reviewer may want to look at it again.</p>' : ""}`
+      : qr.blockers.length ? `<ul class="warn-list">${qr.blockers.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : "";
+  if (qr.reviewer_on_team) $("qr-status").insertAdjacentHTML("beforeend", '<p class="warn-box">The quality reviewer is on the engagement team. The reviewer should be someone outside the team.</p>');
+  $("qr-who").innerHTML = !qr.required ? "" : qr.reviewer_name
+    ? `<span>Quality reviewer:</span> ${data(qr.reviewer_name)}${qr.reason_label ? ` · <span>${esc(qr.reason_label)}</span>` : ""}${fills ? "" : ' · <span>Only the quality reviewer fills in the checklist.</span>'}`
+    : "";
+  $("qr-check").hidden = !qr.required;
+  $("qr-sign").hidden = !qr.required || !qr.is_reviewer && !qr.signed_by;
+  $("qr-sign-btn").hidden = !qr.is_reviewer || Boolean(qr.signed_by) && !qr.changed_since_signoff;
+  $("qr-unsign").hidden = !qr.signed_by || !(qr.is_reviewer || me.role === "admin");
+  $("qr-saved").innerHTML = qr.updated_by ? `<span>Last saved by</span> ${data(qr.updated_by)} · <span>${esc(when(qr.updated_at))}</span>` : "";
+  const setup = $("qr-setup");
+  if (!(setup.dataset.engagement === String(id) && setup.dataset.dirty)) {
+    setup.dataset.engagement = id;
+    $("qr-required").checked = qr.required;
+    $("qr-reason").innerHTML = '<option value="">Pick a reason</option>' + optionList(qr.reasons, qr.reason);
+    $("qr-reviewer").innerHTML = '<option value="">Not named yet</option>' + qr.reviewers.map((u) =>
+      `<option value="${u.id}" translate="no" ${u.id === qr.reviewer_id ? "selected" : ""}>${esc(u.name)}</option>`).join("");
+    $("qr-reason-note").value = qr.reason_note;
+  }
+  const form = $("qr-form");
+  for (const el of form.elements) el.disabled = !fills;
+  if (form.dataset.engagement === String(id) && form.dataset.dirty) return;
+  form.dataset.engagement = id;
+  $("qr-questions").innerHTML = qr.questions.map((q, i) => {
+    const a = qr.answers[q.id];
+    const flagged = qr.flags.includes(q.id);
+    return `<div class="ac-q${flagged ? " flagged" : ""}" data-q="${esc(q.id)}">
+      <p><bdi>${i + 1}.</bdi> <span>${esc(q.text)}</span></p>
+      <fieldset class="checks-inline"><legend class="visually-hidden">Answer</legend>
+        ${Object.entries(ANSWER_LABELS).map(([v, label]) => `<label><input type="radio" name="qr-${esc(q.id)}" value="${v}" ${a.answer === v ? "checked" : ""} ${fills ? "" : "disabled"}><span>${label}</span></label>`).join("")}
+      </fieldset>
+      <input data-comment maxlength="5000" value="${esc(a.comment)}" placeholder="Comment" aria-label="Comment" ${fills ? "" : "disabled"}>
+      ${flagged ? '<div class="tag flag-note">This answer needs a second look before signing off.</div>' : ""}
+    </div>`;
+  }).join("");
+  $("qr-conclusion").value = qr.conclusion;
+}
+
+async function qualityChanged(id) {
+  if (currentEngagement?.id !== id) return;
+  await loadQuality();
+  refreshDashboard();
+  if (rp?.engagement_id === id) guard(loadReport);  // the report warns while it isn't signed
+  await loadEngagementActivity();
+}
+
+$("qr-setup").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!qr) return;
+  const id = qr.engagement_id;
+  const reviewer = $("qr-reviewer").value;
+  const body = { required: $("qr-required").checked, reason: $("qr-reason").value || null,
+    reason_note: $("qr-reason-note").value, reviewer_id: reviewer ? Number(reviewer) : null };
+  if (qr.signed_by && body.reviewer_id !== qr.reviewer_id && !confirm("A new reviewer signs off afresh. Change the reviewer?")) return;
+  const rev = $("qr-setup").dataset.rev;
+  busy($("qr-setup-save"), async () => {
+    await sendJSON("PUT", `/api/engagements/${id}/quality-review/setup`, body);
+    if (currentEngagement?.id !== id) return;
+    if ($("qr-setup").dataset.rev === rev) delete $("qr-setup").dataset.dirty;
+    await qualityChanged(id);
+  });
+});
+$("qr-setup").addEventListener("input", () => formEdited($("qr-setup")));
+
+$("qr-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!qr) return;
+  const id = qr.engagement_id;
+  const answers = {};
+  for (const q of $("qr-questions").querySelectorAll("[data-q]")) {
+    const picked = q.querySelector("input[type=radio]:checked");
+    answers[q.dataset.q] = { answer: picked ? picked.value : null, comment: q.querySelector("[data-comment]").value };
+  }
+  const rev = $("qr-form").dataset.rev;
+  busy($("qr-save"), async () => {
+    await sendJSON("PUT", `/api/engagements/${id}/quality-review`, { answers, conclusion: $("qr-conclusion").value });
+    if (currentEngagement?.id !== id) return;
+    if ($("qr-form").dataset.rev === rev) delete $("qr-form").dataset.dirty;
+    await qualityChanged(id);
+  });
+});
+$("qr-form").addEventListener("input", () => formEdited($("qr-form")));
+
+$("qr-sign").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!qr) return;
+  const id = qr.engagement_id;
+  busy($("qr-sign-btn"), async () => {
+    await sendJSON("POST", `/api/engagements/${id}/quality-review/signoff`, { note: $("qr-sign-note").value });
+    $("qr-sign-note").value = "";
+    await qualityChanged(id);
+  });
+});
+
+$("qr-unsign").addEventListener("click", () => {
+  if (!qr || !confirm("Take back the quality review sign-off?")) return;
+  const id = qr.engagement_id;
+  busy($("qr-unsign"), async () => {
+    await sendJSON("DELETE", `/api/engagements/${id}/quality-review/signoff`);
+    await qualityChanged(id);
+  });
+});
+
 // The going concern signs and the suggested opinion follow the figures: reload both panels
 // (keeping unsaved edits) after the mapping, adjusting entries or materiality change.
 function refreshFinishing(id) {
@@ -5503,6 +5646,7 @@ function setUser(user) {
   $("nav").hidden = user.role === "client";
   if (user.role === "admin") refreshSignupCount();
   startBell();
+  $("search").hidden = user.role === "client";
 }
 
 function showLogin(needsSetup) {
@@ -5512,7 +5656,8 @@ function showLogin(needsSetup) {
   $("pt-list").innerHTML = $("rq-list").innerHTML = "";
   delete document.body.dataset.rank;
   clearInterval(bellTimer); bellItems = []; closeBell();
-  $("user-chip").hidden = $("nav").hidden = $("bell").hidden = true;
+  $("user-chip").hidden = $("nav").hidden = $("bell").hidden = $("search").hidden = true;
+  closeSearch(); $("search-q").value = ""; searchHits = [];
   document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== "view-login"; });
   $("results").hidden = true;
   $("login-form").hidden = needsSetup;
@@ -5689,12 +5834,80 @@ $("bell-list").addEventListener("click", (ev) => {
   }
 });
 
-// After an engagement opens: the panel a bell item pointed at.
+// After an engagement opens: the panel a bell item or a search hit pointed at.
 function scrollToPendingPanel() {
   const panel = pendingPanel;
-  pendingPanel = null;
+  const finding = pendingFinding;
+  pendingPanel = pendingFinding = null;
+  if (finding) { guard(async () => openFinding(await getJSON(`/api/findings/${finding}`))); return; }
   if (panel) $(panel)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+// Search: one box in the header for every engagement the user may see.
+
+let searchHits = [];
+let searchTimer = null;
+let searchLoads = 0;
+let pendingFinding = null;  // the finding a search hit opens once its engagement is open
+
+function closeSearch() {
+  $("search-menu").hidden = true;
+}
+
+async function runSearch() {
+  const q = $("search-q").value.trim();
+  const load = ++searchLoads;
+  if (q.length < 2) { searchHits = []; closeSearch(); return; }
+  const out = await getJSON(`/api/search?${new URLSearchParams({ q })}`);
+  if (load !== searchLoads) return;
+  searchHits = out.groups.flatMap((g) => g.items);
+  let n = 0;
+  $("search-out").innerHTML = out.groups.length ? out.groups.map((g) => `<h4>${esc(g.label)}</h4><ul>
+    ${g.items.map((x) => `<li><button type="button" class="bell-item" data-hit="${n++}">
+      <span class="bell-text">${x.kind === "finding" ? `<span class="sev ${esc(x.severity)}">${esc(x.severity)}</span> ` : ""}${data(x.title)}</span>
+      ${x.snippet ? `<span class="tag">${data(x.snippet)}</span>` : ""}
+      ${x.kind === "engagement" ? `<span class="tag"><span>Period end</span> <bdi dir="ltr" translate="no">${esc(x.period_end)}</bdi>${x.archived ? ` · <span>${esc("Archived")}</span>` : ""}</span>`
+        : `<span class="tag">${data(x.engagement)}</span>`}</button></li>`).join("")}</ul>
+    ${g.more ? `<p class="tag">${esc("More found. Type more to narrow the search.")}</p>` : ""}`).join("")
+    : `<p class="muted">${esc("Nothing found.")}</p>`;
+  $("search-menu").hidden = false;
+}
+
+$("search-q").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => guard(runSearch), 250);
+});
+$("search-q").addEventListener("focus", () => { if (searchHits.length) $("search-menu").hidden = false; });
+$("search-q").addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") closeSearch();
+  if (ev.key === "Enter") { ev.preventDefault(); $("search-out").querySelector("[data-hit]")?.click(); }
+  if (ev.key === "ArrowDown") { ev.preventDefault(); $("search-out").querySelector("[data-hit]")?.focus(); }
+});
+$("search-out").addEventListener("keydown", (ev) => {
+  if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp" && ev.key !== "Escape") return;
+  ev.preventDefault();
+  if (ev.key === "Escape") { closeSearch(); $("search-q").focus(); return; }
+  const all = [...$("search-out").querySelectorAll("[data-hit]")];
+  const i = all.indexOf(document.activeElement) + (ev.key === "ArrowDown" ? 1 : -1);
+  (i < 0 ? $("search-q") : all[Math.min(i, all.length - 1)]).focus();
+});
+document.addEventListener("click", (ev) => { if (!ev.target.closest("#search")) closeSearch(); });
+
+$("search-out").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-hit]");
+  if (!btn) return;
+  const x = searchHits[Number(btn.dataset.hit)];
+  closeSearch();
+  const hash = `#/engagements/${x.engagement_id}`;
+  pendingFinding = x.kind === "finding" ? x.id : null;
+  if (location.hash === hash && currentEngagement?.id === x.engagement_id) {
+    pendingPanel = x.panel;
+    scrollToPendingPanel();
+  } else {
+    pendingPanel = x.panel;
+    location.hash = hash;
+  }
+});
 
 let clients = [];  // for linking client users
 

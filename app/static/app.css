@@ -297,6 +297,14 @@ td.bad { color: var(--high); }
 .ds-item h4 { margin: 10px 0 4px; }
 .qty-input { width: 100px; text-align: end; }
 
+/* The search box in the header */
+.search { position: relative; }
+.search input { width: 180px; padding: 6px 10px; }
+.search-menu { width: min(460px, calc(100vw - 32px)); }
+.search-menu h4 { margin: 10px 0 2px; font-size: 13px; color: var(--muted); }
+.search-menu h4:first-child { margin-top: 0; }
+@media (max-width: 800px) { .search, .search input { width: 100%; } }
+
 /* The bell: what needs the signed-in user */
 .bell { position: relative; }
 .bell-btn { font-size: 18px; text-decoration: none; }
