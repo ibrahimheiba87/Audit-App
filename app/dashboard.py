@@ -72,7 +72,7 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
                disclosures: dict | None = None, controls: dict | None = None,
                confirmations: dict | None = None, workplan: dict | None = None,
                finishing: dict | None = None, related: dict | None = None,
-               documents: dict | None = None) -> list[dict]:
+               documents: dict | None = None, analytics: dict | None = None) -> list[dict]:
     """The to-do list, most pressing first. Each step names the panel (and tab) that deals
     with it."""
     steps: list[dict] = []
@@ -173,6 +173,18 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
             add("medium", f"Do alternative procedures for "
                           f"{_plural(out['alternative_needed'], 'confirmation')} with no reply.",
                 "cf-panel")
+    if analytics and analytics["expectations"]:
+        out = analytics["outcomes"]
+        if out["to_explain"]:
+            add("high", f"Explain {_plural(out['to_explain'], 'difference')} over the threshold "
+                        "in the analytical procedures.", "ap-panel")
+        if out["misstatement"]:
+            add("medium", f"Post the {_plural(out['misstatement'], 'misstatement')} the "
+                          "analytical procedures found as proposed adjustments.", "ap-panel")
+        missing = out["no_expectation"] + out["no_threshold"]
+        if missing:
+            add("low", f"Finish the inputs of {_plural(missing, 'analytical procedure')}.",
+                "ap-panel")
     if finishing and finishing["started"]:
         if finishing["doubt"] and not finishing["going_concern"]:
             add("high", "Conclude on going concern: the checklist notes doubt about it.",
@@ -255,6 +267,7 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     from .confirmations import summary as confirmation_summary
     from .controls import summary as control_summary
     from .disclosures import summary as disclosure_summary
+    from .expectations import summary as analytics_summary
     from .related_parties import summary as related_summary
     from .report_draft import state as report_state
     from .risks import summary
@@ -269,6 +282,7 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     workplan = workplan_summary(e)
     related, documents = related_summary(e), documents_summary(e)
     finishing = completion_summary(e)
+    analytics = analytics_summary(session, e)
     finishing = {**finishing, "reps_dated": None, "signed_at": None,
                  "report_warnings": report_state(session, e)["warnings"]
                  if e.audit_report else []}
@@ -302,12 +316,13 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
         "workplan": workplan,
         "related": related,
         "documents": documents,
+        "analytics": analytics,
         "completion": {k: finishing[k] for k in ("started", "signed", "going_concern",
                                                  "pending_events")},
         "next_steps": next_steps(e, mat, kinds, gl_runs, findings,
                                  open_by_severity.get("high", 0), rv, rq, fs, bank,
                                  risk_summary, acceptance_summary(e), disclosure_summary(e),
                                  controls, confirmations, workplan, finishing, related,
-                                 documents)
+                                 documents, analytics)
         if e.lock is None else [],
     }

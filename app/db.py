@@ -177,6 +177,9 @@ class Engagement(Base):
     related_parties: Mapped[list[RelatedParty]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="RelatedParty.id"
     )
+    expectations: Mapped[list[Expectation]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="Expectation.id"
+    )
     document_summaries: Mapped[list[DocumentSummary]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="DocumentSummary.id"
@@ -594,6 +597,40 @@ class DocumentSummary(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="document_summaries")
+
+
+class Expectation(Base):
+    """A substantive analytical procedure (ISA 520) or proof in total: what a statement line
+    should be, worked out from inputs checked elsewhere, against what it is (expectations.py)."""
+
+    __tablename__ = "expectations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="analytic")  # expectations.KINDS
+    title: Mapped[str] = mapped_column(String(200), default="")
+    line: Mapped[str | None] = mapped_column(String(50), nullable=True)  # statements.LINE
+    method: Mapped[str] = mapped_column(String(20), default="prior_change")
+    inputs: Mapped[dict] = mapped_column(JSON, default=dict)
+    basis: Mapped[str] = mapped_column(Text, default="")  # where the inputs come from
+    threshold: Mapped[float | None] = mapped_column(Float, nullable=True)  # else perf. mat.
+    # When the line holds more than what is tested, the actual figure entered by hand.
+    actual_override: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_note: Mapped[str] = mapped_column(Text, default="")
+    explanation: Mapped[str] = mapped_column(Text, default="")  # of a difference over it
+    misstatement: Mapped[bool] = mapped_column(Boolean, default=False)
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    reviewed_by: Mapped[str] = mapped_column(String(200), default="")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # The expected, actual and threshold the review saw: other figures need a fresh look.
+    reviewed_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    source: Mapped[str] = mapped_column(String(50), default="")  # "rolled:<id>" if carried
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="expectations")
 
 
 class Confirmation(Base):

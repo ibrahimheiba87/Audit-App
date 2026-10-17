@@ -106,6 +106,7 @@
         <label><input type="checkbox" name="controls" checked> The internal controls register, to assess and test again</label>
         <label><input type="checkbox" name="workplan" checked> The task list and the time budget, without owners or dates</label>
         <label><input type="checkbox" name="related_parties" checked> The related parties register, without last year's scan or conclusions</label>
+        <label><input type="checkbox" name="expectations" checked> How each analytical procedure and proof is built, without last year's figures or conclusions</label>
         <label><input type="checkbox" name="team" checked> The team</label>
       </fieldset>
       <div class="actions"><button type="submit" id="roll-submit">Create next year's engagement</button><button type="button" class="secondary" id="roll-cancel">Cancel</button></div>
@@ -629,6 +630,29 @@
               <summary>Matched lines</summary>
               <div class="table-wrap"><table id="bank-matched"></table></div>
             </details>
+          </section>
+
+          <section class="panel" id="ap-panel">
+            <div class="row-between">
+              <h2>Analytical procedures and proofs in total</h2>
+              <a class="button secondary" id="ap-export" href="#">Download Excel</a>
+            </div>
+            <p class="muted">Work out what a statement line should be from figures checked elsewhere (last year and the change expected, a base times a rate, or units times a price) and compare it with the adjusted balance. A difference above the threshold (performance materiality unless you set another) needs a corroborated explanation, or is a misstatement.</p>
+            <p class="warn-box" id="ap-problem" hidden></p>
+            <div class="cards" id="ap-cards"></div>
+            <details id="ap-add">
+              <summary>Add an expectation or proof</summary>
+              <form id="ap-form">
+                <div class="grid">
+                  <div><label for="ap-kind">Type</label><select id="ap-kind" class="map"></select></div>
+                  <div><label for="ap-line">Statement line</label><select id="ap-line" class="map"></select></div>
+                  <div><label for="ap-method">Built from</label><select id="ap-method" class="map"></select></div>
+                  <div><label for="ap-title">Title <span class="muted">(optional)</span></label><input id="ap-title" maxlength="200"></div>
+                </div>
+                <div class="actions"><button type="submit" id="ap-save">Add</button></div>
+              </form>
+            </details>
+            <div class="table-wrap"><table id="ap-table"></table></div>
           </section>
 
           <section class="panel" id="cf-panel">
