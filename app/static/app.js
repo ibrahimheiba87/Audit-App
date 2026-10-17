@@ -168,7 +168,7 @@ function Mapper(root, onChange = () => {}) {
 // --- Views and routing ------------------------------------------------------
 
 // Lowest rank that can open each view; anything else falls back to engagements.
-const VIEW_RANK = { engagements: 1, quick: 1, overview: 2, schedule: 1, users: 4, activity: 4 };
+const VIEW_RANK = { engagements: 1, quick: 1, overview: 2, schedule: 1, library: 1, users: 4, activity: 4 };
 
 function route() {
   if (!me) return;
@@ -191,6 +191,7 @@ function route() {
   if (view === "activity") guard(showActivity);
   if (view === "overview") guard(showOverview);
   if (view === "schedule") guard(showSchedule);
+  if (view === "library") guard(showLibrary);
   if (view === "portal") guard(showPortal);
 }
 window.addEventListener("hashchange", route);
@@ -287,6 +288,7 @@ async function openEngagement(id) {
     ecl = null; renderEcl(true);
     ln = null; resetLoanForm(); resetCovenantForm(); $("ln-add").open = $("cv-add").open = false; renderLoans();
     es = null; resetEstimateForm(); $("es-add").open = false; renderEstimates();
+    ck = null; renderChecklists();
     reg = null; $("reg-cards").innerHTML = $("reg-table").innerHTML = $("reg-count").textContent = "";
     $("reg-bulk").hidden = true;
     resetEntryForm();
@@ -395,6 +397,7 @@ async function openEngagement(id) {
   guard(loadEcl);
   guard(loadLoans);
   guard(loadEstimates);
+  guard(loadChecklists);
   await loadStatements();
   await loadRegister();
   scrollToPendingPanel();
@@ -467,7 +470,7 @@ $("roll-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = $("roll-form");
   const body = { name: $("roll-name").value };
-  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "prior_points", "quality", "plan", "vat", "group", "leases", "ecl", "loans", "estimates", "team"]) body[k] = f[k].checked;
+  for (const k of ["trial_balance", "mapping", "materiality", "requests", "controls", "workplan", "related_parties", "expectations", "prior_points", "quality", "plan", "vat", "group", "leases", "ecl", "loans", "estimates", "checklists", "team"]) body[k] = f[k].checked;
   $("roll-submit").disabled = true;
   try {
     const r = await sendJSON("POST", `/api/engagements/${f.dataset.engagement}/roll-forward`, body);
@@ -5884,14 +5887,28 @@ function wireRequests(root, reload) {
 
 async function loadRequests() {
   const id = currentEngagement.id;
-  const data = await getJSON(`/api/engagements/${id}/requests`);
+  const [data, lists] = await Promise.all([getJSON(`/api/engagements/${id}/requests`), getJSON("/api/request-templates")]);
   if (currentEngagement?.id !== id) return;  // the user has opened another engagement
   rq = data;
+  rqLists = lists;
   renderRequests();
   refreshDashboard();
 }
 
+let rqLists = [];  // the firm's request lists
+
+function renderRequestLists() {
+  const keep = $("rq-template").value;
+  $("rq-template").innerHTML = rqLists.length
+    ? rqLists.map((t) => `<option value="${t.id}">${data(t.name)} (${esc(`${t.items.length} documents`)})</option>`).join("")
+    : `<option value="">${esc("The firm has no request lists yet")}</option>`;
+  if (keep) $("rq-template").value = keep;
+  $("rq-template-send").disabled = !rqLists.length || !!currentEngagement?.lock;
+  $("rq-template-save").disabled = !rq?.requests.length;
+}
+
 function renderRequests() {
+  renderRequestLists();
   const s = rq.summary;
   $("rq-cards").innerHTML = [
     [s.open + s.returned, "Waiting for the client"], [s.submitted, "Submitted, to look at"],
@@ -5927,6 +5944,31 @@ $("rq-form").addEventListener("submit", (ev) => {
     if (currentEngagement?.id !== id) return;
     $("rq-form").reset();
     await reloadRequests();
+  });
+});
+
+$("rq-template-send").addEventListener("click", () => {
+  const t = rqLists.find((x) => String(x.id) === $("rq-template").value);
+  if (!t || !confirm(`Send the request list ${t.name} to the client? Documents already asked for are skipped.`)) return;
+  const id = currentEngagement.id;
+  busy($("rq-template-send"), async () => {
+    const out = await sendJSON("POST", `/api/engagements/${id}/requests/from-template`, { template_id: t.id });
+    if (currentEngagement?.id !== id) return;
+    alert(`${out.added} requests added, ${out.skipped} already asked for.`);
+    await reloadRequests();
+  });
+});
+
+$("rq-template-save").addEventListener("click", () => {
+  const name = prompt("Name for the firm request list");
+  if (!name || !name.trim()) return;
+  const id = currentEngagement.id;
+  busy($("rq-template-save"), async () => {
+    await sendJSON("POST", `/api/engagements/${id}/requests/save-template`, { name: name.trim() });
+    if (currentEngagement?.id !== id) return;
+    rqLists = await getJSON("/api/request-templates");
+    renderRequestLists();
+    await loadEngagementActivity();
   });
 });
 
@@ -7562,6 +7604,263 @@ $("es-table").addEventListener("click", (ev) => {
     renderEstimates();
     await loadEngagementActivity();
   });
+});
+
+// --- Firm checklists on an engagement ------------------------------------------------------
+
+let ck = null;  // latest /checklists response
+
+async function loadChecklists() {
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/checklists`);
+  if (currentEngagement?.id !== id) return;
+  ck = out;
+  renderChecklists();
+}
+
+const CK_ANSWERS = { yes: "Yes", no: "No", na: "Not applicable" };
+
+function renderChecklists() {
+  $("ck-export").hidden = !ck?.checklists.length;
+  if (ck) $("ck-export").href = `/api/engagements/${currentEngagement.id}/checklists/export`;
+  const have = new Set((ck?.checklists || []).flatMap((x) => [x.name, `#${x.source_id}`]));
+  const free = (ck?.library || []).filter((c) => !have.has(c.name) && !have.has(`#${c.id}`));
+  $("ck-pick").innerHTML = free.length
+    ? free.map((c) => `<option value="${c.id}">${data(c.name)} (${esc(`${c.items} questions`)})</option>`).join("")
+    : `<option value="">${esc(ck?.library.length ? "Every firm checklist is already here" : "The firm has no checklists yet")}</option>`;
+  $("ck-add").disabled = !free.length;
+  $("ck-cards").innerHTML = ck?.checklists.length ? [[ck.checklists.length, "Checklists"], [ck.complete, "Complete"]]
+    .map(([v, k]) => `<div class="card"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("") : "";
+  const open = new Set([...$("ck-list").querySelectorAll("details[open]")].map((d) => d.dataset.ck));
+  $("ck-list").innerHTML = (ck?.checklists || []).map((x) => `<details class="ck" data-ck="${x.id}"${open.has(String(x.id)) ? " open" : ""}>
+    <summary>${data(x.name)} <span class="tag">${esc(`${x.answered} of ${x.total} answered`)}</span>
+      ${x.completed_at ? `<span class="pill good">${esc("Complete")}</span>` : ""}${x.needs_comment ? `<span class="pill vc-differs">${esc(`${x.needs_comment} No answers need a comment`)}</span>` : ""}</summary>
+    ${x.changed_at_firm ? `<p class="warn-box"><span>The firm has changed this checklist since it was added.</span> <button type="button" class="small secondary" data-ck-latest>Use the firm's latest version</button></p>` : ""}
+    ${x.completed_at ? `<p class="muted"><span>Marked complete by</span> ${data(x.completed_by)}, <span>${esc(when(x.completed_at.replace(/\+00:00$/, "")))}</span></p>` : ""}
+    <form data-ck-form>
+      ${x.items.map((it, i) => `<div class="ac-q${it.needs_comment ? " missing" : ""}" data-i="${i}">
+        <p>${data(it.text)}</p>
+        <fieldset class="checks-inline"><legend class="visually-hidden">Answer</legend>
+          ${Object.entries(CK_ANSWERS).map(([v, label]) => `<label><input type="radio" name="ck-${x.id}-${i}" value="${v}" ${it.answer === v ? "checked" : ""}><span>${label}</span></label>`).join("")}
+        </fieldset>
+        <input data-comment maxlength="5000" value="${esc(it.comment)}" placeholder="Comment" aria-label="Comment">
+      </div>`).join("")}
+      <div><label>Conclusion<textarea data-conclusion rows="2" maxlength="5000">${esc(x.conclusion)}</textarea></label></div>
+      <div class="actions"><button type="submit" class="small">Save answers</button>
+        ${x.completed_at ? "" : '<button type="button" class="small secondary" data-ck-complete>Mark complete</button>'}
+        <button type="button" class="small secondary danger" data-ck-remove>Remove</button></div>
+    </form>
+  </details>`).join("");
+}
+
+$("ck-add").addEventListener("click", () => {
+  const checklistId = Number($("ck-pick").value);
+  if (!checklistId) return;
+  const id = currentEngagement.id;
+  busy($("ck-add"), async () => {
+    const out = await sendJSON("POST", `/api/engagements/${id}/checklists`, { checklist_id: checklistId });
+    if (currentEngagement?.id !== id) return;
+    ck = out;
+    renderChecklists();
+    const added = $("ck-list").querySelector("details:last-of-type");
+    if (added) added.open = true;
+    await loadEngagementActivity();
+  });
+});
+
+function checklistAnswers(form, x) {
+  return { answers: x.items.map((_, i) => {
+    const q = form.querySelector(`[data-i="${i}"]`);
+    return { answer: q.querySelector("input[type=radio]:checked")?.value || null, comment: q.querySelector("[data-comment]").value };
+  }), items: x.items.map((it) => it.text), conclusion: form.querySelector("[data-conclusion]").value };
+}
+
+async function checklistAction(button, method, url, body) {
+  const id = currentEngagement.id;
+  await busy(button, async () => {
+    const out = await sendJSON(method, url, body);
+    if (currentEngagement?.id !== id) return;
+    ck = out;
+    renderChecklists();
+    await loadEngagementActivity();
+  });
+}
+
+$("ck-list").addEventListener("submit", (ev) => {
+  const box = ev.target.closest("[data-ck]");
+  if (!box) return;
+  ev.preventDefault();
+  const x = ck.checklists.find((r) => String(r.id) === box.dataset.ck);
+  checklistAction(ev.submitter, "PUT", `/api/engagement-checklists/${x.id}`, checklistAnswers(ev.target, x));
+});
+
+$("ck-list").addEventListener("click", (ev) => {
+  const box = ev.target.closest("[data-ck]");
+  if (!box) return;
+  const x = ck.checklists.find((r) => String(r.id) === box.dataset.ck);
+  const base = `/api/engagement-checklists/${x.id}`;
+  let btn;
+  if ((btn = ev.target.closest("[data-ck-complete]"))) {
+    // Save what's on screen first, so the answers just ticked count.
+    const id = currentEngagement.id;
+    busy(btn, async () => {
+      const saved = await sendJSON("PUT", base, checklistAnswers(box.querySelector("form"), x));
+      if (currentEngagement?.id !== id) return;
+      ck = saved;
+      renderChecklists();
+      try {
+        const out = await sendJSON("POST", `${base}/complete`);
+        if (currentEngagement?.id !== id) return;
+        ck = out;
+        renderChecklists();
+      } finally {
+        await loadEngagementActivity();
+      }
+    });
+  } else if ((btn = ev.target.closest("[data-ck-latest]"))) {
+    if (confirm(`Use the firm's latest version of ${x.name}? Answers to questions that haven't changed are kept.`)) checklistAction(btn, "POST", `${base}/latest`);
+  } else if ((btn = ev.target.closest("[data-ck-remove]"))) {
+    if (confirm(`Remove the checklist ${x.name} and its answers?`)) checklistAction(btn, "DELETE", base);
+  }
+});
+
+// --- Firm library: checklists and request lists ----------------------------------------------
+
+let lib = { checklists: [], lists: [] };
+let libCkEditing = null;
+let libRqEditing = null;
+
+async function showLibrary() {
+  const [checklists, lists] = await Promise.all([getJSON("/api/checklists"), getJSON("/api/request-templates")]);
+  lib = { checklists, lists };
+  renderLibrary();
+  if (!$("lib-rq-rows").rows.length) resetRequestListForm();
+}
+
+function renderLibrary() {
+  const partner = me.rank >= 3;
+  $("lib-ck-list").innerHTML = lib.checklists.length ? lib.checklists.map((c) => `<details class="ck" data-lib-ck="${c.id}">
+    <summary>${data(c.name)} <span class="tag">${esc(`${c.items.length} questions`)}</span></summary>
+    ${c.description ? `<p class="muted">${data(c.description)}</p>` : ""}
+    <ol>${c.items.map((q) => `<li>${data(q)}</li>`).join("")}</ol>
+    <p class="muted"><span>Last changed by</span> ${data(c.updated_by)}, <span>${esc(when(c.updated_at.replace(/\+00:00$/, "")))}</span></p>
+    ${partner ? '<div class="actions"><button type="button" class="small secondary" data-lib-edit>Change</button><button type="button" class="small secondary danger" data-lib-delete>Delete</button></div>' : ""}
+  </details>`).join("") : `<p class="muted">${esc("No checklists yet.")}</p>`;
+  $("lib-rq-list").innerHTML = lib.lists.length ? lib.lists.map((t) => `<details class="ck" data-lib-rq="${t.id}">
+    <summary>${data(t.name)} <span class="tag">${esc(`${t.items.length} documents`)}</span></summary>
+    <div class="table-wrap"><table><tr><th>Document</th><th>Details for the client</th><th class="num">Due, days after the period end</th></tr>
+      ${t.items.map((it) => `<tr><td>${data(it.title)}</td><td>${it.details ? data(it.details) : ""}</td><td class="num">${it.due_days ?? ""}</td></tr>`).join("")}</table></div>
+    <p class="muted"><span>Last changed by</span> ${data(t.updated_by)}, <span>${esc(when(t.updated_at.replace(/\+00:00$/, "")))}</span></p>
+    ${partner ? '<div class="actions"><button type="button" class="small secondary" data-lib-edit>Change</button><button type="button" class="small secondary danger" data-lib-delete>Delete</button></div>' : ""}
+  </details>`).join("") : `<p class="muted">${esc("No request lists yet.")}</p>`;
+}
+
+function resetChecklistForm() {
+  libCkEditing = null;
+  $("lib-ck-form").reset();
+  $("lib-ck-submit").textContent = "Add checklist";
+  $("lib-ck-cancel").hidden = true;
+}
+
+$("lib-ck-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const body = { name: $("lib-ck-name").value, description: $("lib-ck-description").value,
+    items: $("lib-ck-items").value.split("\n").map((s) => s.trim()).filter(Boolean) };
+  busy(ev.submitter, async () => {
+    await sendJSON(libCkEditing ? "PUT" : "POST", libCkEditing ? `/api/checklists/${libCkEditing}` : "/api/checklists", body);
+    resetChecklistForm();
+    $("lib-ck-add").open = false;
+    await showLibrary();
+  });
+});
+$("lib-ck-cancel").addEventListener("click", () => { resetChecklistForm(); $("lib-ck-add").open = false; });
+
+$("lib-ck-list").addEventListener("click", (ev) => {
+  const box = ev.target.closest("[data-lib-ck]");
+  if (!box) return;
+  const c = lib.checklists.find((x) => String(x.id) === box.dataset.libCk);
+  if (ev.target.closest("[data-lib-edit]")) {
+    libCkEditing = c.id;
+    $("lib-ck-name").value = c.name;
+    $("lib-ck-description").value = c.description;
+    $("lib-ck-items").value = c.items.join("\n");
+    $("lib-ck-submit").textContent = "Save checklist";
+    $("lib-ck-cancel").hidden = false;
+    $("lib-ck-add").open = true;
+    $("lib-ck-name").focus();
+  } else if (ev.target.closest("[data-lib-delete]") && confirm(`Delete the firm checklist ${c.name}? Engagements that have it keep their copy.`)) {
+    busy(ev.target.closest("button"), async () => {
+      await sendJSON("DELETE", `/api/checklists/${c.id}`);
+      if (libCkEditing === c.id) resetChecklistForm();
+      await showLibrary();
+    });
+  }
+});
+
+function requestListRow(it = {}) {
+  return `<tr><td><input data-title maxlength="200" value="${esc(it.title || "")}" aria-label="Document" placeholder="e.g. Bank statements for December"></td>
+    <td><input data-details maxlength="5000" value="${esc(it.details || "")}" aria-label="Details for the client"></td>
+    <td><input data-due type="number" min="-366" max="366" step="1" value="${it.due_days ?? ""}" aria-label="Due, days after the period end"></td>
+    <td><button type="button" class="small secondary danger" data-row-remove>Remove</button></td></tr>`;
+}
+
+function setRequestListRows(items) {
+  $("lib-rq-rows").innerHTML = `<tr><th>Document</th><th>Details for the client</th><th>Due, days after the period end</th><th></th></tr>`
+    + (items.length ? items : [{}]).map(requestListRow).join("");
+}
+
+function resetRequestListForm() {
+  libRqEditing = null;
+  $("lib-rq-form").reset();
+  setRequestListRows([]);
+  $("lib-rq-submit").textContent = "Add request list";
+  $("lib-rq-cancel").hidden = true;
+}
+
+$("lib-rq-row").addEventListener("click", () => {
+  $("lib-rq-rows").insertAdjacentHTML("beforeend", requestListRow());
+  [...$("lib-rq-rows").querySelectorAll("[data-title]")].pop().focus();
+});
+$("lib-rq-rows").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-row-remove]");
+  if (btn) btn.closest("tr").remove();
+});
+
+$("lib-rq-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const items = [...$("lib-rq-rows").querySelectorAll("tr")].filter((tr) => tr.querySelector("[data-title]")?.value.trim())
+    .map((tr) => ({ title: tr.querySelector("[data-title]").value, details: tr.querySelector("[data-details]").value,
+      due_days: tr.querySelector("[data-due]").value === "" ? null : Number(tr.querySelector("[data-due]").value) }));
+  if (!items.length) { showError("Add at least one document."); return; }
+  const body = { name: $("lib-rq-name").value, items };
+  busy(ev.submitter, async () => {
+    await sendJSON(libRqEditing ? "PUT" : "POST", libRqEditing ? `/api/request-templates/${libRqEditing}` : "/api/request-templates", body);
+    resetRequestListForm();
+    $("lib-rq-add").open = false;
+    await showLibrary();
+  });
+});
+$("lib-rq-cancel").addEventListener("click", () => { resetRequestListForm(); $("lib-rq-add").open = false; });
+
+$("lib-rq-list").addEventListener("click", (ev) => {
+  const box = ev.target.closest("[data-lib-rq]");
+  if (!box) return;
+  const t = lib.lists.find((x) => String(x.id) === box.dataset.libRq);
+  if (ev.target.closest("[data-lib-edit]")) {
+    libRqEditing = t.id;
+    $("lib-rq-name").value = t.name;
+    setRequestListRows(t.items);
+    $("lib-rq-submit").textContent = "Save request list";
+    $("lib-rq-cancel").hidden = false;
+    $("lib-rq-add").open = true;
+    $("lib-rq-name").focus();
+  } else if (ev.target.closest("[data-lib-delete]") && confirm(`Delete the request list ${t.name}? Requests already sent stay.`)) {
+    busy(ev.target.closest("button"), async () => {
+      await sendJSON("DELETE", `/api/request-templates/${t.id}`);
+      if (libRqEditing === t.id) resetRequestListForm();
+      await showLibrary();
+    });
+  }
 });
 
 (async () => {

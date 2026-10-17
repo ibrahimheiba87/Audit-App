@@ -30,6 +30,7 @@ from .db import (
     DocumentRequest,
     EclSetup,
     Engagement,
+    EngagementChecklist,
     EngagementMember,
     EngagementPlan,
     Expectation,
@@ -71,6 +72,7 @@ class RollForwardIn(BaseModel):
     ecl: bool = True
     loans: bool = True
     estimates: bool = True
+    checklists: bool = True
 
 
 # The names and periods of an expectation's inputs; the amounts and rates are this year's.
@@ -273,6 +275,13 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
                 assumptions=x.assumptions, uncertainty=x.uncertainty, approach=x.approach,
                 prior_estimate=x.management, created_by=user.name, updated_by=user.name))
         carried["estimates"] = len(old.estimates)
+    if body.checklists and old.checklists:
+        # The questions as this year had them; the answers are next year's.
+        for x in old.checklists:
+            new.checklists.append(EngagementChecklist(
+                source_id=x.source_id, name=x.name, items=list(x.items), answers={},
+                created_by=user.name, updated_by=user.name))
+        carried["checklists"] = len(old.checklists)
     session.flush()
 
     upload = None
@@ -329,6 +338,10 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
             f"{old.name}", new,
             details={"from_engagement_id": old.id, "loans": carried["loans"],
                      "covenants": carried["covenants"]})
+    if carried.get("checklists"):  # and the firm checklists section
+        log(session, user, "checklist.carry",
+            f"Carried {carried['checklists']} checklists from {old.name}", new,
+            details={"from_engagement_id": old.id, "checklists": carried["checklists"]})
     if carried.get("estimates"):  # and the leases, loans and estimates section
         log(session, user, "estimate.carry",
             f"Carried {carried['estimates']} estimates from {old.name}", new,

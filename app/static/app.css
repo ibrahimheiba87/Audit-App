@@ -334,3 +334,8 @@ td.bad { color: var(--high); }
 #ls-form select, #ecl-panel select, #ln-form select, #cv-form select, #es-form select {
   width: 100%; padding: 7px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg); color: var(--text); font: inherit; }
+#ck-pick, #rq-template, #lib-rq-rows input { width: 100%; padding: 7px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+#lib-rq-rows td:first-child { min-width: 14em; }
+.ck { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-top: 10px; }
+.ck summary { cursor: pointer; font-weight: 600; }

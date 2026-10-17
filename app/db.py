@@ -152,6 +152,10 @@ class Engagement(Base):
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="AccountingEstimate.id"
     )
+    checklists: Mapped[list[EngagementChecklist]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="EngagementChecklist.id"
+    )
     findings: Mapped[list[Finding]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Finding.id"
     )
@@ -1372,6 +1376,56 @@ class AccountingEstimate(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="estimates")
+
+
+class FirmChecklist(Base):
+    """A checklist the firm wrote, that teams add to their engagements (checklists.py)."""
+
+    __tablename__ = "firm_checklists"
+    __table_args__ = {"sqlite_autoincrement": True}  # engagements' copies point at old ids
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    items: Mapped[list] = mapped_column(JSON)  # the questions, in order
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class EngagementChecklist(Base):
+    """An engagement's own copy of a firm checklist, and its answers (checklists.py)."""
+
+    __tablename__ = "engagement_checklists"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # not a key: the
+    # firm's checklist can be deleted, and the engagement keeps its copy
+    name: Mapped[str] = mapped_column(String(200))
+    items: Mapped[list] = mapped_column(JSON)
+    answers: Mapped[dict] = mapped_column(JSON, default=dict)  # {index: {answer, comment}}
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    completed_by: Mapped[str] = mapped_column(String(200), default="")
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="checklists")
+
+
+class RequestTemplate(Base):
+    """A firm list of documents to ask clients for (request_lists.py)."""
+
+    __tablename__ = "request_templates"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    items: Mapped[list] = mapped_column(JSON)  # [{title, details, due_days}]
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class FindingNote(Base):

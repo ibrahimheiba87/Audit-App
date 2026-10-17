@@ -17,6 +17,7 @@
       <a href="#/quick" data-view="quick">Quick audit</a>
       <a href="#/overview" data-view="overview" class="min-2">Overview</a>
       <a href="#/schedule" data-view="schedule">Schedule</a>
+      <a href="#/library" data-view="library">Firm library</a>
       <a href="#/users" data-view="users" class="min-4">Users <span class="nav-count" id="signup-count" translate="no" title="Account requests waiting for approval" hidden></span></a>
       <a href="#/activity" data-view="activity" class="min-4">Activity</a>
     </nav>
@@ -129,6 +130,7 @@
         <label><input type="checkbox" name="ecl" checked> The credit loss rates for each age band</label>
         <label><input type="checkbox" name="loans" checked> The loans, opening at this year's closing balance, and their covenants</label>
         <label><input type="checkbox" name="estimates" checked> The accounting estimates, with this year's amounts as last year's estimates</label>
+        <label><input type="checkbox" name="checklists" checked> The firm checklists, without the answers</label>
         <label><input type="checkbox" name="team" checked> The team</label>
       </fieldset>
       <div class="actions"><button type="submit" id="roll-submit">Create next year's engagement</button><button type="button" class="secondary" id="roll-cancel">Cancel</button></div>
@@ -203,7 +205,7 @@
           <option value="related.">Related parties</option>
           <option value="summary.">Contracts and minutes</option>
           <option value="crossmatch.">File matching</option>
-          <option value="disclosure.">Disclosure checklist</option>
+          <option value="disclosure.">Disclosure checklist</option><option value="checklist.">Firm checklists</option><option value="firm_checklist.">Firm library: checklists</option><option value="request_list.">Firm library: request lists</option><option value="lease.">Leases</option><option value="ecl.">Expected credit losses</option><option value="loan.">Loans</option><option value="covenant.">Covenants</option><option value="estimate.">Accounting estimates</option>
           <option value="pack.">Audit file downloads</option>
           <option value="acceptance.">Acceptance</option>
           <option value="independence.">Independence</option>
@@ -255,6 +257,41 @@
       <div class="table-wrap"><table id="sch-table"></table></div>
       <h3>Bookings</h3>
       <div class="table-wrap"><table id="sch-bookings"></table></div>
+    </section>
+  </div>
+
+  <div id="view-library" class="view" hidden>
+    <section class="panel" id="lib-ck-panel">
+      <h2>Firm checklists</h2>
+      <p class="muted">The firm's own checklists, written once and added to any engagement from its Firm checklists panel. Partners and admins add and change them. A change here doesn't change engagements that already have the checklist; they can take the new version.</p>
+      <details id="lib-ck-add" class="min-3">
+        <summary>Add a checklist</summary>
+        <form id="lib-ck-form">
+          <div class="grid">
+            <div><label for="lib-ck-name">Name</label><input id="lib-ck-name" maxlength="200" required placeholder="e.g. Construction contracts"></div>
+          </div>
+          <div><label for="lib-ck-description">What it is for (optional)</label><input id="lib-ck-description" maxlength="5000"></div>
+          <div><label for="lib-ck-items">Questions, one on each line</label><textarea id="lib-ck-items" rows="8" required></textarea></div>
+          <div class="actions"><button type="submit" class="small" id="lib-ck-submit">Add checklist</button><button type="button" class="small secondary" id="lib-ck-cancel" hidden>Cancel</button></div>
+        </form>
+      </details>
+      <div id="lib-ck-list"></div>
+    </section>
+    <section class="panel" id="lib-rq-panel">
+      <h2>Request lists</h2>
+      <p class="muted">Lists of documents to ask clients for, sent on any engagement from its Client requests panel. Each document can be due a number of days after the period end, so a list fits any year end. Partners and admins add and change them, or save an engagement's requests as a list.</p>
+      <details id="lib-rq-add" class="min-3">
+        <summary>Add a request list</summary>
+        <form id="lib-rq-form">
+          <div class="grid">
+            <div><label for="lib-rq-name">Name</label><input id="lib-rq-name" maxlength="200" required placeholder="e.g. Year-end documents for a trading company"></div>
+          </div>
+          <div class="table-wrap"><table id="lib-rq-rows"></table></div>
+          <div class="actions"><button type="button" class="small secondary" id="lib-rq-row">Add a document</button></div>
+          <div class="actions"><button type="submit" class="small" id="lib-rq-submit">Add request list</button><button type="button" class="small secondary" id="lib-rq-cancel" hidden>Cancel</button></div>
+        </form>
+      </details>
+      <div id="lib-rq-list"></div>
     </section>
   </div>
 
@@ -1413,6 +1450,20 @@
             </div>
           </section>
 
+          <section class="panel" id="ck-panel">
+            <div class="row-between">
+              <h2>Firm checklists</h2>
+              <a class="button secondary" id="ck-export" hidden>Download Excel</a>
+            </div>
+            <p class="muted">Add the firm's own checklists to this engagement and answer them. A question answered No needs a comment. Partners write the firm's checklists on the Firm library page; this engagement keeps its own copy.</p>
+            <div class="grid">
+              <div><label for="ck-pick">Firm checklist</label><select id="ck-pick"></select></div>
+            </div>
+            <div class="actions"><button type="button" class="small" id="ck-add">Add checklist</button></div>
+            <div class="cards" id="ck-cards"></div>
+            <div id="ck-list"></div>
+          </section>
+
           <section class="panel" id="dc-panel">
             <div class="row-between">
               <h2>Disclosure checklist</h2>
@@ -1643,6 +1694,10 @@
                 <div><button type="submit" id="rq-submit">Send request</button></div>
               </form>
             </details>
+            <div class="grid" style="margin-top:12px">
+              <div><label for="rq-template">Firm request list</label><select id="rq-template"></select></div>
+            </div>
+            <div class="actions"><button type="button" class="small secondary" id="rq-template-send">Send the list</button><button type="button" class="small secondary min-3" id="rq-template-save">Save these requests as a firm list</button></div>
             <div class="filters" style="margin-top:12px">
               <select id="rq-filter" aria-label="Show requests">
                 <option value="">All requests</option><option value="open,returned">Waiting for the client</option>
