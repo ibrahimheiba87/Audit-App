@@ -2727,6 +2727,8 @@ I18N.add({
   patterns: {
     "{n} entries have only debits or only credits, so they can't be paired.": "{n} قيود لها طرف مدين فقط أو دائن فقط، لذا لا يمكن إقرانها.",
     "A pair used in {n} entries or fewer counts as rare.": "يُعدّ الزوج نادرًا إذا استُخدم في {n} قيود أو أقل.",
+    "{n} closing entries move profit or loss to retained earnings; they aren't listed as worth a look.": "{n} قيود إقفال تنقل الأرباح أو الخسائر إلى الأرباح المحتجزة؛ ولا تُدرج ضمن ما يستحق النظر.",
+    "{n} entries post to too many accounts on both sides to pair account by account; they are in the statement lines.": "{n} قيود تُرحَّل إلى حسابات كثيرة جدًا في الطرفين فلا يمكن إقرانها حسابًا بحساب؛ وهي مشمولة في بنود القوائم.",
     "Looked at the account pairs in {file}": "عرض أزواج الحسابات في {file}",
     "Downloaded the account pairs workpaper for {file}": "تنزيل ورقة عمل أزواج الحسابات لـ {file}",
     "Use {amount}": "استخدام {amount}",

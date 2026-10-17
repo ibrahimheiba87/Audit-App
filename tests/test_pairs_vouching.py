@@ -154,3 +154,32 @@ def test_an_unreadable_amount_is_left_for_the_auditor(fake_api):  # noqa: F811
     fake_api["answers"] = [{"issuer": "Someone Else", "date": "2026-12-22"}]
     v = vouch(s["id"], s["result"]["items"][0]["row"]).json()
     assert v["status"] == "check" and v["suggested_amount"] is None
+
+
+def test_big_entries_and_closing_entries_stay_quick_and_quiet():
+    from types import SimpleNamespace
+    rows = [{"row": i, "entry_id": "PAY", "account": f"5{i:04d} Salary {i}", "amount": 10.0}
+            for i in range(3000)]
+    rows += [{"row": 3000 + i, "entry_id": "PAY", "account": f"2{i:04d} Payable {i}",
+              "amount": -10.0} for i in range(3000)]
+    rows += [{"row": 9000, "entry_id": "CLOSE", "account": "4000 Sales", "amount": 50.0},
+             {"row": 9001, "entry_id": "CLOSE", "account": "3500 Retained earnings",
+              "amount": -50.0}]
+    out = account_pairs.analyse(pd.DataFrame(rows), SimpleNamespace(account_mappings=[]))
+    assert out["accounts_skipped"] == 1 and out["closing_entries"] == 1
+    assert out["total"] == 30050
+    equity = next(c for c in out["checks"] if c["check"] == "equity_pl")
+    assert equity["count"] == 0
+
+
+def test_vouching_number_and_party_checks_are_not_fooled():
+    from app import vouching
+    item = {"amount": 100, "date": "2026-05-01", "entry_id": "JE10012",
+            "description": "Acme Trading purchase", "account": "6000 Purchases"}
+    doc = vouching.clean({"issuer": "Other Supplier", "recipient": "Acme Trading",
+                          "number": "001", "date": "2026-05-01", "total": 100})
+    checks, status, _ = vouching.compare(item, doc, date(2026, 12, 31), "Acme Trading")
+    kinds = {c["check"]: c for c in checks}
+    assert "number" not in kinds  # "001" is part of JE10012, not the document number
+    assert kinds["party"]["ok"] is None and "Other Supplier" in kinds["party"]["text"]
+    assert status == "agrees"

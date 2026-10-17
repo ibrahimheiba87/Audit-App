@@ -13,7 +13,6 @@ downloads to Excel. It only reads, so it works on locked files too.
 from __future__ import annotations
 
 import io
-from collections import defaultdict
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
@@ -31,7 +30,7 @@ router = APIRouter(prefix="/api")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MAX_SHOWN = 200        # entries per list on the page; the download has them all
 MAX_EXPORT = 20_000
-MAX_ACCOUNT_PAIRS = 500
+MAX_ACCOUNT_COMBOS = 10_000  # debit accounts x credit accounts in one entry
 RARE = 2               # a pair of lines used in this many entries or fewer is rare ...
 MIN_ENTRIES = 100      # ... in a ledger with at least this many entries
 UNKNOWN = "unknown"    # lines with no statement line
@@ -92,23 +91,34 @@ def analyse(df: pd.DataFrame, e: Engagement) -> dict:
     both = sides.index[sides["has_dr"] & sides["has_cr"]]
     one_sided = len(sides) - len(both)
     df = df[df["_entry"].isin(both)]
-    dr = df[df["amount"] > 0][["_entry", "_line", "_account", "amount"]]
-    cr = df[df["amount"] < 0][["_entry", "_line", "_account", "amount"]]
-    cr = cr.assign(share=cr["amount"] / cr.groupby("_entry")["amount"].transform("sum"))
-    flows = dr.merge(cr[["_entry", "_line", "_account", "share"]], on="_entry",
-                     suffixes=("_dr", "_cr"))
-    flows["flow"] = flows["amount"] * flows["share"]
+    dr, cr = df[df["amount"] > 0], df[df["amount"] < 0]
 
-    def grouped(a: str, b: str) -> dict:
-        g = flows.groupby([a, b], sort=False).agg(entries=("_entry", lambda x: set(x)),
-                                                  amount=("flow", "sum"))
-        return {k: {"entries": r.entries, "amount": r.amount}
+    def flows_by(col: str, skip: pd.Index | None = None) -> pd.DataFrame:
+        """Each entry's debits on `col` paired with its credits, shared out in proportion.
+        Lines are added up per entry first, so an entry of thousands of lines on a few
+        accounts stays small."""
+        d = dr.groupby(["_entry", col], sort=False)["amount"].sum().reset_index()
+        c = cr.groupby(["_entry", col], sort=False)["amount"].sum().reset_index()
+        if skip is not None:
+            d, c = d[~d["_entry"].isin(skip)], c[~c["_entry"].isin(skip)]
+        c = c.assign(share=c["amount"] / c.groupby("_entry")["amount"].transform("sum"))
+        f = d.merge(c[["_entry", col, "share"]], on="_entry", suffixes=("_dr", "_cr"))
+        return f.assign(flow=f["amount"] * f["share"])
+
+    def grouped(f: pd.DataFrame, col: str) -> dict:
+        g = f.groupby([f"{col}_dr", f"{col}_cr"], sort=False).agg(
+            entries=("_entry", "nunique"), amount=("flow", "sum"))
+        return {k: {"entries": int(r.entries), "amount": r.amount}
                 for k, r in zip(g.index, g.itertuples(), strict=True)}
-    lines = grouped("_line_dr", "_line_cr")
-    accounts = grouped("_account_dr", "_account_cr")
-    entry_pairs: dict[str, set] = defaultdict(set)
-    for key, d, c in zip(flows["_entry"], flows["_line_dr"], flows["_line_cr"], strict=True):
-        entry_pairs[key].add((d, c))
+    line_flows = flows_by("_line")
+    lines = grouped(line_flows, "_line")
+    # An entry posting to many accounts on both sides would make millions of account pairs;
+    # such entries are left out of the account pairs (they still count in the lines above).
+    combos = (dr.groupby("_entry")["_account"].nunique()
+              * cr.groupby("_entry")["_account"].nunique())
+    too_big = combos.index[combos > MAX_ACCOUNT_COMBOS]
+    accounts = grouped(flows_by("_account", too_big), "_account")
+    entry_pairs = line_flows[["_entry", "_line_dr", "_line_cr"]].drop_duplicates()
     df = df.assign(_debit=df["amount"].clip(lower=0))
     info = df.groupby("_entry", sort=False).agg(
         row=("row", "min"), user=("_user", "first"), description=("_description", "first"),
@@ -125,21 +135,31 @@ def analyse(df: pd.DataFrame, e: Engagement) -> dict:
     pair_rows = []
     for (d, c), v in lines.items():
         flags = flags_of(d, c)
-        if rare_applies and len(v["entries"]) <= RARE:
+        if rare_applies and v["entries"] <= RARE:
             flags.append("rare")
         pair_rows.append({"debit": d, "debit_label": label(d), "credit": c,
-                          "credit_label": label(c), "entries": len(v["entries"]),
+                          "credit_label": label(c), "entries": v["entries"],
                           "amount": money(v["amount"]), "flags": flags})
     pair_rows.sort(key=lambda r: -r["amount"])
     flagged_pairs = {(r["debit"], r["credit"]): r["flags"] for r in pair_rows if r["flags"]}
+    pair_flags = [flagged_pairs.get(p, ()) for p in
+                  zip(entry_pairs["_line_dr"], entry_pairs["_line_cr"], strict=True)]
+    # Closing entries move profit or loss to retained earnings and nothing else; they are
+    # expected, so they aren't listed as equity moved against profit or loss.
+    kinds = df.assign(_ok=df["_line"].map(lambda x: x == "retained_earnings" or is_pl(x)),
+                      _re=df["_line"] == "retained_earnings").groupby("_entry")[["_ok", "_re"]]
+    kinds = kinds.agg({"_ok": "all", "_re": "any"})
+    closing = set(kinds.index[kinds["_ok"] & kinds["_re"]])
     checks = []
     for k, name in CHECKS.items():
-        keys = [key for key, ps in entry_pairs.items()
-                if any(k in flagged_pairs.get(p, ()) for p in ps)]
+        hit = [k in f for f in pair_flags]
+        keys = entry_pairs["_entry"][hit].unique()
+        if k == "equity_pl":
+            keys = [key for key in keys if key not in closing]
         items = sorted((entry_info[key] for key in keys), key=lambda i: -i["debits"])
         checks.append({"check": k, "label": name, "count": len(items),
                        "debits": money(sum(i["debits"] for i in items)), "items": items})
-    account_rows = sorted(({"debit": d, "credit": c, "entries": len(v["entries"]),
+    account_rows = sorted(({"debit": d, "credit": c, "entries": v["entries"],
                             "amount": money(v["amount"])} for (d, c), v in accounts.items()),
                           key=lambda r: -r["amount"])
     known = df["_line"] != UNKNOWN
@@ -148,8 +168,8 @@ def analyse(df: pd.DataFrame, e: Engagement) -> dict:
         "total": money(sum(i["debits"] for i in entry_info.values())),
         "lines_known_pct": round(known.mean() * 100, 1) if len(df) else 0,
         "mapped": bool(e.account_mappings), "rare_applies": rare_applies, "rare_limit": RARE,
-        "pairs": pair_rows, "accounts": account_rows[:MAX_ACCOUNT_PAIRS],
-        "account_pairs": len(account_rows), "checks": checks}
+        "pairs": pair_rows, "accounts": account_rows, "account_pairs": len(account_rows),
+        "accounts_skipped": len(too_big), "closing_entries": len(closing), "checks": checks}
 
 
 def run(upload: Upload) -> dict:
@@ -192,6 +212,14 @@ def export_account_pairs(upload_id: int, user: User = Depends(current_user),
         ("Value paired", r["total"]),
         ("Lines with a known statement line", f"{r['lines_known_pct']}%"),
         ("How", "Each debit is paired with the entry's credits, shared out in proportion."),
+        ("Closing entries (profit or loss to retained earnings, not listed as worth a look)",
+         r["closing_entries"]),
+        ("Entries left out of the account pairs (too many accounts on both sides)",
+         r["accounts_skipped"]),
+        *[(f"{SHEETS[c['check']]} sheet", f"First {MAX_EXPORT:,} of {c['count']:,} entries")
+          for c in r["checks"] if c["count"] > MAX_EXPORT],
+        *([("Accounts sheet", f"First {MAX_EXPORT:,} of {r['account_pairs']:,} pairs")]
+          if r["account_pairs"] > MAX_EXPORT else []),
         *[(c["label"], c["count"]) for c in r["checks"]]], columns=["Item", "Value"])
     pairs = pd.DataFrame([{
         "Debited": p["debit_label"], "Credited": p["credit_label"], "Entries": p["entries"],
@@ -199,7 +227,7 @@ def export_account_pairs(upload_id: int, user: User = Depends(current_user),
         for p in r["pairs"]])
     accounts = pd.DataFrame([{"Debited account": a["debit"], "Credited account": a["credit"],
                               "Entries": a["entries"], "Amount": a["amount"]}
-                             for a in r["accounts"]])
+                             for a in r["accounts"][:MAX_EXPORT]])
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as xl:
         about.to_excel(xl, sheet_name="About", index=False)
