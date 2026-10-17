@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from . import checks, db, loader, portal, report
 from .acceptance import router as acceptance_router
+from .account_pairs import router as account_pairs_router
 from .accounts import router as accounts_router
 from .ai_tools import router as ai_tools_router
 from .ai_writer import router as ai_writer_router
@@ -58,6 +59,7 @@ from .stock_count import router as stock_count_router
 from .summaries import router as summaries_router
 from .templates import router as templates_router
 from .uploads import FORM_OVERHEAD, MAX_UPLOAD_BYTES, BodyLimit, parse_mapping, read_upload
+from .vouching import router as vouching_router
 from .workplan import router as workplan_router
 
 STATIC = Path(__file__).parent / "static"
@@ -85,7 +87,8 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                completion_router, report_router, related_router, summaries_router,
                explorer_router, expectations_router, fixed_assets_router,
                stock_count_router, prior_points_router, notifications_router, overview_router,
-               posters_router, quality_router, search_router):
+               posters_router, quality_router, search_router, account_pairs_router,
+               vouching_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

@@ -190,7 +190,8 @@ def draw(df: pd.DataFrame, p: SampleParams) -> dict:
     }
 
 
-def to_excel(result: dict, context: dict | None = None, evaluation: dict | None = None) -> bytes:
+def to_excel(result: dict, context: dict | None = None, evaluation: dict | None = None,
+             extra: dict[str, list[dict]] | None = None) -> bytes:
     params = result["params"]
     rows = list((context or {}).items()) + [
         ("Method", result["method_label"]),
@@ -226,6 +227,9 @@ def to_excel(result: dict, context: dict | None = None, evaluation: dict | None 
         if evaluation:
             pd.DataFrame(evaluation_rows(evaluation), columns=["Item", "Value"]).to_excel(
                 xl, sheet_name="Evaluation", index=False)
+        for name, rows_ in (extra or {}).items():
+            if rows_:
+                pd.DataFrame(rows_).to_excel(xl, sheet_name=name, index=False)
         finish_workbook(xl.book)
     return buf.getvalue()
 

@@ -48,7 +48,7 @@ from . import (
 )
 from . import completion as completion_module
 from .auth import current_user, log
-from .db import Activity, Engagement, Evidence, RequestFile, Upload, User, get_session
+from .db import Activity, Engagement, Evidence, RequestFile, Upload, User, Vouching, get_session
 from .engagements import get_or_404, run_workbook, safe_stem
 from .exports import attachment, finish_workbook
 
@@ -227,6 +227,12 @@ def source_files(e: Engagement) -> list[dict]:
                         "what": f"Evidence for finding #{f.id} ({f.check_name})",
                         "size": x.size, "sha256": x.sha256, "by": x.author, "at": x.uploaded_at,
                         "model": Evidence, "id": x.id})
+    for s in e.samples:
+        for v in s.vouchings:
+            out.append({"name": v.filename,
+                        "what": f"Vouched to row {v.row} of sample #{s.id}",
+                        "size": v.size, "sha256": v.sha256, "by": v.created_by,
+                        "at": v.created_at, "model": Vouching, "id": v.id})
     for r in e.document_requests:
         for x in r.files:
             out.append({"name": x.filename, "what": f"Sent for request {r.number}",

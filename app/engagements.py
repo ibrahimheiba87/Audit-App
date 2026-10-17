@@ -597,10 +597,10 @@ def delete_upload(upload_id: int, user: User = Depends(require("review")),
         raise HTTPException(409, f"{len(worked)} findings from this file have been reviewed or "
                                  "have notes or evidence, so the file is kept as support.")
     samples = list(session.scalars(select(Sample).where(Sample.upload_id == upload_id)))
-    tested = [x for x in samples if x.evaluation is not None]
+    tested = [x for x in samples if x.evaluation is not None or x.vouchings]
     if tested:
         raise HTTPException(409, f"{len(tested)} samples from this file have test results "
-                                 "recorded, so the file is kept as support.")
+                                 "or vouched documents, so the file is kept as support.")
     affects = set()  # review sections whose work goes with the file (review.detail_effects)
     for f in findings:
         session.delete(f)

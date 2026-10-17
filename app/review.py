@@ -81,7 +81,7 @@ SECTIONS = [
             "matched against each other.",
             ("comparison.create", "crossmatch.create", "crossmatch.delete")),
     Section("sampling", "Sampling", "Samples drawn for testing and their results.",
-            ("sample.create", "sample.evaluate")),
+            ("sample.create", "sample.evaluate", "sample.vouch", "sample.unvouch")),
     Section("bank", "Bank reconciliation",
             "Bank statements matched to the cash account, and the reconciling items.",
             ("bankrec.create",)),

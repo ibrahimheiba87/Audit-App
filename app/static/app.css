@@ -219,7 +219,7 @@ tr.group-row th { background: var(--low-bg); }
 .check-list input { width: auto; }
 .card.bad .v { color: var(--high); }
 #doc-checks { padding-inline-start: 20px; }
-#doc-checks li.warn-high { color: var(--high); font-weight: 600; }
+#doc-checks li.warn-high, .vouch-checks li.warn-high { color: var(--high); font-weight: 600; }
 .checks-inline { border: 0; padding: 0; margin: 8px 0 0; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
 .checks-inline legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 4px; }
 .checks-inline label { display: flex; gap: 6px; align-items: center; margin: 0; color: inherit; font-size: 14px; }
@@ -238,6 +238,10 @@ tr.group-row th { background: var(--low-bg); }
 .pill.ev-exceeds { color: var(--high); background: var(--high-bg); }
 .pill.ev-close { color: var(--medium); background: var(--medium-bg); }
 .pill.ev-acceptable { color: var(--ok, #1e8449); }
+.pill.vc-agrees { color: var(--ok, #1e8449); }
+.pill.vc-differs { color: var(--high); background: var(--high-bg); }
+.pill.vc-check { color: var(--medium); background: var(--medium-bg); }
+.vouch-checks { margin: 4px 0; padding: 0; list-style: none; font-size: 0.85em; min-width: 16em; }
 td.bad { color: var(--high); }
 /* Risk register and audit program */
 .risk-item { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 14px; }

@@ -903,6 +903,9 @@ class Sample(Base):
     evaluation: Mapped[SampleEvaluation | None] = relationship(
         back_populates="sample", cascade="all, delete-orphan", uselist=False
     )
+    vouchings: Mapped[list[Vouching]] = relationship(
+        back_populates="sample", cascade="all, delete-orphan", order_by="Vouching.row"
+    )
 
 
 class SampleEvaluation(Base):
@@ -918,6 +921,33 @@ class SampleEvaluation(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     sample: Mapped[Sample] = relationship(back_populates="evaluation")
+
+
+class Vouching(Base):
+    """A sample item checked against its source document (an invoice, receipt or contract):
+    what the AI read from the document and how it compares with the ledger line
+    (vouching.py). One per item; vouching it again replaces it."""
+
+    __tablename__ = "vouchings"
+    __table_args__ = (UniqueConstraint("sample_id", "row"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    sample_id: Mapped[int] = mapped_column(ForeignKey("samples.id"), index=True)
+    row: Mapped[int] = mapped_column(Integer)
+    filename: Mapped[str] = mapped_column(String(500))
+    content_type: Mapped[str] = mapped_column(String(200), default="application/octet-stream")
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)  # loaded on download
+    size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    document: Mapped[dict] = mapped_column(JSON)  # what was read from it
+    checks: Mapped[list] = mapped_column(JSON)   # [{check, ok, text}]
+    status: Mapped[str] = mapped_column(String(20))  # vouching.STATUSES
+    suggested_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    sample: Mapped[Sample] = relationship(back_populates="vouchings")
 
 
 class Finding(Base):

@@ -350,6 +350,7 @@ async function openEngagement(id) {
   renderStratifyForm(e);
   renderExplorerForm(e);
   renderWhoForm(e);
+  renderPairsForm(e);
   renderFixedAssetForm(e);
   renderStockForm(e);
   renderAgingForm(e);
@@ -4464,7 +4465,8 @@ function showSample(s, scroll = true) {
   const hits = r.method === "mus";
   const ev = s.evaluation;
   const tested = Object.fromEntries((ev?.items || []).map((i) => [i.row, i]));
-  $("smp-table").innerHTML = `<tr><th>Row</th><th>Entry</th><th>Date</th><th>Account</th><th>Description</th><th>Amount</th>${hits ? "<th>Hits</th>" : ""}<th>Why selected</th><th>Audited amount</th><th>Misstatement</th><th>Notes</th></tr>` +
+  const vouched = Object.fromEntries((s.vouchings || []).map((v) => [v.row, v]));
+  $("smp-table").innerHTML = `<tr><th>Row</th><th>Entry</th><th>Date</th><th>Account</th><th>Description</th><th>Amount</th>${hits ? "<th>Hits</th>" : ""}<th>Why selected</th><th>Audited amount</th><th>Misstatement</th><th>Notes</th><th>Document</th></tr>` +
     r.items.map((i) => {
       const t = tested[i.row] || {};
       return `<tr data-row="${i.row}" data-book="${Math.abs(i.amount)}"><td class="num">${i.row}</td><td>${esc(i.entry_id)}</td>
@@ -4473,11 +4475,65 @@ function showSample(s, scroll = true) {
       <td>${esc(i.reason)}</td>
       <td><input type="number" min="0" step="any" class="ev-audited" aria-label="Audited amount" value="${t.audited_amount ?? ""}" style="width:9em"></td>
       <td class="num${t.misstatement ? " bad" : ""}">${t.misstatement == null ? "" : money(t.misstatement)}</td>
-      <td><input class="ev-notes" maxlength="1000" aria-label="Notes" value="${esc(t.notes || "")}" style="min-width:12em"></td></tr>`;
+      <td><input class="ev-notes" maxlength="1000" aria-label="Notes" value="${esc(t.notes || "")}" style="min-width:12em"></td>
+      <td class="vouch-cell">${vouchCell(vouched[i.row])}</td></tr>`;
     }).join("");
   renderEvaluation(s);
   if (scroll) $("smp-result").scrollIntoView({ behavior: "smooth" });
 }
+
+// Vouching: the document behind a sample item, read by the AI and compared with the line.
+function vouchCell(v) {
+  const pick = assistant.enabled
+    ? `<label class="button small secondary">${v ? "Replace" : "Vouch"}<input type="file" hidden accept=".pdf,.png,.jpg,.jpeg" class="vouch-file"></label>` : "";
+  if (!v) return pick || '<span class="muted">The AI assistant is off.</span>';
+  return `<span class="pill vc-${v.status}">${esc(v.status_label)}</span>
+    <div><a href="/api/vouchings/${v.id}/document" translate="no">${esc(v.filename)}</a></div>
+    <ul class="vouch-checks">${v.checks.map((c) => `<li class="${c.ok === false ? "warn-high" : ""}">${c.ok ? "✓" : c.ok === false ? "✗" : "?"} <span>${esc(c.text)}</span></li>`).join("")}</ul>
+    <div class="cell-actions">${v.suggested_amount != null ? `<button type="button" class="small secondary vouch-use" data-amount="${v.suggested_amount}">Use ${money(v.suggested_amount)}</button>` : ""}
+      ${pick}<button type="button" class="small secondary vouch-remove" data-vouching="${v.id}">Remove</button></div>`;
+}
+
+$("smp-table").addEventListener("click", (ev) => {
+  const tr = ev.target.closest("tr[data-row]");
+  const use = ev.target.closest(".vouch-use");
+  if (use) { tr.querySelector(".ev-audited").value = use.dataset.amount; return; }
+  const remove = ev.target.closest(".vouch-remove");
+  if (remove) {
+    busy(remove, async () => {
+      const sampleId = currentSample.id;
+      await request(`/api/vouchings/${remove.dataset.vouching}`, { method: "DELETE" });
+      if (currentSample?.id !== sampleId) return;
+      currentSample.vouchings = currentSample.vouchings.filter((v) => String(v.id) !== remove.dataset.vouching);
+      tr.querySelector(".vouch-cell").innerHTML = vouchCell(null);
+    });
+  }
+});
+
+$("smp-table").addEventListener("change", (ev) => {
+  const input = ev.target.closest(".vouch-file");
+  if (!input?.files.length) return;
+  const tr = input.closest("tr[data-row]");
+  const cell = tr.querySelector(".vouch-cell");
+  const row = Number(tr.dataset.row), sampleId = currentSample.id;
+  const fd = new FormData();
+  fd.append("file", input.files[0]);
+  fd.append("language", I18N.lang === "ar" ? "ar" : "en");
+  cell.innerHTML = '<span class="muted">Reading the document…</span>';
+  guard(async () => {
+    try {
+      const v = await (await postForm(`/api/samples/${sampleId}/items/${row}/vouch`, fd)).json();
+      if (currentSample?.id !== sampleId) return;
+      currentSample.vouchings = [...(currentSample.vouchings || []).filter((x) => x.row !== row), v];
+      cell.innerHTML = vouchCell(v);
+    } catch (err) {
+      if (currentSample?.id === sampleId) cell.innerHTML = vouchCell((currentSample.vouchings || []).find((x) => x.row === row));
+      throw err;
+    } finally {
+      if (currentEngagement) loadEngagementActivity();
+    }
+  });
+});
 
 function renderEvaluation(s) {
   const ev = s.evaluation;
@@ -4712,6 +4768,96 @@ $("who-tabs").addEventListener("click", (ev) => {
   if (!tab) return;
   whoTab = tab.dataset.who;
   renderWho();
+});
+
+// Account pairs
+
+let pairs = null;      // the look on show
+let pairsTab = "lines";
+
+function renderPairsForm(e) {
+  const keep = $("acp-upload").value;
+  const files = e.uploads.filter((u) => u.kind === "gl");
+  $("acp-upload").innerHTML = files
+    .map((u) => `<option value="${u.id}" translate="no">${esc(u.filename)}</option>`)
+    .join("") || '<option value="">Upload a general ledger first</option>';
+  if (files.some((u) => String(u.id) === keep)) $("acp-upload").value = keep;
+  if (pairs && !files.some((u) => u.id === pairs.upload_id)) resetPairs();
+}
+
+function resetPairs() {
+  pairs = null;
+  $("acp-result").hidden = $("acp-export").hidden = true;
+}
+
+$("acp-upload").addEventListener("change", resetPairs);
+
+$("acp-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("acp-run"), async () => {
+    const id = Number($("acp-upload").value);
+    if (!id) throw new Error("Upload a general ledger first.");
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/uploads/${id}/account-pairs`);
+    if (currentEngagement?.id !== engagementId) return;
+    pairs = out;
+    renderPairs();
+    await loadEngagementActivity();
+  });
+});
+
+function renderPairs() {
+  const r = pairs;
+  $("acp-result").hidden = $("acp-export").hidden = false;
+  $("acp-export").href = `/api/uploads/${r.upload_id}/account-pairs/export`;
+  const checks = r.checks.filter((c) => c.check !== "rare" || r.rare_applies);
+  const byCheck = Object.fromEntries(r.checks.map((c) => [c.check, c]));
+  $("acp-cards").innerHTML = [
+    [r.entries.toLocaleString(LOCALE), "Entries paired", false],
+    [money(r.total), "Value paired", false],
+    [r.pairs.length.toLocaleString(LOCALE), "Pairs of statement lines", false],
+    ...checks.map((c) => [c.count.toLocaleString(LOCALE), c.label, c.count > 0]),
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  const notes = [r.mapped ? `${r.lines_known_pct}% of lines have a statement line, from the account mapping or the account's name.`
+    : `${r.lines_known_pct}% of lines have a statement line, guessed from the account's name. Map the trial balance for a better result.`];
+  if (r.one_sided) notes.push(`${r.one_sided} entries have only debits or only credits, so they can't be paired.`);
+  if (r.rare_applies) notes.push(`A pair used in ${r.rare_limit} entries or fewer counts as rare.`);
+  $("acp-note").innerHTML = notes.map((n) => `<span>${esc(n)}</span>`).join(" ");
+  const tabs = [["lines", "Statement lines"], ["accounts", "Accounts"], ...checks.map((c) => [c.check, c.label])];
+  if (!tabs.some(([k]) => k === pairsTab)) pairsTab = "lines";
+  $("acp-tabs").innerHTML = tabs.map(([k, label]) =>
+    `<button type="button" role="tab" data-pairs="${k}" aria-selected="${k === pairsTab}">${esc(label)}${byCheck[k]?.count ? ` <span class="nav-count" translate="no">${byCheck[k].count}</span>` : ""}</button>`).join("");
+  if (pairsTab === "lines") {
+    const label = Object.fromEntries(r.checks.map((c) => [c.check, c.label]));
+    $("acp-table").innerHTML = `<thead><tr><th>Debited</th><th>Credited</th><th class="num">Entries</th><th class="num">Amount</th><th>Worth a look</th></tr></thead><tbody>
+      ${r.pairs.map((p) => `<tr><td>${esc(p.debit_label)}</td><td>${esc(p.credit_label)}</td>
+        <td class="num">${p.entries.toLocaleString(LOCALE)}</td><td class="num">${money(p.amount)}</td>
+        <td>${p.flags.map((f) => `<span class="pill bad">${esc(label[f])}</span>`).join(" ")}</td></tr>`).join("")}</tbody>`;
+    return;
+  }
+  if (pairsTab === "accounts") {
+    $("acp-table").innerHTML = `<thead><tr><th>Debited account</th><th>Credited account</th><th class="num">Entries</th><th class="num">Amount</th></tr></thead><tbody>
+      ${r.accounts.map((a) => `<tr><td>${data(a.debit)}</td><td>${data(a.credit)}</td>
+        <td class="num">${a.entries.toLocaleString(LOCALE)}</td><td class="num">${money(a.amount)}</td></tr>`).join("")}</tbody>` +
+      (r.account_pairs > r.accounts.length ? `<tfoot><tr><td colspan="4" class="muted">${esc(`Showing the first ${r.accounts.length}.`)}</td></tr></tfoot>` : "");
+    return;
+  }
+  const c = byCheck[pairsTab];
+  if (!c.items.length) { $("acp-table").innerHTML = '<tbody><tr><td class="muted">Nothing to show.</td></tr></tbody>'; return; }
+  $("acp-table").innerHTML = `<thead><tr><th>Entry</th><th>Date</th><th>User</th><th>Description</th>
+      <th>Accounts</th><th class="num">Debits</th></tr></thead><tbody>
+    ${c.items.map((i) => `<tr><td>${data(i.entry_id)}</td>
+      <td class="nowrap">${i.date ? `<bdi dir="ltr" translate="no">${esc(i.date)}</bdi>` : ""}</td>
+      <td>${data(i.user)}</td><td>${data(i.description)}</td>
+      <td>${data(i.accounts)}</td><td class="num">${money(i.debits)}</td></tr>`).join("")}</tbody>` +
+    (c.count > c.items.length ? `<tfoot><tr><td colspan="6" class="muted">${esc(`Showing the first ${c.items.length}.`)}</td></tr></tfoot>` : "");
+}
+
+$("acp-tabs").addEventListener("click", (ev) => {
+  const tab = ev.target.closest("[data-pairs]");
+  if (!tab) return;
+  pairsTab = tab.dataset.pairs;
+  renderPairs();
 });
 
 let lx = null;  // the look on show
