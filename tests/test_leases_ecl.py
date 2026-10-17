@@ -23,13 +23,13 @@ def test_a_lease_in_arrears_is_recalculated():
     assert r.status_code == 201, r.text
     [x] = r.json()["leases"]
     assert x["first_liability"] == 11255.08
-    assert x["end_date"] == "2027-01-01"
-    # The last payment falls on 1 January, so it is still owed at the year end.
-    assert x["liability"] == 1000.0 and x["current"] == 1000.0 and x["noncurrent"] == 0
+    assert x["end_date"] == "2026-12-31"
+    # Paid in arrears on each month's last day, so the lease is settled at the year end.
+    assert x["liability"] == 0 and x["current"] == 0 and x["noncurrent"] == 0
     assert x["rou"] == 0 and x["depreciation"] == 11255.08
     assert x["interest"] == round(12000 - 11255.08, 2)
-    assert x["payments"] == 11000
-    assert x["diff_liability"] == 500 and x["flags"] == ["liability"]
+    assert x["payments"] == 12000
+    assert x["diff_liability"] == 1500 and x["flags"] == ["liability"]
     assert any("short-term" in n for n in x["notes"])
     later = client.post(f"/api/engagements/{eid}/leases",
                         json={**LEASE, "name": "Later", "start_date": "2027-03-01"}).json()
@@ -61,6 +61,22 @@ def test_a_lease_in_advance_and_changes():
     assert {"lease.create", "lease.update", "lease.delete", "lease.download"} <= acts
 
 
+def test_a_yearly_lease_mid_way_and_a_february_year_end():
+    from datetime import date  # noqa: PLC0415
+    eid = engagement(with_prior=False)
+    body = {**LEASE, "start_date": "2025-01-01", "term_months": 60, "frequency": "annual",
+            "rate_pct": 10}
+    # The year before was 2025; at the end of 2026 two payments of 1,000 are made.
+    x = client.post(f"/api/engagements/{eid}/leases", json=body).json()["leases"][0]
+    pv = sum(1000 / 1.1 ** k for k in range(1, 6))
+    expected = (pv * 1.1 - 1000) * 1.1 - 1000
+    assert x["liability"] == round(expected, 2) and x["payments"] == 1000
+    assert x["current"] == round(expected - (expected * 1.1 - 1000), 2)
+    assert leases.shift_years(date(2025, 2, 28), -1) == date(2024, 2, 29)
+    assert leases.shift_years(date(2023, 2, 28), 1) == date(2024, 2, 29)
+    assert leases.shift_years(date(2026, 6, 15), -1) == date(2025, 6, 15)
+
+
 def test_month_ends_stay_month_ends():
     from datetime import date  # noqa: PLC0415
     assert leases.add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
@@ -90,11 +106,12 @@ def test_the_credit_loss_matrix():
     by = {x["id"]: x for x in res["rows"]}
     # 500,000 is 61 days overdue, 200,000 not yet due, 250,000 over 180 days overdue; the
     # credit note isn't provided for, and January's invoice is dated after the period end.
-    assert by["d61_90"]["allowance"] == 100000 and by["current"]["allowance"] == 2007
+    assert by["d61_90"]["allowance"] == 100000 and by["current"]["allowance"] == 2000
     assert by["over_180"]["allowance"] == 250000
-    assert res["expected"] == 352007 and res["difference"] == 1000 - 352007
+    assert res["expected"] == 352000 and res["difference"] == 1000 - 352000
     assert res["level"] == "above_trivial"
-    assert any("Credit balances" in n for n in res["notes"])
+    assert any("credit balances" in n for n in res["notes"])
+    assert any("after the period end" in n for n in res["notes"])
 
     r = client.put(f"/api/engagements/{eid}/ecl",
                    json={"upload_id": ar, "rates": rates, "forward_pct": 10})
@@ -112,7 +129,10 @@ def test_default_rates_are_flagged():
     res = client.put(f"/api/engagements/{eid}/ecl", json={"upload_id": ar}).json()["result"]
     assert any("starting rates" in n for n in res["notes"])
     assert ecl.ALLOWANCE_WORDS.search("Allowance for doubtful accounts")
+    assert ecl.ALLOWANCE_WORDS.search("مخصص الديون المشكوك فيها")
     assert not ecl.ALLOWANCE_WORDS.search("Accounts Receivable")
+    assert not ecl.ALLOWANCE_WORDS.search("Provision for income tax")
+    assert not ecl.ALLOWANCE_WORDS.search("مخصص مكافأة نهاية الخدمة")
 
 
 def test_the_pack_and_roll_forward_carry_the_newer_work():

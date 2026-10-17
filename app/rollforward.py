@@ -222,7 +222,7 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
     if body.leases and old.leases:
         # Leases still running next year; the client's figures are next year's to enter.
         running = [x for x in old.leases if leases.schedule(x)
-                   and leases.schedule(x)[-1]["end"] > old.period_end]
+                   and leases.schedule(x)[-1]["end"] > old.period_end + timedelta(days=1)]
         for x in running:
             new.leases.append(Lease(
                 name=x.name, start_date=x.start_date, term_months=x.term_months,

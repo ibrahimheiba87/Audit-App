@@ -34,7 +34,8 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 DEFAULT_RATES = {"current": 1.0, "d1_30": 3.0, "d31_60": 8.0, "d61_90": 15.0,
                  "d91_180": 35.0, "over_180": 70.0, "no_date": 50.0}
 ALLOWANCE_WORDS = re.compile(
-    r"allowance|doubtful|bad debt|impairment|expected credit|\becl\b|provision|مخصص", re.I)
+    r"allowance|doubtful|bad debt|impairment of receivable|expected credit|\becl\b"
+    r"|مخصص (?:ال)?ديون|مخصص خسائر ائتمان|مشكوك", re.I)
 
 Pct = Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)]
 
@@ -91,14 +92,21 @@ def matrix(df: pd.DataFrame, e: Engagement, s: EclSetup) -> dict:
     result = aging.age(df, "ar", e.period_end, s.terms_days, with_lines=True)
     rates = {**DEFAULT_RATES, **(s.rates or {})}
     uplift = 1 + s.forward_pct / 100
-    lines = result["lines"]
+    as_of = result["as_of"]
+    later = [x for x in result["lines"] if x["date"] and x["date"] > as_of]
+    lines = [x for x in result["lines"] if not (x["date"] and x["date"] > as_of)]
     rows = []
     for key, label, _, _ in aging.BUCKETS:
         items = [x for x in lines if x["bucket"] == key]
-        debit = sum(x["balance"] for x in items if x["balance"] > 0)
+        # Each customer's items in the band are netted, so a credit note against an
+        # invoice of the same age isn't provided for.
+        net: dict[str, float] = {}
+        for x in items:
+            net[x["party"]] = net.get(x["party"], 0.0) + x["balance"]
+        debit = sum(v for v in net.values() if v > 0)
         rate = min(100.0, rates[key] * uplift)
         rows.append({"id": key, "label": label, "items": len(items), "debit": _r(debit),
-                     "credit": _r(sum(x["balance"] for x in items if x["balance"] < 0)),
+                     "credit": _r(sum(v for v in net.values() if v < 0)),
                      "base_rate": rates[key], "rate": round(rate, 4),
                      "allowance": _r(debit * rate / 100)})
     expected = _r(sum(r["allowance"] for r in rows))
@@ -122,7 +130,9 @@ def matrix(df: pd.DataFrame, e: Engagement, s: EclSetup) -> dict:
         out["notes"].append("These are the app's starting rates. Replace them with rates from "
                             "the client's own history of bad debts.")
     if any(r["credit"] for r in rows):
-        out["notes"].append("Credit balances are left out of the allowance.")
+        out["notes"].append("Customers' credit balances are left out of the allowance.")
+    if later:
+        out["notes"].append("Items dated after the period end are left out.")
     return out
 
 
@@ -140,6 +150,8 @@ def ecl_out(session: Session, e: Engagement) -> dict:
             out["result"] = matrix(load_upload(listing).df, e, s)
         except aging.AgingError as exc:
             out["problem"] = str(exc)
+        except HTTPException as exc:  # a listing that can't be read: pick another
+            out["problem"] = str(exc.detail)
     return out
 
 

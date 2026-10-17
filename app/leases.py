@@ -16,6 +16,7 @@ calculation, with each lease's full schedule, downloads to Excel.
 
 from __future__ import annotations
 
+import calendar
 import io
 from datetime import date, timedelta
 
@@ -70,6 +71,13 @@ def add_months(d: date, months: int) -> date:
     raise ValueError(d)  # not reached: every month has a 28th
 
 
+def shift_years(d: date, years: int) -> date:
+    """`d` moved by whole years; a month end stays a month end (28 Feb to 29 Feb)."""
+    last = calendar.monthrange(d.year, d.month)[1]
+    target = calendar.monthrange(d.year + years, d.month)[1]
+    return date(d.year + years, d.month, target if d.day == last else min(d.day, target))
+
+
 def check(body: LeaseIn) -> None:
     if body.frequency not in FREQUENCIES:
         raise HTTPException(400, "Pick how often the payment falls due.")
@@ -105,7 +113,7 @@ def schedule(x: Lease) -> list[dict]:
             base = opening
             interest = base * r
             closing = base + interest - pay
-            paid_on = end
+            paid_on = end - timedelta(days=1)  # the period's last day
         rows.append({"period": k + 1, "start": start, "end": end, "opening": opening,
                      "base": base, "interest": interest, "payment": pay, "paid_on": paid_on,
                      "closing": closing})
@@ -125,10 +133,12 @@ def liability_at(rows: list[dict], d: date) -> float:
         return 0.0
     for p in rows:
         if p["start"] <= d < p["end"]:
+            if d == p["paid_on"] and p["paid_on"] != p["start"]:  # paid in arrears that day
+                return p["closing"]
             days = (p["end"] - p["start"]).days
             accrued = p["interest"] * ((d - p["start"]).days + 1) / days
             return p["base"] + accrued
-    return 0.0  # the lease has ended (the last payment in arrears falls on its end date)
+    return 0.0  # the lease has ended
 
 
 def overlap(start: date, end: date, a: date, b: date) -> int:
@@ -140,7 +150,7 @@ def overlap(start: date, end: date, a: date, b: date) -> int:
 def year_of(e: Engagement) -> tuple[date, date]:
     if e.period_start:
         return e.period_start, e.period_end
-    return add_months(e.period_end, -12) + timedelta(days=1), e.period_end
+    return shift_years(e.period_end, -1) + timedelta(days=1), e.period_end
 
 
 def threshold(e: Engagement) -> float:
@@ -155,13 +165,13 @@ def calc(x: Lease, e: Engagement) -> dict:
     total_days = max(1, (lease_end - x.start_date).days)
     used = min(total_days, max(0, (fy_end - x.start_date).days + 1))
     liability = liability_at(rows, fy_end)
-    next_end = add_months(fy_end, 12)
+    next_end = shift_years(fy_end, 1)
     current = max(0.0, liability - liability_at(rows, next_end))
     interest = sum(p["interest"] * overlap(p["start"], p["end"], fy_start, fy_end)
                    / (p["end"] - p["start"]).days for p in rows)
     payments = sum(p["payment"] for p in rows if fy_start <= p["paid_on"] <= fy_end)
     out = {
-        "end_date": lease_end.isoformat(),
+        "end_date": (lease_end - timedelta(days=1)).isoformat(),  # its last day
         "first_liability": _r(first_liability(rows)), "rou_first": _r(rou_first),
         "liability": _r(liability), "current": _r(current),
         "noncurrent": _r(liability - current),
