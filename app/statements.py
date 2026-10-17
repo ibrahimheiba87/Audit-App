@@ -430,7 +430,8 @@ def uncorrected_summary(entries: list[dict], lines: dict[str, str | None],
     return out
 
 
-def to_excel(data: dict, entries: list[dict], context: dict | None = None) -> bytes:
+def to_excel(data: dict, entries: list[dict], context: dict | None = None,
+             extra: dict[str, list[dict]] | None = None) -> bytes:
     labels = {i: LINE[i]["label"] for i in LINE}
     st = data["statements"]
     summary = list((context or {}).items()) + [
@@ -506,5 +507,8 @@ def to_excel(data: dict, entries: list[dict], context: dict | None = None) -> by
             xl, sheet_name="Uncorrected", index=False)
         pd.DataFrame(unc_summary, columns=["Item", "Value"]).to_excel(
             xl, sheet_name="Uncorrected", index=False, startrow=len(unc) + 3)
+        for name, rows in (extra or {}).items():
+            if rows:
+                pd.DataFrame(rows).to_excel(xl, sheet_name=name, index=False)
         finish_workbook(xl.book)
     return buf.getvalue()

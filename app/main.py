@@ -50,6 +50,7 @@ from .quality import router as quality_router
 from .reconciliations import router as reconciliations_router
 from .related_parties import router as related_router
 from .report_draft import router as report_router
+from .responses import router as responses_router
 from .review import router as review_router
 from .risks import router as risks_router
 from .rollforward import router as rollforward_router
@@ -58,6 +59,7 @@ from .search import router as search_router
 from .stock_count import router as stock_count_router
 from .summaries import router as summaries_router
 from .templates import router as templates_router
+from .ticks import router as ticks_router
 from .uploads import FORM_OVERHEAD, MAX_UPLOAD_BYTES, BodyLimit, parse_mapping, read_upload
 from .vouching import router as vouching_router
 from .workplan import router as workplan_router
@@ -88,10 +90,11 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                explorer_router, expectations_router, fixed_assets_router,
                stock_count_router, prior_points_router, notifications_router, overview_router,
                posters_router, quality_router, search_router, account_pairs_router,
-               vouching_router):
+               vouching_router, ticks_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])
+app.include_router(responses_router, dependencies=[Depends(check_unlocked)])
 
 
 @dataclass

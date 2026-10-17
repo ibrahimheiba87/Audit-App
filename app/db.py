@@ -102,6 +102,9 @@ class Engagement(Base):
     samples: Mapped[list[Sample]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Sample.id"
     )
+    ticks: Mapped[list[WorkpaperTick]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", order_by="WorkpaperTick.id"
+    )
     findings: Mapped[list[Finding]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Finding.id"
     )
@@ -923,6 +926,41 @@ class SampleEvaluation(Base):
     sample: Mapped[Sample] = relationship(back_populates="evaluation")
 
 
+class TickMark(Base):
+    """A tick mark in the firm's legend: its symbol and what it means (ticks.py)."""
+
+    __tablename__ = "tick_marks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(8), unique=True)
+    meaning: Mapped[str] = mapped_column(String(300))
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class WorkpaperTick(Base):
+    """A tick mark on an account in the lead sheets, with its cross-reference: free text
+    (a workpaper number) and/or a link to a workpaper in the app (ticks.py). The symbol's
+    meaning is copied, so changing the legend later doesn't change what was ticked."""
+
+    __tablename__ = "workpaper_ticks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    account: Mapped[str] = mapped_column(String(200))
+    symbol: Mapped[str] = mapped_column(String(8))
+    meaning: Mapped[str] = mapped_column(String(300))
+    reference: Mapped[str] = mapped_column(String(200), default="")
+    link_kind: Mapped[str] = mapped_column(String(30), default="")  # ticks.LINKS
+    link_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    link_label: Mapped[str] = mapped_column(String(300), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="ticks")
+
+
 class Vouching(Base):
     """A sample item checked against its source document (an invoice, receipt or contract):
     what the AI read from the document and how it compares with the ledger line
@@ -986,6 +1024,36 @@ class Finding(Base):
     evidence: Mapped[list[Evidence]] = relationship(
         back_populates="finding", cascade="all, delete-orphan", order_by="Evidence.id"
     )
+    response: Mapped[FindingResponse | None] = relationship(
+        back_populates="finding", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class FindingResponse(Base):
+    """A finding sent to the client for their response (responses.py): the auditors'
+    recommendation, management's response and action plan with an owner and a due date, and
+    the auditors' follow-up of whether the action was taken."""
+
+    __tablename__ = "finding_responses"
+
+    finding_id: Mapped[int] = mapped_column(ForeignKey("findings.id"), primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    recommendation: Mapped[str] = mapped_column(Text, default="")
+    asked_by: Mapped[str] = mapped_column(String(200), default="")
+    asked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    response: Mapped[str] = mapped_column(Text, default="")
+    action_plan: Mapped[str] = mapped_column(Text, default="")
+    owner: Mapped[str] = mapped_column(String(200), default="")
+    due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    responded_by: Mapped[str] = mapped_column(String(200), default="")
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    from_client: Mapped[bool] = mapped_column(Boolean, default=False)
+    follow_up: Mapped[str] = mapped_column(String(20), default="open")  # responses.FOLLOW_UP
+    follow_up_note: Mapped[str] = mapped_column(Text, default="")
+    followed_up_by: Mapped[str] = mapped_column(String(200), default="")
+    followed_up_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    finding: Mapped[Finding] = relationship(back_populates="response")
 
 
 class FindingNote(Base):

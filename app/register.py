@@ -90,8 +90,10 @@ def summary(findings: list[Finding]) -> dict:
 
 
 def is_worked(f: Finding) -> bool:
-    """True once someone has reviewed, commented on or attached evidence to a finding."""
-    return f.status != "open" or bool(f.notes) or bool(f.evidence)
+    """True once someone has reviewed, commented on, attached evidence to or sent a finding to
+    the client."""
+    return (f.status != "open" or bool(f.notes) or bool(f.evidence)
+            or f.response is not None)
 
 
 def touch(f: Finding) -> None:

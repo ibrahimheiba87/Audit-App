@@ -135,6 +135,7 @@
       <select id="pt-filter" aria-label="Show requests"><option value="todo">Open requests</option><option value="">All, with accepted ones</option></select>
     </div>
     <div id="pt-list"></div>
+    <div id="pt-findings"></div>
   </div>
 
   <!-- Users (admin) ------------------------------------------------------>
@@ -942,6 +943,31 @@
               <div class="tab" data-pane="lead" hidden>
                 <p class="muted">Balances are shown as positive on each line's normal side: debits for assets and expenses, credits for liabilities, equity and income.</p>
                 <div class="table-wrap"><table id="fs-lead"></table></div>
+                <h3>Tick marks</h3>
+                <p class="muted">Put a tick from the firm's legend on an account to show the work done on it, with a workpaper reference or a link to the work in the app. Ticks go in the lead sheets download.</p>
+                <form id="tick-form">
+                  <div class="grid">
+                    <div><label for="tick-account">Account</label><select id="tick-account" class="map" required></select></div>
+                    <div><label for="tick-symbol">Tick</label><select id="tick-symbol" class="map" required></select></div>
+                    <div><label for="tick-reference">Reference</label><input id="tick-reference" maxlength="200" placeholder="e.g. C-3"></div>
+                    <div><label for="tick-link">Linked workpaper</label><select id="tick-link" class="map"></select></div>
+                    <div><label for="tick-note">Note</label><input id="tick-note" maxlength="2000"></div>
+                  </div>
+                  <div class="actions"><button type="submit" class="small">Add tick</button></div>
+                </form>
+                <div class="table-wrap"><table id="tick-table"></table></div>
+                <details id="tick-legend-box" hidden>
+                  <summary>Firm tick legend</summary>
+                  <p class="muted">Partners and admins can change the legend. A tick already used keeps the meaning it had.</p>
+                  <div class="table-wrap"><table id="tick-legend"></table></div>
+                  <form id="tick-legend-form">
+                    <div class="grid">
+                      <div><label for="tick-new-symbol">Symbol</label><input id="tick-new-symbol" maxlength="8" required></div>
+                      <div><label for="tick-new-meaning">Meaning</label><input id="tick-new-meaning" maxlength="300" required></div>
+                    </div>
+                    <div class="actions"><button type="submit" class="small secondary">Add to the legend</button></div>
+                  </form>
+                </details>
               </div>
 
               <div class="tab" data-pane="statements" hidden>
@@ -1234,6 +1260,8 @@
                 </div>
               </div>
             </div>
+            <h3>Management response</h3>
+            <div id="fd-response"></div>
             <h3>Evidence</h3>
             <div class="table-wrap"><table id="fd-evidence"></table></div>
             <form id="fd-ev-form" class="actions" style="align-items:center">
@@ -1242,6 +1270,16 @@
             </form>
             <h3>Review trail</h3>
             <ul class="trail" id="fd-trail"></ul>
+          </section>
+
+          <section class="panel" id="mr-panel">
+            <div class="row-between">
+              <h2>Management responses</h2>
+              <a class="button secondary" id="mr-export" hidden>Download Excel</a>
+            </div>
+            <p class="muted">Findings sent to the client for their response and action plan, as they appear in the client portal. Open a finding to send it, record a response or follow it up.</p>
+            <div class="cards" id="mr-cards"></div>
+            <div class="table-wrap"><table id="mr-table"></table></div>
           </section>
 
           <section class="panel" id="ml-panel">

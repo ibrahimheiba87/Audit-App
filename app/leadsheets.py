@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth, ratios, statements
+from . import auth, ratios, statements, ticks
 from .auth import current_user, log, require
 from .db import AccountMapping, AdjustingEntry, AdjustingLine, Engagement, Guard, Upload, User, get_session
 from .engagements import get_or_404, held_engagement, load_upload, materiality_out, safe_stem, upload_out
@@ -268,4 +268,5 @@ def workbook(e: Engagement, data: dict, tb: Upload, prior: Upload | None) -> tup
                    f"{prior.filename} (SHA-256 {prior.sha256})" if prior else "None",
                "Status": "Draft, not audited"}
     stem = safe_stem(f"{e.client.name}-{e.name}-lead-sheets")
-    return f"{stem}.xlsx", statements.to_excel(data, entries, context)
+    names = {a["account"]: a["name"] for s in data["lead_sheets"] for a in s["accounts"]}
+    return f"{stem}.xlsx", statements.to_excel(data, entries, context, ticks.sheets(e, names))

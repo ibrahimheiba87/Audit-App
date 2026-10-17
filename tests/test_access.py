@@ -89,6 +89,8 @@ def full_engagement(a):
     assert count.status_code == 201, count.text
     point = a.post(f"/api/engagements/{eid}/prior-points", json={"title": "Old point"})
     assert point.status_code == 201, point.text
+    tick = a.post(f"/api/engagements/{eid}/ticks", json={"account": "4000", "symbol": "TB"})
+    assert tick.status_code == 201, tick.text
     with db.SessionLocal() as s:
         doc = db.DocumentSummary(engagement_id=eid, kind="contract", filename="lease.pdf",
                                  sha256="0" * 64, size=1, content={"title": "Lease"})
@@ -115,7 +117,7 @@ def full_engagement(a):
             "expectation_id": expectation.json()["expectations"][0]["id"],
             "stock_upload_id": stock, "point_id": point.json()["points"][0]["id"],
             "stock_item_id": count.json()["items"][0]["id"], "row": row,
-            "vouching_id": vouching_id}
+            "vouching_id": vouching_id, "tick_id": tick.json()["id"]}
 
 
 def bodies(ids):
@@ -224,6 +226,16 @@ def bodies(ids):
         ("GET", "/api/samples/{sample_id}/vouchings"): {},
         ("GET", "/api/vouchings/{vouching_id}/document"): {},
         ("DELETE", "/api/vouchings/{vouching_id}"): {},
+        ("GET", "/api/engagements/{engagement_id}/ticks"): {},
+        ("POST", "/api/engagements/{engagement_id}/ticks"):
+            {"json": {"account": "4000", "symbol": "TB"}},
+        ("DELETE", "/api/ticks/{tick_id}"): {},
+        ("PUT", "/api/findings/{finding_id}/response-request"): {"json": {}},
+        ("DELETE", "/api/findings/{finding_id}/response-request"): {},
+        ("PUT", "/api/findings/{finding_id}/response"): {"json": {"response": "We agree"}},
+        ("PUT", "/api/findings/{finding_id}/follow-up"): {"json": {"status": "open"}},
+        ("GET", "/api/engagements/{engagement_id}/responses"): {},
+        ("GET", "/api/engagements/{engagement_id}/responses/export"): {},
         ("GET", "/api/uploads/{upload_id}/posters/export"): {},
         ("POST", "/api/uploads/{upload_id}/fixed-assets"): {"json": {}},
         ("POST", "/api/uploads/{upload_id}/fixed-assets/export"): {"json": {}},
@@ -340,6 +352,7 @@ NOT_ENGAGEMENT_ROUTES = {
     ("DELETE", "/api/engagements/{engagement_id}/lock"),  # admins only
     ("PUT", "/api/test-templates/{template_id}"),  # firm-wide, not an engagement's
     ("DELETE", "/api/test-templates/{template_id}"),
+    ("DELETE", "/api/tick-marks/{tick_mark_id}"),  # the firm's legend
 }
 
 
