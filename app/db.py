@@ -156,6 +156,9 @@ class Engagement(Base):
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="(FeeInvoice.issued_on, FeeInvoice.id)"
     )
+    document_texts: Mapped[list[DocumentText]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan"
+    )
     checklists: Mapped[list[EngagementChecklist]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="EngagementChecklist.id"
@@ -1459,6 +1462,29 @@ class RequestTemplate(Base):
     items: Mapped[list] = mapped_column(JSON)  # [{title, details, due_days}]
     updated_by: Mapped[str] = mapped_column(String(200), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DocumentText(Base):
+    """The words in a file attached to an engagement (finding evidence, a file sent for a
+    client request, a vouched document), read once so the search box finds them
+    (doctext.py). Keyed by the file's own table and id, and its fingerprint, so a file
+    removed or replaced is no longer found."""
+
+    __tablename__ = "document_texts"
+    __table_args__ = (UniqueConstraint("source", "source_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    source: Mapped[str] = mapped_column(String(20))  # doctext.SOURCES
+    source_id: Mapped[int] = mapped_column(Integer)
+    filename: Mapped[str] = mapped_column(String(500))
+    sha256: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(20))  # doctext.STATUSES
+    pages: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text, default="", deferred=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="document_texts")
 
 
 class FindingNote(Base):

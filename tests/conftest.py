@@ -3,7 +3,7 @@ import os
 import pytest
 from fastapi import Depends
 
-from app import auth, db
+from app import auth, db, doctext
 from app.main import app
 
 ADMIN = {"email": "admin@example.com", "name": "Test Admin", "password": "correct horse 1"}
@@ -43,6 +43,12 @@ def fresh_db(tmp_path):
 def real_auth():
     """Use real sign-in (cookies) instead of the always-signed-in admin."""
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def read_files_now(monkeypatch):
+    """Attached files are read for search straight away, not in a background thread."""
+    monkeypatch.setattr(doctext, "IN_BACKGROUND", False)
 
 
 @pytest.fixture(autouse=True)

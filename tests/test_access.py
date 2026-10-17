@@ -397,6 +397,7 @@ def bodies(ids):
         ("DELETE", "/api/evidence/{evidence_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/statements"): {},
         ("GET", "/api/engagements/{engagement_id}/statements/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/statements/word"): {},
         ("PUT", "/api/engagements/{engagement_id}/mapping"): {"json": {"mappings": {}}},
         ("POST", "/api/engagements/{engagement_id}/adjusting-entries"): {"json": entry},
         ("PATCH", "/api/adjusting-entries/{entry_id}"): {"json": {"kind": "adjusting"}},

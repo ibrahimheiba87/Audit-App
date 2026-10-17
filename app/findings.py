@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth, register
+from . import auth, doctext, register
 from .auth import current_user, log, require
 from .db import Engagement, Evidence, Finding, FindingNote, User, get_session
 from .engagements import get_or_404, safe_stem
@@ -281,6 +281,7 @@ async def add_evidence(finding_id: int, file: UploadFile = File(...),
         f.engagement, details={"finding_id": f.id, "sha256": ev.sha256, "size": ev.size})
     register.touch(f)
     session.commit()
+    doctext.start_backfill()  # reads it for search
     return finding_out(f)
 
 

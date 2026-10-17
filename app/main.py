@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from . import checks, db, loader, portal, report
+from . import checks, db, doctext, loader, portal, report
 from .acceptance import router as acceptance_router
 from .account_pairs import router as account_pairs_router
 from .accounts import router as accounts_router
@@ -42,6 +42,7 @@ from .exports import attachment
 from .fees import router as fees_router
 from .findings import router as findings_router
 from .fixed_assets import router as fixed_assets_router
+from .fs_word import router as fs_word_router
 from .leadsheets import router as leadsheets_router
 from .leases import router as leases_router
 from .loans import router as loans_router
@@ -83,6 +84,7 @@ STATIC = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init()
+    doctext.start_backfill(tidy=True)  # files waiting to be read for search
     yield
 
 
@@ -106,7 +108,8 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                vouching_router, ticks_router, translation_router,
                consolidation_router, vat_router, planning_router, schedule_router,
                leases_router, ecl_router, loans_router, estimates_router,
-               checklists_router, request_lists_router, fees_router, payroll_router):
+               checklists_router, request_lists_router, fees_router, payroll_router,
+               fs_word_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

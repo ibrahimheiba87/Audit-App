@@ -1,7 +1,8 @@
 """Search: one box in the header that finds engagements (by their own or their client's
-name), findings, tasks, client requests, risks, controls, related parties, review notes and
-files, across the engagements the user may see. Each hit opens its engagement at the right
-panel. Nothing is stored and searches aren't logged, as they only read.
+name), findings, tasks, client requests, risks, controls, related parties, review notes,
+files and the words inside attached documents (doctext.py), across the engagements the user
+may see. Each hit opens its engagement at the right panel. Searches aren't logged, as they
+only read.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from . import auth
+from . import auth, doctext
 from .auth import require
 from .db import (
     Client,
@@ -100,6 +101,9 @@ def search(session: Session, user: User, q: str) -> list[dict]:
             items.append(item)
         groups.append({"kind": kind, "label": label, "items": items,
                        "more": len(rows) > PER_KIND})
+    inside = doctext.search(session, seen, q, PER_KIND, SNIPPET)
+    if inside:
+        groups.append(inside)
     return groups
 
 
