@@ -1012,6 +1012,26 @@
             </div>
           </section>
 
+          <section class="panel" id="acp-panel">
+            <div class="row-between">
+              <h2>Account pairs</h2>
+              <a class="button secondary" id="acp-export" href="#" hidden>Download Excel</a>
+            </div>
+            <p class="muted">The general ledger as flows between statement lines: in each entry, every debit is paired with the entry's credits, so you see how much went from where to where. Then the pairs worth a look: revenue credited or reversed against an unusual account, expenses moved to assets, equity moved against profit or loss, cash paid out against equity, and pairs that hardly ever happen. Nothing is saved; each look is logged.</p>
+            <form id="acp-form">
+              <div class="grid">
+                <div><label for="acp-upload">General ledger</label><select id="acp-upload" class="map"></select></div>
+              </div>
+              <div class="actions"><button type="submit" id="acp-run">Look at the account pairs</button></div>
+            </form>
+            <div id="acp-result" hidden>
+              <div class="cards" id="acp-cards"></div>
+              <p class="muted" id="acp-note"></p>
+              <div class="tabs" role="tablist" id="acp-tabs"></div>
+              <div class="table-wrap"><table id="acp-table"></table></div>
+            </div>
+          </section>
+
           <section class="panel" id="lx-panel">
             <h2>Ledger explorer</h2>
             <p class="muted">Filter the lines of a file by date, account, description, user, entry, size or weekend posting, then turn what is left into a pivot. Nothing is changed or saved; each look is logged.</p>
@@ -1130,6 +1150,7 @@
             </div>
             <div class="cards" id="smp-ev-cards"></div>
             <p id="smp-ev-conclusion"></p>
+            <p class="muted">To vouch an item, attach the invoice, receipt or contract behind it: the AI assistant reads it and the app compares the amount, the date, the other party and the number with the ledger line. The document is kept with the sample as evidence.</p>
             <div class="table-wrap"><table id="smp-table"></table></div>
             <div class="actions"><button type="button" id="smp-ev-all" class="secondary">Fill untested items with the book amount</button><button type="button" id="smp-ev-save">Save results</button></div>
           </section>

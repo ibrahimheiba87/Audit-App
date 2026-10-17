@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from . import auth, loader, sampling
+from . import auth, loader, sampling, vouching
 from .auth import current_user, log, require
 from .db import Engagement, Sample, SampleEvaluation, Upload, User, get_session, utcnow
 from .engagements import get_or_404, load_upload, safe_stem, sample_brief
@@ -101,7 +101,8 @@ def get_sample(sample_id: int, user: User = Depends(current_user),
                session: Session = Depends(get_session)) -> dict:
     x = get_or_404(session, Sample, sample_id, user)
     return {**sample_brief(x), "engagement_id": x.engagement_id, "result": x.result,
-            "evaluation": evaluation_out(x), "default_tolerable": default_tolerable(x)}
+            "evaluation": evaluation_out(x), "default_tolerable": default_tolerable(x),
+            "vouchings": vouching.vouchings_out(x)}
 
 
 @router.put("/samples/{sample_id}/evaluation")
@@ -141,7 +142,8 @@ def save_evaluation(sample_id: int, body: EvaluationIn, user: User = Depends(req
                  "conclusion": result["conclusion"]["status"]})
     session.commit()
     return {**sample_brief(x), "engagement_id": x.engagement_id, "result": x.result,
-            "evaluation": evaluation_out(x), "default_tolerable": default_tolerable(x)}
+            "evaluation": evaluation_out(x), "default_tolerable": default_tolerable(x),
+            "vouchings": vouching.vouchings_out(x)}
 
 
 @router.get("/samples/{sample_id}/export")
@@ -169,7 +171,8 @@ def workbook(x: Sample) -> tuple[str, bytes]:
         context["Results recorded"] = (f"{x.evaluation.updated_by}, "
                                        f"{x.evaluation.updated_at:%Y-%m-%d %H:%M} UTC")
     return f"{stem}.xlsx", sampling.to_excel(x.result, context,
-                                             x.evaluation and x.evaluation.result)
+                                             x.evaluation and x.evaluation.result,
+                                             {"Vouching": vouching.sheet_rows(x)})
 
 
 @router.post("/sample")

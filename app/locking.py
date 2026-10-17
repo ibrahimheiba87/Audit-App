@@ -49,6 +49,7 @@ from .db import (
     TimeEntry,
     Upload,
     User,
+    Vouching,
     get_session,
     utcnow,
 )
@@ -67,6 +68,7 @@ PARAM_MODELS = {
     "task_id": Task, "time_entry_id": TimeEntry, "event_id": SubsequentEvent,
     "party_id": RelatedParty, "summary_id": DocumentSummary, "expectation_id": Expectation,
     "stock_item_id": StockCountItem, "point_id": PriorPoint,
+    "vouching_id": Vouching,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is
@@ -79,6 +81,7 @@ ALLOWED_WHEN_LOCKED = {
     ("POST", "/api/uploads/{upload_id}/fixed-assets/export"),
     ("POST", "/api/uploads/{upload_id}/inventory"),
     ("POST", "/api/uploads/{upload_id}/posters"),
+    ("POST", "/api/uploads/{upload_id}/account-pairs"),
     ("POST", "/api/findings/{finding_id}/assistant"),
     ("POST", "/api/engagements/{engagement_id}/mapping/suggest"),
     ("POST", "/api/engagements/{engagement_id}/roll-forward"),
