@@ -89,9 +89,11 @@ def words(value) -> set[str]:
     return {w.lower() for w in WORD.findall(str(value or ""))} - STOP
 
 
-def compare(item: dict, doc: dict, period_end: date) -> tuple[list[dict], str, float | None]:
+def compare(item: dict, doc: dict, period_end: date,
+            client: str = "") -> tuple[list[dict], str, float | None]:
     """The checks of a ledger line against its document, the item's status, and the audited
-    amount the document supports (None when it can't tell)."""
+    amount the document supports (None when it can't tell). `client` is the audited entity,
+    which is on one side of most documents, so its name doesn't count as the other party."""
     checks: list[dict] = []
     book = abs(float(item["amount"]))
     amounts = [(k, abs(doc[k])) for k in ("total", "net") if doc[k] is not None]
@@ -135,8 +137,12 @@ def compare(item: dict, doc: dict, period_end: date) -> tuple[list[dict], str, f
                                "as the entry."})
     ledger_text = " ".join(str(item.get(k) or "") for k in ("description", "account", "entry_id"))
     ledger_words = words(ledger_text)
-    party = doc["issuer"] or doc["recipient"]
-    named = (words(doc["issuer"]) | words(doc["recipient"])) & ledger_words
+    own = words(client)
+    issuer, recipient = words(doc["issuer"]) - own, words(doc["recipient"]) - own
+    # The other party: whichever side of the document isn't the client.
+    party = (doc["recipient"] if doc["issuer"] and not issuer and recipient
+             else doc["issuer"] or doc["recipient"])
+    named = (issuer | recipient) & ledger_words
     if named:
         checks.append({"check": "party", "ok": True,
                        "text": f"The entry names the other party ({', '.join(sorted(named))})."})
@@ -144,7 +150,8 @@ def compare(item: dict, doc: dict, period_end: date) -> tuple[list[dict], str, f
         checks.append({"check": "party", "ok": None,
                        "text": f"The entry doesn't name {party}; check it is the right party."})
     number = doc["number"].lower()
-    if len(number) >= 3 and number in ledger_text.lower():
+    if len(number) >= 3 and re.search(rf"(?<![0-9a-z]){re.escape(number)}(?![0-9a-z])",
+                                      ledger_text.lower()):
         checks.append({"check": "number", "ok": True,
                        "text": f"The entry gives the document number {doc['number']}."})
     if any(c["ok"] is False for c in checks):
@@ -203,7 +210,8 @@ def vouch(  # not async: FastAPI runs it in a thread, so waiting on the AI block
     session.expire_all()
     x = get_or_404(session, Sample, sample_id, user)
     item = item_of(x, row)
-    checks, status, suggested = compare(item, doc, x.engagement.period_end)
+    checks, status, suggested = compare(item, doc, x.engagement.period_end,
+                                        x.engagement.client.name)
     old = session.scalar(select(Vouching).where(Vouching.sample_id == x.id, Vouching.row == row))
     if old is not None:
         session.delete(old)

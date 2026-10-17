@@ -4501,35 +4501,38 @@ $("smp-table").addEventListener("click", (ev) => {
   const remove = ev.target.closest(".vouch-remove");
   if (remove) {
     busy(remove, async () => {
-      const sampleId = currentSample.id;
+      const sampleId = currentSample.id, row = Number(tr.dataset.row);
       await request(`/api/vouchings/${remove.dataset.vouching}`, { method: "DELETE" });
       if (currentSample?.id !== sampleId) return;
       currentSample.vouchings = currentSample.vouchings.filter((v) => String(v.id) !== remove.dataset.vouching);
-      tr.querySelector(".vouch-cell").innerHTML = vouchCell(null);
+      showVouching(row);
     });
   }
 });
+
+// Redraw an item's document cell in the table as it is now (it may have been redrawn
+// while the request was running).
+function showVouching(row) {
+  const cell = $("smp-table").querySelector(`tr[data-row="${row}"] .vouch-cell`);
+  if (cell) cell.innerHTML = vouchCell((currentSample.vouchings || []).find((x) => x.row === row));
+}
 
 $("smp-table").addEventListener("change", (ev) => {
   const input = ev.target.closest(".vouch-file");
   if (!input?.files.length) return;
   const tr = input.closest("tr[data-row]");
-  const cell = tr.querySelector(".vouch-cell");
   const row = Number(tr.dataset.row), sampleId = currentSample.id;
   const fd = new FormData();
   fd.append("file", input.files[0]);
   fd.append("language", I18N.lang === "ar" ? "ar" : "en");
-  cell.innerHTML = '<span class="muted">Reading the document…</span>';
+  tr.querySelector(".vouch-cell").innerHTML = '<span class="muted">Reading the document…</span>';
   guard(async () => {
     try {
       const v = await (await postForm(`/api/samples/${sampleId}/items/${row}/vouch`, fd)).json();
       if (currentSample?.id !== sampleId) return;
       currentSample.vouchings = [...(currentSample.vouchings || []).filter((x) => x.row !== row), v];
-      cell.innerHTML = vouchCell(v);
-    } catch (err) {
-      if (currentSample?.id === sampleId) cell.innerHTML = vouchCell((currentSample.vouchings || []).find((x) => x.row === row));
-      throw err;
     } finally {
+      if (currentSample?.id === sampleId) showVouching(row);
       if (currentEngagement) loadEngagementActivity();
     }
   });
@@ -4799,7 +4802,7 @@ $("acp-form").addEventListener("submit", (ev) => {
     if (!id) throw new Error("Upload a general ledger first.");
     const engagementId = currentEngagement.id;
     const out = await sendJSON("POST", `/api/uploads/${id}/account-pairs`);
-    if (currentEngagement?.id !== engagementId) return;
+    if (currentEngagement?.id !== engagementId || Number($("acp-upload").value) !== id) return;
     pairs = out;
     renderPairs();
     await loadEngagementActivity();
@@ -4822,6 +4825,8 @@ function renderPairs() {
     : `${r.lines_known_pct}% of lines have a statement line, guessed from the account's name. Map the trial balance for a better result.`];
   if (r.one_sided) notes.push(`${r.one_sided} entries have only debits or only credits, so they can't be paired.`);
   if (r.rare_applies) notes.push(`A pair used in ${r.rare_limit} entries or fewer counts as rare.`);
+  if (r.closing_entries) notes.push(`${r.closing_entries} closing entries move profit or loss to retained earnings; they aren't listed as worth a look.`);
+  if (r.accounts_skipped) notes.push(`${r.accounts_skipped} entries post to too many accounts on both sides to pair account by account; they are in the statement lines.`);
   $("acp-note").innerHTML = notes.map((n) => `<span>${esc(n)}</span>`).join(" ");
   const tabs = [["lines", "Statement lines"], ["accounts", "Accounts"], ...checks.map((c) => [c.check, c.label])];
   if (!tabs.some(([k]) => k === pairsTab)) pairsTab = "lines";
