@@ -105,6 +105,9 @@ class Engagement(Base):
     ticks: Mapped[list[WorkpaperTick]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="WorkpaperTick.id"
     )
+    translation: Mapped[CurrencyTranslation | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
     findings: Mapped[list[Finding]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Finding.id"
     )
@@ -1054,6 +1057,29 @@ class FindingResponse(Base):
     followed_up_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     finding: Mapped[Finding] = relationship(back_populates="response")
+
+
+class CurrencyTranslation(Base):
+    """How an engagement's statements are translated from the entity's functional currency
+    into the presentation currency (translation.py). A rate is the number of presentation
+    currency units for one functional currency unit."""
+
+    __tablename__ = "currency_translations"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    functional: Mapped[str] = mapped_column(String(3))
+    presentation: Mapped[str] = mapped_column(String(3))
+    closing_rate: Mapped[float] = mapped_column(Float)
+    average_rate: Mapped[float] = mapped_column(Float)
+    equity_rate: Mapped[float] = mapped_column(Float)
+    # Retained earnings and reserves at the start of the year, already in the presentation
+    # currency; when left out, they are translated at the equity rate.
+    opening_reserves: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opening_translation_reserve: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="translation")
 
 
 class FindingNote(Base):

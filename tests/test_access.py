@@ -236,6 +236,12 @@ def bodies(ids):
         ("PUT", "/api/findings/{finding_id}/follow-up"): {"json": {"status": "open"}},
         ("GET", "/api/engagements/{engagement_id}/responses"): {},
         ("GET", "/api/engagements/{engagement_id}/responses/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/translation"): {},
+        ("PUT", "/api/engagements/{engagement_id}/translation"):
+            {"json": {"functional": "EGP", "presentation": "USD", "closing_rate": 1,
+                      "average_rate": 1, "equity_rate": 1}},
+        ("DELETE", "/api/engagements/{engagement_id}/translation"): {},
+        ("GET", "/api/engagements/{engagement_id}/translation/export"): {},
         ("GET", "/api/uploads/{upload_id}/posters/export"): {},
         ("POST", "/api/uploads/{upload_id}/fixed-assets"): {"json": {}},
         ("POST", "/api/uploads/{upload_id}/fixed-assets/export"): {"json": {}},

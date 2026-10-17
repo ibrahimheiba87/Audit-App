@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import auth, ratios, statements, ticks
+from . import auth, cashflow, ratios, statements, ticks, translation
 from .auth import current_user, log, require
 from .db import AccountMapping, AdjustingEntry, AdjustingLine, Engagement, Guard, Upload, User, get_session
 from .engagements import get_or_404, held_engagement, load_upload, materiality_out, safe_stem, upload_out
@@ -89,6 +89,7 @@ def compute(session: Session, e: Engagement, upload_id: int | None,
     except statements.StatementsError as exc:
         raise HTTPException(400, str(exc)) from exc
     data["ratios"] = ratios.compute(data)
+    data["cash_flow"] = cashflow.compute(data)
     return data, tb, prior
 
 
@@ -269,4 +270,6 @@ def workbook(e: Engagement, data: dict, tb: Upload, prior: Upload | None) -> tup
                "Status": "Draft, not audited"}
     stem = safe_stem(f"{e.client.name}-{e.name}-lead-sheets")
     names = {a["account"]: a["name"] for s in data["lead_sheets"] for a in s["accounts"]}
-    return f"{stem}.xlsx", statements.to_excel(data, entries, context, ticks.sheets(e, names))
+    extra = {**cashflow.sheet(data.get("cash_flow")), **translation.sheet(data, e.translation),
+             **ticks.sheets(e, names)}
+    return f"{stem}.xlsx", statements.to_excel(data, entries, context, extra)

@@ -904,6 +904,8 @@
                 <button type="button" role="tab" data-tab="entries" aria-selected="false">Adjusting entries</button>
                 <button type="button" role="tab" data-tab="lead" aria-selected="false">Lead sheets</button>
                 <button type="button" role="tab" data-tab="statements" aria-selected="false">Statements</button>
+                <button type="button" role="tab" data-tab="cashflow" aria-selected="false">Cash flow</button>
+                <button type="button" role="tab" data-tab="translation" aria-selected="false">Currency translation</button>
                 <button type="button" role="tab" data-tab="uncorrected" aria-selected="false">Uncorrected misstatements</button>
                 <button type="button" role="tab" data-tab="ratios" aria-selected="false">Ratios</button>
               </div>
@@ -975,6 +977,35 @@
                 <div class="statements">
                   <div><h3>Income statement</h3><table id="fs-is" class="fs-table"></table></div>
                   <div><h3>Balance sheet</h3><table id="fs-bs" class="fs-table"></table></div>
+                </div>
+              </div>
+
+              <div class="tab" data-pane="cashflow" hidden>
+                <p class="muted">A draft cash flow statement by the indirect method, worked out from the movements in the statement lines since last year. Check it against the client's own cash flow statement.</p>
+                <p class="warn-box" id="cfs-notes" hidden></p>
+                <div class="table-wrap"><table id="cfs-table" class="fs-table"></table></div>
+              </div>
+
+              <div class="tab" data-pane="translation" hidden>
+                <p class="muted">Translate the statements from the entity's functional currency into the presentation currency: assets and liabilities at the closing rate, income and expenses at the average rate, and share capital at the historical rate. What is left goes to the translation reserve in equity. A rate is how many units of the presentation currency one unit of the functional currency buys.</p>
+                <form id="fx-form">
+                  <div class="grid">
+                    <div><label for="fx-functional">Functional currency</label><input id="fx-functional" maxlength="3" placeholder="EGP" required></div>
+                    <div><label for="fx-presentation">Presentation currency</label><input id="fx-presentation" maxlength="3" placeholder="USD" required></div>
+                    <div><label for="fx-closing">Closing rate</label><input id="fx-closing" type="number" step="any" min="0" required></div>
+                    <div><label for="fx-average">Average rate</label><input id="fx-average" type="number" step="any" min="0" required></div>
+                    <div><label for="fx-equity">Historical rate for share capital</label><input id="fx-equity" type="number" step="any" min="0" required></div>
+                    <div><label for="fx-reserves">Opening retained earnings as reported (optional)</label><input id="fx-reserves" type="number" step="any"></div>
+                    <div><label for="fx-reserve">Opening translation reserve (optional)</label><input id="fx-reserve" type="number" step="any"></div>
+                  </div>
+                  <div class="actions"><button type="submit" class="small">Translate</button>
+                    <a class="button secondary" id="fx-export" hidden>Download Excel</a>
+                    <button type="button" class="small secondary danger" id="fx-remove" hidden>Remove the translation</button></div>
+                </form>
+                <p class="muted" id="fx-note"></p>
+                <div class="statements" id="fx-result" hidden>
+                  <div><h3>Income statement</h3><table id="fx-is" class="fs-table"></table></div>
+                  <div><h3>Balance sheet</h3><table id="fx-bs" class="fs-table"></table></div>
                 </div>
               </div>
 
