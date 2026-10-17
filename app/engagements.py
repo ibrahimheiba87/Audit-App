@@ -622,12 +622,24 @@ def delete_upload(upload_id: int, user: User = Depends(require("review")),
         affects.add("comparison")
     if upload.kind in ("tb", "prior_tb"):
         affects.add("statements")
+    for party in upload.engagement.related_parties:
+        if party.scan_upload_id == upload_id:  # its counts and review rested on this ledger
+            forget_scan(party)
+            affects.add("related")
     log(session, user, "upload.delete", f"Deleted {upload.filename}", upload.engagement,
         details={"upload_id": upload.id, "sha256": upload.sha256, "kind": upload.kind,
                  "affects": sorted(affects)})
     session.delete(upload)
     session.commit()
     return Response(status_code=204)
+
+
+def forget_scan(party) -> None:
+    """A related party's last ledger scan no longer counts: it needs scanning and reviewing
+    again. Its conclusion is kept to work from."""
+    party.scanned_at, party.matches, party.matched_amount = None, 0, 0.0
+    party.scan_upload_id, party.scan_fingerprint = None, ""
+    party.reviewed_by, party.reviewed_at = "", None
 
 
 def list_report(filename: str, content: bytes, sheet: str | None) -> dict:

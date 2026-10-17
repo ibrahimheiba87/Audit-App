@@ -63,3 +63,24 @@ def test_the_explorer_still_works_on_a_locked_file():
     uid = upload(prep, eid)
     assert partner.post(f"/api/engagements/{eid}/lock", json={}).status_code == 200
     assert prep.post(f"/api/uploads/{uid}/explore", json={}).json()["matched"] == 6
+
+
+def test_a_wide_pivot_keeps_its_totals_and_the_download_has_more_columns():
+    from app import explorer
+
+    a, prep, rev, partner, eid, _ = team()
+    lines = "".join(f"2026-01-{1 + i % 28:02d},{4000 + i} Sales,J{i},x,u{i},{-(i + 1)}\n"
+                    for i in range(50))
+    r = prep.post(f"/api/engagements/{eid}/uploads", data={"kind": "gl"},
+                  files={"file": ("wide.csv", (GL.splitlines()[0] + "\n" + lines).encode(),
+                                  "text/csv")})
+    uid = r.json()["id"]
+    url = f"/api/uploads/{uid}/explore"
+    p = prep.post(url, json={"rows": "month", "columns": "user"}).json()["pivot"]
+    assert p["columns_total"] == 50
+    assert len(p["columns"]) == explorer.MAX_PIVOT_COLUMNS + 1 and p["columns"][-1] == "(other)"
+    row = p["rows"][0]
+    assert round(sum(row["cells"]), 2) == row["net"] == -sum(range(1, 51))
+    r = prep.get(f"{url}/export", params={"rows": "month", "columns": "user"})
+    pv = pd.read_excel(io.BytesIO(r.content), sheet_name="Pivot")
+    assert len(pv.columns) == 4 + 50 + 1 and "(other)" not in pv.columns

@@ -2553,6 +2553,11 @@ function renderCompletion() {
     : cp.blockers.length ? `<ul class="warn-list">${cp.blockers.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : "";
   $("cp-saved").innerHTML = cp.updated_by ? `<span>Last saved by</span> ${data(cp.updated_by)} · <span>${esc(when(cp.updated_at))}</span>` : "";
   renderCompletionEvents();
+  // Worked out by the server, not typed here, so always shown fresh.
+  const signs = cp.signs;
+  $("cp-signs").innerHTML = !signs.statements ? '<p class="muted">Upload the trial balance to see warning signs from the draft statements here.</p>'
+    : signs.warnings.length ? `<ul class="warn-list">${signs.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`
+    : '<p class="muted">The draft statements show no going concern warning signs.</p>';
   // Keep answers typed but not yet saved while an event or the sign-off changes.
   const form = $("cp-form");
   if (form.dataset.engagement === String(id) && form.dataset.dirty) return;
@@ -2572,10 +2577,6 @@ function renderCompletion() {
       ${flagged ? '<div class="tag flag-note">This answer needs a second look before signing off.</div>' : ""}
     </div>`;
   }).join("");
-  const signs = cp.signs;
-  $("cp-signs").innerHTML = !signs.statements ? '<p class="muted">Upload the trial balance to see warning signs from the draft statements here.</p>'
-    : signs.warnings.length ? `<ul class="warn-list">${signs.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`
-    : '<p class="muted">The draft statements show no going concern warning signs.</p>';
   $("cp-gc").innerHTML = '<option value="">Not concluded</option>' + optionList(cp.going_concern_choices, cp.going_concern);
   $("cp-gc-note").value = cp.going_concern_note;
   $("cp-reps-asked").value = cp.reps_requested_on || "";
@@ -2819,7 +2820,7 @@ $("rp-form").addEventListener("submit", (ev) => {
 
 // Text someone is typing in a list that is about to be redrawn (another row's save reloads
 // it), to put back afterwards with the focus where it was.
-function keepDrafts(container, selector, key) {
+function keepListDrafts(container, selector, key) {
   const drafts = new Map();
   let focused = null;
   container.querySelectorAll(selector).forEach((el) => {
@@ -2852,7 +2853,7 @@ function renderRelated() {
     $("rpt-export").removeAttribute("href");
     return;
   }
-  const restore = keepDrafts($("rpt-table"), "[data-rpt-conclusion]", (el) => el.closest("[data-party]").dataset.party);
+  const restore = keepListDrafts($("rpt-table"), "[data-rpt-conclusion]", (el) => el.closest("[data-party]").dataset.party);
   const s = rpt.summary;
   $("rpt-export").href = `/api/engagements/${rpt.engagement_id}/related-parties/export`;
   $("rpt-cards").innerHTML = [
@@ -2988,7 +2989,7 @@ function renderSummaries() {
   }
   $("ds-export").href = `/api/engagements/${ds.engagement_id}/document-summaries/export`;
   if (!$("ds-kind").options.length) $("ds-kind").innerHTML = optionList(ds.kinds, "contract");
-  const restore = keepDrafts($("ds-list"), "[data-ds-note]", (el) => el.closest("[data-ds]").dataset.ds);
+  const restore = keepListDrafts($("ds-list"), "[data-ds-note]", (el) => el.closest("[data-ds]").dataset.ds);
   const list = (title, items) => items.length ? `<h4>${esc(title)}</h4><ul>${items.join("")}</ul>` : "";
   $("ds-list").innerHTML = ds.summaries.length ? ds.summaries.map((s) => {
     const c = s.content;
@@ -3680,6 +3681,7 @@ function renderStrat() {
 
 let lx = null;  // the look on show
 let lxTab = "pivot";
+const OTHER_COLUMN = "(other)";  // the explorer pivot adds up columns beyond its limit here
 const LX_GROUPS = { account: "Account", user: "User", month: "Month", entry_id: "Entry" };
 
 function renderExplorerForm(e) {
@@ -3751,11 +3753,12 @@ function renderExplorer() {
     const p = lx.pivot;
     const notes = [];
     if (p.rows.length < p.rows_total) notes.push(`Showing the first ${p.rows.length} of ${p.rows_total} rows.`);
-    if (p.columns.length < p.columns_total) notes.push(`Showing the largest ${p.columns.length} of ${p.columns_total} columns.`);
-    if (notes.length) notes.push("The Excel download has them all.");
+    const shown = p.columns.filter((c) => c !== OTHER_COLUMN).length;
+    if (shown < p.columns_total) notes.push(`Showing the largest ${shown} of ${p.columns_total} columns.`, '"(other)" adds up the rest.');
+    if (p.rows.length < p.rows_total) notes.push("The Excel download has all the rows.");
     note = notes;
     html = `<tr><th>${esc(LX_GROUPS[p.rows_by])}</th><th>Lines</th><th>Debits</th><th>Credits</th>` +
-      p.columns.map((c) => `<th class="num">${data(c)}</th>`).join("") + "<th>Net</th></tr>" +
+      p.columns.map((c) => `<th class="num">${c === OTHER_COLUMN ? esc(c) : data(c)}</th>`).join("") + "<th>Net</th></tr>" +
       p.rows.map((r) => `<tr><td>${data(r.key)}</td><td class="num">${r.lines.toLocaleString(LOCALE)}</td>
         <td class="num">${money(r.debits)}</td><td class="num">${money(r.credits)}</td>` +
         r.cells.map((v) => `<td class="num">${v ? money(v) : ""}</td>`).join("") +

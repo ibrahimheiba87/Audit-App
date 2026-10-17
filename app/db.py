@@ -28,7 +28,7 @@ from sqlalchemy import (
 )
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -1158,18 +1158,46 @@ ADDED_COLUMNS = {
 
 def _upgrade() -> None:
     """Changes create_all can't make to tables an earlier version created."""
-    with engine.begin() as conn:
-        for table, columns in ADDED_COLUMNS.items():
+    for table, columns in ADDED_COLUMNS.items():
+        with engine.connect() as conn:
             have = {c["name"] for c in sa_inspect(conn).get_columns(table)}
-            for name, ddl in columns.items():
-                if name not in have:
-                    # IF NOT EXISTS: another worker starting at the same time may have added it.
-                    exists_ok = " IF NOT EXISTS" if engine.dialect.name == "postgresql" else ""
+        for name, ddl in columns.items():
+            if name in have:
+                continue
+            # Another worker starting at the same time may add it first: PostgreSQL skips it
+            # with IF NOT EXISTS, SQLite (which hasn't that) says it's a duplicate.
+            exists_ok = " IF NOT EXISTS" if engine.dialect.name == "postgresql" else ""
+            try:
+                with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN{exists_ok} {name} {ddl}"))
+            except OperationalError as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
+    _backfill_scans()
     if engine.dialect.name == "postgresql":  # SQLite doesn't enforce VARCHAR lengths
         with engine.begin() as conn:
             for table in ("account_mappings", "adjusting_lines"):  # account was VARCHAR(100)
                 conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN account TYPE VARCHAR(200)"))
+
+
+def _backfill_scans() -> None:
+    """Related parties scanned before scan_upload_id existed: point them at the ledger the
+    scan would have read (the latest one uploaded by then). With no such ledger left, the
+    scan is forgotten so a fresh one is asked for, except on a locked file, which can't be
+    scanned again and keeps what it has."""
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE related_parties SET scan_upload_id = (
+                SELECT u.id FROM uploads u
+                WHERE u.engagement_id = related_parties.engagement_id AND u.kind = 'gl'
+                  AND u.uploaded_at <= related_parties.scanned_at
+                ORDER BY u.uploaded_at DESC, u.id DESC LIMIT 1)
+            WHERE scan_upload_id IS NULL AND scanned_at IS NOT NULL"""))
+        conn.execute(text("""
+            UPDATE related_parties SET scanned_at = NULL, matches = 0, matched_amount = 0,
+                scan_fingerprint = '', reviewed_by = '', reviewed_at = NULL
+            WHERE scan_upload_id IS NULL AND scanned_at IS NOT NULL
+              AND engagement_id NOT IN (SELECT engagement_id FROM engagement_locks)"""))
 
 
 def _summarize_runs() -> None:

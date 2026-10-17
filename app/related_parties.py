@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import re
 from datetime import timedelta
 from typing import Annotated, Literal
@@ -27,7 +28,7 @@ from sqlalchemy.orm import Session
 from . import auth
 from .auth import current_user, log, require
 from .db import Engagement, RelatedParty, Upload, User, get_session, utcnow
-from .engagements import get_or_404, held_engagement, load_upload, safe_stem
+from .engagements import forget_scan, get_or_404, held_engagement, load_upload, safe_stem
 from .exports import attachment, finish_workbook
 
 router = APIRouter(prefix="/api")
@@ -193,9 +194,19 @@ def scan(e: Engagement, gl: Upload, parties: list[RelatedParty] | None = None) -
 
 
 def fingerprint(gl: Upload, rows: list[dict]) -> str:
-    """The ledger and the lines found in it: a different set needs a fresh review."""
-    lines = sorted((r["row"], r["amount"]) for r in rows)
-    return hashlib.sha256(f"{gl.sha256}|{lines}".encode()).hexdigest()
+    """The upload (which file, sheet and column mapping) and the lines found in it: a
+    different set needs a fresh review."""
+    lines = sorted((r["row"], r["date"], r["entry_id"], r["amount"]) for r in rows)
+    source = json.dumps([gl.id, gl.sha256, gl.sheet, gl.mapping], sort_keys=True, default=str)
+    return hashlib.sha256(f"{source}|{lines}".encode()).hexdigest()
+
+
+def still_matches(p: RelatedParty, gl: Upload, rows: list[dict]) -> bool:
+    """Whether a fresh scan of the ledger finds what the party's saved scan found. Scans saved
+    before fingerprints were kept can only be checked by their count."""
+    if not p.scan_fingerprint:
+        return len(rows) == p.matches
+    return fingerprint(gl, rows) == p.scan_fingerprint
 
 
 def scan_out(results: list[dict], gl: Upload) -> dict:
@@ -280,9 +291,7 @@ def update_party(party_id: int, body: PartyPatch, user: User = Depends(require("
     if "relationship" in changes:
         p.relationship_kind = changes["relationship"]
     if patterns(p) != before:  # different names: last scan's counts no longer apply
-        p.scanned_at, p.matches, p.matched_amount = None, 0, 0.0
-        p.scan_upload_id, p.scan_fingerprint = None, ""
-        p.reviewed_by, p.reviewed_at = "", None
+        forget_scan(p)
     if changes.get("reviewed") is True:
         if p.matches and not p.conclusion:
             raise HTTPException(400, "Write a conclusion on the transactions before marking "
@@ -342,12 +351,16 @@ def scan_ledger(engagement_id: int, body: ScanIn, user: User = Depends(require("
 
 # --- Excel -------------------------------------------------------------------------
 
-def to_excel(e: Engagement, results: list[dict] | None, gl: Upload | None) -> bytes:
+def to_excel(e: Engagement, results: list[dict] | None, gl: Upload | None,
+             stale: list[str] | None = None) -> bytes:
     s = summary(e)
     about = [("Client", e.client.name), ("Engagement", e.name),
              ("Period end", e.period_end.isoformat()), ("Related parties", s["parties"]),
              ("With transactions found", s["with_matches"]),
              ("Ledger scanned", gl.filename if gl else "Not scanned")]
+    if stale:
+        about.append(("Not listed", "The ledger no longer gives the transactions the last "
+                                    "scan found for: " + ", ".join(stale)))
     parties = [{"Name": p.name, "Relationship": RELATIONSHIPS.get(p.relationship_kind, ""),
                 "Other names": ", ".join(p.aliases or []), "Note": p.note,
                 "Transactions found": p.matches,
@@ -386,14 +399,16 @@ def workbook(e: Engagement) -> tuple[str, bytes]:
     """The register, with the transactions found by the last scan: the same ledger and the
     same parties its counts, conclusions and reviews rest on."""
     gl = scanned_ledger(e)
-    results = None
+    results, stale = None, []
     if gl is not None:
         try:
-            results = scan(e, gl, [p for p in e.related_parties if p.scan_upload_id == gl.id])
+            found = scan(e, gl, [p for p in e.related_parties if p.scan_upload_id == gl.id])
         except HTTPException:
-            gl = None  # a ledger that no longer loads: the register on its own
+            gl, found = None, []  # a ledger that no longer loads: the register on its own
+        results = [x for x in found if still_matches(x["party"], gl, x["rows"])]
+        stale = [x["party"].name for x in found if x not in results]
     stem = safe_stem(f"{e.client.name}-{e.name}-related-parties")
-    return f"{stem}.xlsx", to_excel(e, results, gl)
+    return f"{stem}.xlsx", to_excel(e, results, gl, stale)
 
 
 @router.get("/engagements/{engagement_id}/related-parties/export")

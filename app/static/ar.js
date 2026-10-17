@@ -2208,6 +2208,9 @@ I18N.add({
     "This file has no entry column to filter on.": "لا يحتوي هذا الملف على عمود قيد للتصفية به.",
     "Upload a file first.": "ارفع ملفًا أولًا.",
     "The date of the document itself": "تاريخ المستند نفسه",
+    "(other)": "(أخرى)",
+    '"(other)" adds up the rest.': 'عمود "(أخرى)" يجمع الباقي.',
+    "The Excel download has all the rows.": "ملف Excel المُنزَّل يحتوي على جميع الصفوف.",
   },
   patterns: {
     "Showing the first {n} of {count} rows.": "يُعرض أول {n} من أصل {count} صفاً.",
