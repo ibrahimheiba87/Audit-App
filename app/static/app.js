@@ -168,7 +168,7 @@ function Mapper(root, onChange = () => {}) {
 // --- Views and routing ------------------------------------------------------
 
 // Lowest rank that can open each view; anything else falls back to engagements.
-const VIEW_RANK = { engagements: 1, quick: 1, overview: 2, schedule: 1, library: 1, users: 4, activity: 4 };
+const VIEW_RANK = { engagements: 1, quick: 1, overview: 2, schedule: 1, library: 1, wip: 3, users: 4, activity: 4 };
 
 function route() {
   if (!me) return;
@@ -192,6 +192,7 @@ function route() {
   if (view === "overview") guard(showOverview);
   if (view === "schedule") guard(showSchedule);
   if (view === "library") guard(showLibrary);
+  if (view === "wip") guard(showWip);
   if (view === "portal") guard(showPortal);
 }
 window.addEventListener("hashchange", route);
@@ -307,7 +308,8 @@ async function openEngagement(id) {
     rr = null; renderRisks(); resetRiskForm(); $("rr-add").open = false; $("ra-imported").textContent = "";
     ct = null; renderControls(); resetControlForm(); $("ct-add").open = false; $("ct-calc-out").textContent = "";
     ap = null; apEditing = null; renderExpectations(); $("ap-form").reset(); $("ap-add").open = false;
-    resetFixedAssets(); faTab = "categories";
+    resetFixedAssets(); faTab = "categories"; resetPayroll();
+    fee = null; resetFeeForm(); $("fee-add").open = false; renderFees();
     py = null; pyEditing = null; renderPriorPoints(); $("py-form").reset(); $("py-add").open = false;
     $("py-filter").value = ""; $("py-imported").textContent = "";
     sc = null; scEditing = null; resetStockListing(); renderStockCount(); $("sc-filter").value = "";
@@ -363,6 +365,7 @@ async function openEngagement(id) {
   renderWhoForm(e);
   renderPairsForm(e);
   renderFixedAssetForm(e);
+  renderPayrollForm(e);
   renderStockForm(e);
   renderAgingForm(e);
   renderConfirmationListing(e);
@@ -398,6 +401,7 @@ async function openEngagement(id) {
   guard(loadLoans);
   guard(loadEstimates);
   guard(loadChecklists);
+  guard(loadFees);
   await loadStatements();
   await loadRegister();
   scrollToPendingPanel();
@@ -749,7 +753,7 @@ $("mat-form").addEventListener("submit", (e) => {
 const uploadMapper = Mapper($("up-mapper"));
 // Lists (vendor or employee master files, fixed asset registers, inventory listings) have no
 // amounts to map: their columns are picked where they're used.
-const LIST_KINDS = ["list", "fixed_assets", "inventory"];
+const LIST_KINDS = ["list", "fixed_assets", "inventory", "payroll"];
 const uploadIsList = () => LIST_KINDS.includes($("up-kind").value);
 function loadUploadMapper() {
   uploadMapper.setMapping(!uploadIsList());
@@ -784,6 +788,7 @@ function renderUploads(uploads) {
           : u.kind === "list" ? `<button type="button" class="small" data-match="${u.id}">Match</button>`
           : u.kind === "fixed_assets" ? `<button type="button" class="small" data-goto="fa-panel" data-goto-upload="${u.id}">Look at it</button>`
           : u.kind === "inventory" ? `<button type="button" class="small" data-goto="sc-panel" data-goto-upload="${u.id}">Count</button>`
+          : u.kind === "payroll" ? `<button type="button" class="small" data-goto="pr-panel" data-goto-upload="${u.id}">Test it</button>`
           : `<button type="button" class="small" data-run="${u.id}">Run audit</button>`}
         <button type="button" class="small secondary danger min-2" data-delete-upload="${u.id}">Delete</button>
       </div></td></tr>`).join("")
@@ -797,7 +802,7 @@ $("uploads").addEventListener("click", (e) => {
   const matchBtn = e.target.closest("[data-match]");
   const goto = e.target.closest("[data-goto]");
   if (goto) {
-    const panel = goto.dataset.goto, select = panel === "fa-panel" ? "fa-upload" : "sc-upload";
+    const panel = goto.dataset.goto, select = { "fa-panel": "fa-upload", "pr-panel": "pr-upload" }[panel] || "sc-upload";
     $(select).value = goto.dataset.gotoUpload;
     $(select).dispatchEvent(new Event("change"));
     if (panel === "sc-panel" && !sc?.count) $("sc-setup").open = true;
@@ -7861,6 +7866,215 @@ $("lib-rq-list").addEventListener("click", (ev) => {
       await showLibrary();
     });
   }
+});
+
+// --- Payroll tests ----------------------------------------------------------------------------
+
+let pr = null;  // the test on show
+
+function renderPayrollForm(e) {
+  const keep = $("pr-upload").value;
+  const files = e.uploads.filter((u) => u.kind === "payroll");
+  $("pr-upload").innerHTML = files.map((u) => `<option value="${u.id}" translate="no">${esc(u.filename)}</option>`).join("")
+    || `<option value="">${esc("Upload a payroll register first")}</option>`;
+  if (files.some((u) => String(u.id) === keep)) $("pr-upload").value = keep;
+  if (pr && String(pr.upload_id) !== $("pr-upload").value) resetPayroll();
+}
+
+function resetPayroll() {
+  pr = null;
+  $("pr-columns").innerHTML = "";
+  $("pr-columns-note").hidden = $("pr-problem").hidden = true;
+  $("pr-result").hidden = $("pr-export").hidden = true;
+}
+
+$("pr-upload").addEventListener("change", resetPayroll);
+
+$("pr-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  busy($("pr-run"), async () => {
+    const id = Number($("pr-upload").value);
+    if (!id) throw new Error("Upload a payroll register first.");
+    const engagementId = currentEngagement.id;
+    const out = await sendJSON("POST", `/api/uploads/${id}/payroll`, { columns: columnsPicked($("pr-columns")) });
+    if (currentEngagement?.id !== engagementId) return;
+    pr = out;
+    $("pr-columns").innerHTML = columnPickers(out.fields, out.file_columns, out.columns);
+    $("pr-columns-note").hidden = false;
+    $("pr-problem").hidden = !out.problem;
+    $("pr-problem").textContent = out.problem || "";
+    $("pr-export").hidden = !!out.problem;
+    renderPayroll();
+    await loadEngagementActivity();
+  });
+});
+
+$("pr-export").addEventListener("click", () => {
+  busy($("pr-export"), async () => {
+    const res = await request(`/api/uploads/${pr.upload_id}/payroll/export`, { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ columns: pr.columns }) });
+    await saveFile(res, "payroll.xlsx");
+  });
+});
+
+function renderPayroll() {
+  $("pr-result").hidden = !pr || !!pr.problem;
+  if (!pr || pr.problem) return;
+  const tie = pr.tie;
+  $("pr-cards").innerHTML = [
+    [pr.people.toLocaleString(LOCALE), "Employees", false], [pr.rows.toLocaleString(LOCALE), "Lines", false],
+    ...(pr.gross != null ? [[money(pr.gross), "Gross pay", false]] : []), ...(pr.net != null ? [[money(pr.net), "Net pay", false]] : []),
+    [pr.issues.count.toLocaleString(LOCALE), "Lines to look at", pr.issues.count > 0],
+    ...(tie && tie.trial_balance != null ? [[money(tie.difference), "Register less trial balance", tie.material]] : []),
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("pr-tie").hidden = !(tie && tie.material);
+  $("pr-tie").innerHTML = tie && tie.material
+    ? `<span>${esc(`The pay in the year (${money(tie.register)}) differs from the employee costs in the trial balance (${money(tie.trial_balance)}).`)}</span> <span>${esc("Look for costs paid outside the payroll, accruals and employer's contributions.")}</span>`
+    : "";
+  $("pr-notes").hidden = !pr.notes.length;
+  $("pr-notes").innerHTML = pr.notes.map((n) => `<p>${esc(n)}</p>`).join("");
+  $("pr-counts").innerHTML = pr.issue_counts.length
+    ? `<tr><th>Point</th><th class="num">Lines</th></tr>${pr.issue_counts.map((c) => `<tr><td>${esc(c.issue)}</td><td class="num">${c.rows}</td></tr>`).join("")}`
+    : `<tr><td class="muted">${esc("Nothing odd found.")}</td></tr>`;
+  $("pr-issues").innerHTML = pr.issues.items.length
+    ? `<tr><th>Row</th><th>Employee</th><th>Bank account</th><th>Paid on</th><th class="num">Gross pay</th><th class="num">Net pay</th><th>Points to look at</th></tr>`
+      + pr.issues.items.map((x) => `<tr><td class="num">${x.row}</td><td>${data(x.employee)}<div class="tag">${data(x.name)}</div></td>
+        <td>${data(x.bank)}</td><td class="nowrap">${date(x.paid_on)}</td><td class="num">${money(x.gross)}</td><td class="num">${money(x.net)}</td>
+        <td>${x.issues.map((i) => `<div>${esc(i)}</div>`).join("")}</td></tr>`).join("")
+    : "";
+  $("pr-more").hidden = pr.issues.items.length >= pr.issues.count;
+  $("pr-more").innerHTML = `<span>${esc(`Showing the first ${pr.issues.items.length}.`)}</span> <span>${esc("The Excel download has them all.")}</span>`;
+  $("pr-months").innerHTML = pr.months.length
+    ? `<tr><th>Month</th><th class="num">Employees</th><th class="num">Gross pay</th><th class="num">Net pay</th></tr>`
+      + pr.months.map((m) => `<tr><td><bdi dir="ltr">${esc(m.month)}</bdi></td><td class="num">${m.people}</td><td class="num">${money(m.gross)}</td><td class="num">${money(m.net)}</td></tr>`).join("")
+    : `<tr><td class="muted">${esc("Say which column holds the pay date to see each month.")}</td></tr>`;
+  $("pr-departments").innerHTML = `<tr><th>Department</th><th class="num">Employees</th><th class="num">Pay</th></tr>`
+    + pr.departments.map((d) => `<tr><td>${d.department === "(none)" ? esc(d.department) : data(d.department)}</td><td class="num">${d.people}</td><td class="num">${money(d.pay)}</td></tr>`).join("");
+}
+
+// --- Fees and billing on an engagement -----------------------------------------------------
+
+let fee = null;
+let feeEditing = null;
+
+async function loadFees() {
+  if (me.rank < 3) return;
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/fees`);
+  if (currentEngagement?.id !== id) return;
+  fee = out;
+  renderFees();
+}
+
+function resetFeeForm() {
+  feeEditing = null;
+  $("fee-form").reset();
+  $("fee-submit").textContent = "Record invoice";
+  $("fee-cancel").hidden = true;
+}
+
+const feeMoney = (v) => v == null ? "" : `${money(v)}${fee?.currency ? ` <span class="tag" translate="no">${esc(fee.currency)}</span>` : ""}`;
+
+function renderFees() {
+  if (!fee) { $("fee-cards").innerHTML = $("fee-table").innerHTML = ""; $("fee-notes").hidden = true; return; }
+  $("fee-cards").innerHTML = [
+    [fee.fee == null ? "—" : money(fee.fee), fee.fee_basis === "hourly" ? "Fee (hourly)" : "Fee (fixed)", false],
+    [`${fee.hours}${fee.budget_hours ? ` / ${fee.budget_hours}` : ""}`, fee.budget_hours ? "Hours worked / budget" : "Hours worked", fee.flags.includes("over_budget")],
+    [money(fee.time_value), "Time value", false], [money(fee.billed), "Billed", false],
+    [money(fee.outstanding), "Not paid yet", fee.flags.includes("overdue")], [money(fee.to_bill), "Still to bill", false],
+    [fee.recovery_pct == null ? "—" : `${fee.recovery_pct}%`, "Recovery", fee.flags.includes("low_recovery")],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("fee-notes").hidden = !fee.notes.length;
+  $("fee-notes").innerHTML = fee.notes.map((n) => `<span>${esc(n)}</span>`).join(" ");
+  $("fee-table").innerHTML = fee.invoices.length
+    ? `<tr><th>Invoice</th><th>Issued on</th><th class="num">Amount</th><th>Paid on</th><th>Note</th><th></th></tr>`
+      + fee.invoices.map((x) => `<tr data-inv="${x.id}"><td>${data(x.number)}</td><td class="nowrap">${date(x.issued_on)}</td>
+        <td class="num">${feeMoney(x.amount)}</td><td class="nowrap${x.overdue ? " flag-cell" : ""}">${x.paid_on ? date(x.paid_on) : esc(x.overdue ? "Overdue" : "Not paid")}</td>
+        <td>${x.note ? data(x.note) : ""}</td>
+        <td class="nowrap"><button type="button" class="small secondary" data-inv-edit>Change</button> <button type="button" class="small secondary danger" data-inv-remove>Remove</button></td></tr>`).join("")
+    : `<tr><td class="muted">${esc("No invoices yet.")}</td></tr>`;
+}
+
+$("fee-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const body = { number: $("fee-number").value, issued_on: $("fee-issued").value, amount: Number($("fee-amount").value),
+    paid_on: $("fee-paid").value || null, note: $("fee-note").value };
+  busy(ev.submitter, async () => {
+    const out = feeEditing ? await sendJSON("PUT", `/api/invoices/${feeEditing}`, body)
+      : await sendJSON("POST", `/api/engagements/${id}/invoices`, body);
+    if (currentEngagement?.id !== id) return;
+    resetFeeForm();
+    $("fee-add").open = false;
+    fee = out;
+    renderFees();
+    await loadEngagementActivity();
+  });
+});
+$("fee-cancel").addEventListener("click", () => { resetFeeForm(); $("fee-add").open = false; });
+
+$("fee-table").addEventListener("click", (ev) => {
+  const row = ev.target.closest("[data-inv]");
+  if (!row) return;
+  const x = fee.invoices.find((r) => String(r.id) === row.dataset.inv);
+  if (ev.target.closest("[data-inv-edit]")) {
+    feeEditing = x.id;
+    for (const [el, v] of [["fee-number", x.number], ["fee-issued", x.issued_on], ["fee-amount", x.amount], ["fee-paid", x.paid_on], ["fee-note", x.note]]) $(el).value = v ?? "";
+    $("fee-submit").textContent = "Save invoice";
+    $("fee-cancel").hidden = false;
+    $("fee-add").open = true;
+    return;
+  }
+  const btn = ev.target.closest("[data-inv-remove]");
+  if (!btn || !confirm(`Remove the invoice ${x.number || x.id}?`)) return;
+  const id = currentEngagement.id;
+  busy(btn, async () => {
+    const out = await sendJSON("DELETE", `/api/invoices/${x.id}`);
+    if (currentEngagement?.id !== id) return;
+    if (feeEditing === x.id) resetFeeForm();
+    fee = out;
+    renderFees();
+    await loadEngagementActivity();
+  });
+});
+
+// --- WIP and fees across the firm ----------------------------------------------------------
+
+async function showWip() {
+  const archived = $("wip-archived").checked;
+  const [out, rates] = await Promise.all([getJSON(`/api/wip?archived=${archived}`), getJSON("/api/fees/rates")]);
+  $("wip-export").href = `/api/wip/export?archived=${archived}`;
+  $("wip-currencies").hidden = out.currencies.length < 2;
+  const t = out.totals;
+  $("wip-cards").innerHTML = [
+    [t.hours, "Hours", false], [money(t.time_value), "Time value", false], [money(t.billed), "Billed", false],
+    [money(t.outstanding), "Not paid yet", out.overdue > 0], [money(t.to_bill), "Still to bill", false],
+    [out.low_recovery, "Engagements recovering under 80%", out.low_recovery > 0],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("wip-table").innerHTML = out.rows.length
+    ? `<tr><th>Engagement</th><th class="num">Fee</th><th class="num">Hours</th><th class="num">Time value</th><th class="num">Billed</th>
+      <th class="num">Not paid yet</th><th class="num">Still to bill</th><th class="num">Recovery %</th></tr>`
+      + out.rows.map((r) => `<tr><td><a href="#/engagements/${r.engagement_id}">${data(r.client)} · ${data(r.engagement)}</a>
+          ${r.currency ? `<span class="tag" translate="no">${esc(r.currency)}</span>` : ""}</td>
+        <td class="num">${r.fee == null ? "" : money(r.fee)}<div class="tag">${esc(r.fee_basis === "hourly" ? "Hourly" : "Fixed")}</div></td>
+        <td class="num${r.flags.includes("over_budget") ? " flag-cell" : ""}">${esc(r.hours)}${r.budget_hours ? ` / ${esc(r.budget_hours)}` : ""}</td>
+        <td class="num">${money(r.time_value)}</td><td class="num">${money(r.billed)}</td>
+        <td class="num${r.flags.includes("overdue") ? " flag-cell" : ""}">${money(r.outstanding)}</td><td class="num">${money(r.to_bill)}</td>
+        <td class="num${r.flags.includes("low_recovery") ? " flag-cell" : ""}">${r.recovery_pct == null ? "" : esc(r.recovery_pct)}</td></tr>`).join("")
+    : `<tr><td class="muted">${esc("No engagements to show.")}</td></tr>`;
+  $("wip-rates").innerHTML = rates.rates.map((r) => `<div><label for="wip-rate-${r.role}">${esc(r.label)}</label>
+    <input id="wip-rate-${r.role}" data-role="${r.role}" type="number" min="0" step="any" value="${r.rate ?? ""}"></div>`).join("");
+}
+
+$("wip-archived").addEventListener("change", () => guard(showWip));
+$("wip-rates-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const rates = {};
+  $("wip-rates").querySelectorAll("[data-role]").forEach((el) => { rates[el.dataset.role] = el.value === "" ? null : Number(el.value); });
+  busy($("wip-rates-save"), async () => {
+    await sendJSON("PUT", "/api/fees/rates", { rates });
+    await showWip();
+  });
 });
 
 (async () => {
