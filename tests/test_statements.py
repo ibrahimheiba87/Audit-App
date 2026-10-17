@@ -194,7 +194,7 @@ def test_export_is_safe_and_logged():
     assert r.status_code == 200 and "filename*=UTF-8''" in r.headers["content-disposition"]
     book = openpyxl.load_workbook(io.BytesIO(r.content))
     assert book.sheetnames == ["Summary", "Statements", "Ratios", "Lead sheets", "Adjusted TB",
-                               "Adjusting entries", "Uncorrected"]
+                               "Adjusting entries", "Uncorrected", "Cash flow"]
     cells = [c for ws in book.worksheets for row in ws.iter_rows() for c in row]
     assert not [c.value for c in cells if c.data_type == "f"]
     assert "=HYPERLINK(1)" in [c.value for c in cells]

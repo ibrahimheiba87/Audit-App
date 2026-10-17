@@ -115,7 +115,7 @@ SECTIONS = [
     Section("statements", "Lead sheets and statements",
             "Account mapping, adjusting entries and the draft statements.",
             ("mapping.update", "entry.create", "entry.update", "entry.delete", "tick.add",
-             "tick.delete")),
+             "tick.delete", "translation.save", "translation.delete")),
     Section("disclosures", "Disclosure checklist",
             "The disclosures in the draft financial statements, checked item by item.",
             ("disclosure.update", "disclosure.accept_ai")),

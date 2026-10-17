@@ -280,6 +280,7 @@ async function openEngagement(id) {
     // Hide the last engagement's statements and findings while this one's load, so a quick
     // click can't change an entry or finding of the engagement just left.
     fs = null; fsEngagementId = null; ticks = null; renderStatementsPanel();
+    fx = null; $("fx-form").reset(); $("fx-result").hidden = true; $("fx-note").textContent = "";
     reg = null; $("reg-cards").innerHTML = $("reg-table").innerHTML = $("reg-count").textContent = "";
     $("reg-bulk").hidden = true;
     resetEntryForm();
@@ -4096,9 +4097,83 @@ function renderStatementsPanel(error = null) {
   renderEntries();
   renderLeadSheets();
   renderStatementTables();
+  renderCashFlow();
   renderUncorrected();
   renderRatios();
+  guard(loadTranslation);
 }
+
+// Cash flow statement and currency translation
+
+function renderCashFlow() {
+  const cf = fs.cash_flow;
+  $("cfs-notes").hidden = !cf?.notes.length;
+  $("cfs-notes").innerHTML = (cf?.notes || []).map((n) => `<span>${esc(n)}</span>`).join(" ");
+  $("cfs-table").innerHTML = cf ? '<tr><th></th><th class="num">This year</th></tr>' + cf.rows.map((r) =>
+    `<tr class="${r.kind}"><td>${esc(r.label)}</td><td class="num">${r.amount == null ? "" : signed(r.amount)}</td></tr>`).join("")
+    : '<tr><td class="muted">Upload last year\'s trial balance to see the cash flow statement.</td></tr>';
+}
+
+let fx = null;  // latest /translation response
+
+async function loadTranslation() {
+  const id = currentEngagement.id;
+  const out = await getJSON(`/api/engagements/${id}/translation`);
+  if (currentEngagement?.id !== id) return;
+  fx = out;
+  renderTranslation(true);
+}
+
+function renderTranslation(fill) {
+  const s = fx?.settings, r = fx?.result;
+  if (fill) {
+    const set = (id, v) => { $(id).value = v ?? ""; };
+    set("fx-functional", s?.functional); set("fx-presentation", s?.presentation);
+    set("fx-closing", s?.closing_rate); set("fx-average", s?.average_rate); set("fx-equity", s?.equity_rate);
+    set("fx-reserves", s?.opening_reserves); set("fx-reserve", s?.opening_translation_reserve);
+  }
+  $("fx-remove").hidden = $("fx-export").hidden = !s;
+  $("fx-export").href = `/api/engagements/${currentEngagement.id}/translation/export`;
+  $("fx-result").hidden = !r;
+  if (!r) { $("fx-note").textContent = ""; return; }
+  const parts = [`Translation reserve at the year end: ${signed(r.reserve)} ${s.presentation}.`];
+  if (r.reserve_movement != null) parts.push(`Translation difference for the year: ${signed(r.reserve_movement)} ${s.presentation}.`);
+  parts.push("Uses the latest trial balance.", ...r.notes);
+  $("fx-note").innerHTML = parts.map((t) => `<span>${esc(t)}</span>`).join(" ");
+  const table = (rows) => `<tr><th></th><th class="num" translate="no">${esc(s.functional)}</th><th class="num" translate="no">${esc(s.presentation)}</th></tr>` +
+    rows.map((x) => `<tr class="${x.kind}"><td>${esc(x.label)}</td>` + (x.kind === "heading" ? "<td></td><td></td>"
+      : `<td class="num">${signed(x.functional)}</td><td class="num">${signed(x.presented)}</td>`) + "</tr>").join("");
+  $("fx-is").innerHTML = table(r.statements.income_statement);
+  $("fx-bs").innerHTML = table(r.statements.balance_sheet);
+}
+
+$("fx-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const id = currentEngagement.id;
+  const num = (el) => $(el).value === "" ? null : Number($(el).value);
+  busy(ev.submitter, async () => {
+    const out = await sendJSON("PUT", `/api/engagements/${id}/translation`, {
+      functional: $("fx-functional").value, presentation: $("fx-presentation").value,
+      closing_rate: num("fx-closing"), average_rate: num("fx-average"), equity_rate: num("fx-equity"),
+      opening_reserves: num("fx-reserves"), opening_translation_reserve: num("fx-reserve") });
+    if (currentEngagement?.id !== id) return;
+    fx = out;
+    renderTranslation(true);
+    await loadEngagementActivity();
+  });
+});
+
+$("fx-remove").addEventListener("click", () => {
+  if (!confirm("Remove the currency translation?")) return;
+  const id = currentEngagement.id;
+  busy($("fx-remove"), async () => {
+    await sendJSON("DELETE", `/api/engagements/${id}/translation`);
+    if (currentEngagement?.id !== id) return;
+    fx = { settings: null, result: null };
+    renderTranslation(true);
+    await loadEngagementActivity();
+  });
+});
 
 ["fs-tb", "fs-prior"].forEach((id) => $(id).addEventListener("change", () => {
   $("fs-ai-note").hidden = true;
