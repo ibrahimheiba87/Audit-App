@@ -45,6 +45,7 @@ from .db import (
     RiskProcedure,
     Run,
     Sample,
+    StaffBooking,
     StockCountItem,
     SubsequentEvent,
     Task,
@@ -74,7 +75,7 @@ PARAM_MODELS = {
     "stock_item_id": StockCountItem, "point_id": PriorPoint,
     "vouching_id": Vouching, "component_id": GroupComponent,
     "consolidation_entry_id": ConsolidationEntry,
-    "vat_return_id": VatReturn, "tick_id": WorkpaperTick,
+    "vat_return_id": VatReturn, "tick_id": WorkpaperTick, "staff_booking_id": StaffBooking,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is

@@ -48,6 +48,7 @@ from . import (
     workplan,
 )
 from . import completion as completion_module
+from . import planning as planning_module
 from .auth import current_user, log
 from .db import Activity, Engagement, Evidence, RequestFile, Upload, User, Vouching, get_session
 from .engagements import get_or_404, run_workbook, safe_stem
@@ -199,6 +200,10 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
                        lambda: completion_module.workbook(session, e))
     if e.quality_review is not None and e.quality_review.required:
         pack.workpaper(completion, "Engagement quality review", lambda: quality.workbook(e))
+    if e.plan is not None:
+        pack.workpaper(planning, "Engagement letter",
+                       lambda: planning_module.word_file(e, "letter"))
+        pack.workpaper(planning, "Planning memo", lambda: planning_module.word_file(e, "memo"))
     if e.audit_report is not None:
         pack.workpaper(completion, "Draft auditor's report",
                        lambda: report_draft.word_file(session, e))
