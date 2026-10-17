@@ -32,6 +32,7 @@ from .controls import router as controls_router
 from .crossmatch import router as crossmatch_router
 from .dashboard import router as dashboard_router
 from .disclosures import router as disclosures_router
+from .ecl import router as ecl_router
 from .engagements import router as engagements_router
 from .expectations import router as expectations_router
 from .explorer import router as explorer_router
@@ -39,6 +40,7 @@ from .exports import attachment
 from .findings import router as findings_router
 from .fixed_assets import router as fixed_assets_router
 from .leadsheets import router as leadsheets_router
+from .leases import router as leases_router
 from .locking import check_unlocked
 from .locking import router as locking_router
 from .notifications import router as notifications_router
@@ -96,7 +98,8 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                stock_count_router, prior_points_router, notifications_router, overview_router,
                posters_router, quality_router, search_router, account_pairs_router,
                vouching_router, ticks_router, translation_router,
-               consolidation_router, vat_router, planning_router, schedule_router):
+               consolidation_router, vat_router, planning_router, schedule_router,
+               leases_router, ecl_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

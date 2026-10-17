@@ -27,12 +27,15 @@ from . import (
     ai_writer,
     comparisons,
     confirmations,
+    consolidation,
     controls,
     crossmatch,
     disclosures,
+    ecl,
     expectations,
     findings,
     leadsheets,
+    leases,
     portal,
     prior_points,
     quality,
@@ -45,6 +48,7 @@ from . import (
     samples,
     stock_count,
     summaries,
+    vat,
     workplan,
 )
 from . import completion as completion_module
@@ -132,7 +136,7 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
     if e.controls:
         pack.workpaper(planning, "Internal controls and tests of controls",
                        lambda: controls.workbook(e))
-    if e.tasks or e.time_budgets or e.time_entries:
+    if e.tasks or e.time_budgets or e.time_entries or e.bookings:
         pack.workpaper(planning, "Work plan, budget and time",
                        lambda: workplan.workbook(session, e, user))
     if e.prior_points:
@@ -159,6 +163,11 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
     if e.expectations:
         pack.workpaper(testing, "Analytical procedures and proofs in total",
                        lambda: expectations.workbook(session, e))
+    if e.leases:
+        pack.workpaper(testing, "Leases (IFRS 16)", lambda: leases.workbook(e))
+    if e.ecl_setup is not None:
+        pack.workpaper(testing, "Expected credit losses (IFRS 9)",
+                       lambda: ecl.workbook(session, e))
     if e.stock_count is not None:
         pack.workpaper(testing, "Inventory count", lambda: stock_count.workbook(e))
     if e.confirmations:
@@ -193,6 +202,11 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
     if tb is not None:
         pack.workpaper(completion, "Lead sheets and draft statements",
                        lambda: leadsheets.workbook(e, data, tb, prior))
+    if e.components or e.consolidation_entries:
+        pack.workpaper(completion, "Group consolidation",
+                       lambda: consolidation.workbook(session, e))
+    if e.vat_setup is not None or e.vat_returns:
+        pack.workpaper(testing, "VAT reconciliation", lambda: vat.workbook(session, e))
     if e.disclosures is not None:
         pack.workpaper(completion, "Disclosure checklist", lambda: disclosures.workbook(e))
     if e.completion is not None or e.subsequent_events:

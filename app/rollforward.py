@@ -2,7 +2,9 @@
 
 The new engagement gets the next period, and (each optional) the team, the account mapping,
 the materiality method without its amounts, the client request list (open again, without due
-dates) and this year's adjusted trial balance as its prior-year trial balance.
+dates), this year's adjusted trial balance as its prior-year trial balance, and the set-up
+of later work (controls, related parties, the engagement letter terms, the VAT accounts, the
+group's components that have next year's engagement already, and so on).
 """
 
 from __future__ import annotations
@@ -18,21 +20,26 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from . import auth, loader, prior_points
+from . import auth, leases, loader, prior_points
 from .auth import log, require
 from .db import (
     AccountMapping,
     Control,
     DocumentRequest,
+    EclSetup,
     Engagement,
     EngagementMember,
+    EngagementPlan,
     Expectation,
+    GroupComponent,
+    Lease,
     QualityReview,
     RelatedParty,
     Task,
     TimeBudget,
     Upload,
     User,
+    VatSetup,
     get_session,
 )
 from .engagements import engagement_out, get_or_404
@@ -54,6 +61,11 @@ class RollForwardIn(BaseModel):
     expectations: bool = True
     prior_points: bool = True
     quality: bool = True
+    plan: bool = True
+    vat: bool = True
+    group: bool = True
+    leases: bool = True
+    ecl: bool = True
 
 
 # The names and periods of an expectation's inputs; the amounts and rates are this year's.
@@ -175,6 +187,56 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
             required=True, reason=q.reason, reason_note=q.reason_note, reviewer_id=q.reviewer_id,
             reviewer_name=q.reviewer_name, updated_by=user.name)
         carried["quality"] = True
+    p = old.plan
+    if body.plan and p is not None:
+        # Who the letter is to and from and how the work is done; the dates, the fee and the
+        # client's acceptance are next year's.
+        new.plan = EngagementPlan(
+            addressee=p.addressee, firm_name=p.firm_name, partner_name=p.partner_name,
+            city=p.city, currency=p.currency, fee_basis=p.fee_basis,
+            other_services=p.other_services, business=p.business, approach=p.approach,
+            other_notes=p.other_notes, updated_by=user.name)
+        carried["plan"] = True
+    v = old.vat_setup
+    if body.vat and v is not None:
+        # The rate and the VAT accounts; next year's ledger is picked once it's uploaded.
+        new.vat_setup = VatSetup(rate_pct=v.rate_pct, output_accounts=list(v.output_accounts),
+                                 input_accounts=list(v.input_accounts), updated_by=user.name)
+        carried["vat"] = True
+    if body.group and old.components:
+        # Each component whose own engagement for next year is already in the app, and on
+        # whose team the user is (as when a component is added by hand).
+        added = 0
+        for c in old.components:
+            after = next_year(c.component.period_end)
+            successor = next((x for x in c.component.client.engagements
+                              if x.period_end == after and x is not new and x.id is not None
+                              and auth.on_engagement(session, user, x.id)), None)
+            if successor is not None:
+                new.components.append(GroupComponent(
+                    component=successor, ownership_pct=c.ownership_pct, scope=c.scope,
+                    note=c.note, created_by=user.name))
+                added += 1
+        carried["group_components"] = added
+        carried["group_components_left"] = len(old.components) - added
+    if body.leases and old.leases:
+        # Leases still running next year; the client's figures are next year's to enter.
+        running = [x for x in old.leases if leases.schedule(x)
+                   and leases.schedule(x)[-1]["end"] > old.period_end]
+        for x in running:
+            new.leases.append(Lease(
+                name=x.name, start_date=x.start_date, term_months=x.term_months,
+                payment=x.payment, frequency=x.frequency, timing=x.timing,
+                rate_pct=x.rate_pct, direct_costs=x.direct_costs, note=x.note,
+                created_by=user.name, updated_by=user.name))
+        if running:
+            carried["leases"] = len(running)
+    c = old.ecl_setup
+    if body.ecl and c is not None:
+        # The loss rates and terms; next year's listing and booked allowance are picked anew.
+        new.ecl_setup = EclSetup(terms_days=c.terms_days, rates=dict(c.rates or {}),
+                                 forward_pct=c.forward_pct, updated_by=user.name)
+        carried["ecl"] = True
     session.flush()
 
     upload = None
@@ -221,6 +283,10 @@ def roll_forward(engagement_id: int, body: RollForwardIn, user: User = Depends(r
             f"Carried the quality review set-up from {old.name}", new,
             details={"from_engagement_id": old.id, "reason": q.reason,
                      "reviewer": q.reviewer_name})
+    if carried.get("leases"):  # and the leases and credit losses section
+        log(session, user, "lease.carry",
+            f"Carried {carried['leases']} leases from {old.name}", new,
+            details={"from_engagement_id": old.id, "leases": carried["leases"]})
     if upload is not None:
         log(session, user, "upload.create",
             f"Uploaded {upload.filename} (Prior-year trial balance) from {old.name}", new,
