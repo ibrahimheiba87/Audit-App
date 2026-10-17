@@ -16,6 +16,7 @@
       <a href="#/engagements" data-view="engagements">Engagements</a>
       <a href="#/quick" data-view="quick">Quick audit</a>
       <a href="#/overview" data-view="overview" class="min-2">Overview</a>
+      <a href="#/schedule" data-view="schedule">Schedule</a>
       <a href="#/users" data-view="users" class="min-4">Users <span class="nav-count" id="signup-count" translate="no" title="Account requests waiting for approval" hidden></span></a>
       <a href="#/activity" data-view="activity" class="min-4">Activity</a>
     </nav>
@@ -232,6 +233,24 @@
     </section>
   </div>
 
+  <div id="view-schedule" class="view" hidden>
+    <section class="panel">
+      <div class="row-between">
+        <h2>Staff schedule</h2>
+        <a class="button secondary" id="sch-export" href="/api/schedule/export">Download Excel</a>
+      </div>
+      <p class="muted">Everyone's booked hours week by week. More than a full week of 40 hours is marked. Bookings on engagements you aren't on count in the hours but aren't listed. Book people from an engagement's Tasks and time panel.</p>
+      <div class="grid">
+        <div><label for="sch-start">From the week of</label><input id="sch-start" type="date"></div>
+        <div><label for="sch-weeks">Weeks</label><select id="sch-weeks" class="map"><option value="4">4</option><option value="8" selected>8</option><option value="13">13</option><option value="26">26</option></select></div>
+      </div>
+      <div class="cards" id="sch-cards"></div>
+      <div class="table-wrap"><table id="sch-table"></table></div>
+      <h3>Bookings</h3>
+      <div class="table-wrap"><table id="sch-bookings"></table></div>
+    </section>
+  </div>
+
   <div id="view-engagements" class="view" hidden>
     <div class="layout">
       <aside class="panel side">
@@ -351,6 +370,24 @@
               </form>
             </details>
             <div class="table-wrap"><table id="wp-people"></table></div>
+            <h3>Staff bookings</h3>
+            <p class="muted" id="bk-summary"></p>
+            <div class="table-wrap"><table id="bk-table"></table></div>
+            <details id="bk-add" class="min-2">
+              <summary>Book someone</summary>
+              <form id="bk-form">
+                <div class="grid">
+                  <div><label for="bk-user">Who</label><select id="bk-user" class="map" required></select></div>
+                  <div><label for="bk-from">From</label><input id="bk-from" type="date" required></div>
+                  <div><label for="bk-to">To</label><input id="bk-to" type="date" required></div>
+                  <div><label for="bk-hours">Hours in all</label><input id="bk-hours" type="number" step="0.5" min="0.5" max="5000" required></div>
+                </div>
+                <label for="bk-note">Note</label>
+                <input id="bk-note" maxlength="300" placeholder="e.g. Inventory count">
+                <div class="actions"><button type="submit" id="bk-save">Book</button></div>
+              </form>
+            </details>
+            <ul class="warn-list" id="bk-warnings" hidden></ul>
             <details id="wp-entries-box">
               <summary>Time log</summary>
               <div class="table-wrap"><table id="wp-entries"></table></div>
@@ -397,6 +434,49 @@
                 <textarea id="ind-safeguards" rows="2" maxlength="5000"></textarea>
               </div>
               <div class="actions"><button type="submit" id="ind-save">Confirm my declaration</button><span class="muted" id="ind-mine"></span></div>
+            </form>
+          </section>
+
+          <section class="panel" id="pl-panel">
+            <div class="row-between">
+              <h2>Engagement letter and planning memo</h2>
+              <div class="cell-actions">
+                <a class="button secondary" id="pl-letter-en" href="#">Letter (English)</a>
+                <a class="button secondary" id="pl-letter-ar" href="#">Letter (Arabic)</a>
+                <a class="button secondary" id="pl-memo-en" href="#">Memo (English)</a>
+                <a class="button secondary" id="pl-memo-ar" href="#">Memo (Arabic)</a>
+              </div>
+            </div>
+            <p class="muted">Record the letter's terms and when the client accepted them, and the memo's own text. The rest comes from the file: materiality, the risks, the acceptance decision, the team, the budget and the schedule. Both download as short template text for you to finish in Word.</p>
+            <ul class="warn-list" id="pl-warnings"></ul>
+            <form id="pl-form">
+              <h3>Engagement letter</h3>
+              <div class="grid">
+                <div><label for="pl-addressee">Addressed to</label><input id="pl-addressee" maxlength="300" placeholder="e.g. the board of directors of the company"></div>
+                <div><label for="pl-letter-date">Letter date</label><input id="pl-letter-date" type="date"></div>
+                <div><label for="pl-fee">Fee</label><input id="pl-fee" type="number" step="any" min="0"></div>
+                <div><label for="pl-currency">Currency</label><input id="pl-currency" maxlength="3" placeholder="e.g. EGP" translate="no"></div>
+                <div><label for="pl-fee-basis">Fee basis</label><select id="pl-fee-basis" class="map"></select></div>
+                <div><label for="pl-report-due">Report due by</label><input id="pl-report-due" type="date"></div>
+                <div><label for="pl-firm">Audit firm</label><input id="pl-firm" maxlength="300"></div>
+                <div><label for="pl-partner">Engagement partner</label><input id="pl-partner" maxlength="200"></div>
+                <div><label for="pl-city">City</label><input id="pl-city" maxlength="200"></div>
+                <div><label for="pl-accepted-by">Accepted for the client by</label><input id="pl-accepted-by" maxlength="200"></div>
+                <div><label for="pl-accepted-on">Accepted on</label><input id="pl-accepted-on" type="date"></div>
+              </div>
+              <label for="pl-other-services">Other services</label>
+              <textarea id="pl-other-services" rows="2" maxlength="5000"></textarea>
+              <h3>Planning memo</h3>
+              <div class="grid">
+                <div><label for="pl-approach">Audit approach</label><select id="pl-approach" class="map"></select></div>
+              </div>
+              <label for="pl-business">The entity and its business</label>
+              <textarea id="pl-business" rows="3" maxlength="5000"></textarea>
+              <label for="pl-timetable">Timetable</label>
+              <textarea id="pl-timetable" rows="2" maxlength="5000" placeholder="e.g. Fieldwork 10 to 28 February, clearance meeting 15 March"></textarea>
+              <label for="pl-other">Other matters</label>
+              <textarea id="pl-other" rows="2" maxlength="5000"></textarea>
+              <div class="actions"><button type="submit" id="pl-save">Save</button><span class="muted" id="pl-saved"></span></div>
             </form>
           </section>
 

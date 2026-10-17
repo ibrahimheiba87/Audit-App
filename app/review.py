@@ -66,7 +66,7 @@ SECTIONS = [
             "independence declarations.",
             ("acceptance.update", "acceptance.decide", "independence.declare")),
     Section("planning", "Planning and materiality", "Engagement details and materiality.",
-            ("engagement.update", "materiality.set")),
+            ("engagement.update", "materiality.set", "plan.update")),
     Section("risks", "Risks and audit program",
             "The risk register and the procedures planned and done in response.",
             ("risk.create", "risk.import", "risk.update", "risk.delete", "procedure.create",

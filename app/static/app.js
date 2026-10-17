@@ -168,7 +168,7 @@ function Mapper(root, onChange = () => {}) {
 // --- Views and routing ------------------------------------------------------
 
 // Lowest rank that can open each view; anything else falls back to engagements.
-const VIEW_RANK = { engagements: 1, quick: 1, overview: 2, users: 4, activity: 4 };
+const VIEW_RANK = { engagements: 1, quick: 1, overview: 2, schedule: 1, users: 4, activity: 4 };
 
 function route() {
   if (!me) return;
@@ -190,6 +190,7 @@ function route() {
   if (view === "users") guard(showUsers);
   if (view === "activity") guard(showActivity);
   if (view === "overview") guard(showOverview);
+  if (view === "schedule") guard(showSchedule);
   if (view === "portal") guard(showPortal);
 }
 window.addEventListener("hashchange", route);
@@ -310,6 +311,8 @@ async function openEngagement(id) {
     cp = null; renderCompletion(); $("cp-check").open = false; $("cp-event-form").reset(); $("cp-sign").reset();
     qr = null; renderQuality(); $("qr-check").open = false; $("qr-sign").reset();
     rp = null; renderReport(); $("rp-preview-box").open = false;
+    pl = null; renderPlanning();
+    bk = null; renderBookings(); $("bk-form").reset(); $("bk-add").open = false;
     rpt = null; rptFound = null; renderRelated(); $("rpt-form").reset(); $("rpt-add").open = false;
     ds = null; renderSummaries(); $("ds-form").reset(); $("ds-wait").hidden = dsReading === 0;
     wp = null; renderWorkplan(); $("wp-form").reset(); $("wp-time-form").reset(); $("wp-filter").value = "open";
@@ -376,6 +379,8 @@ async function openEngagement(id) {
   guard(loadCompletion);
   guard(loadQuality);
   guard(loadReport);
+  guard(loadPlanning);
+  guard(loadBookings);
   guard(loadRelated);
   guard(loadSummaries);
   guard(loadAcceptance);
@@ -3766,6 +3771,188 @@ $("rp-form").addEventListener("submit", (ev) => {
     await loadEngagementActivity();
   });
 });
+
+// Engagement letter and planning memo
+
+let pl = null;
+let plLoads = 0;
+
+async function loadPlanning() {
+  const id = currentEngagement.id;
+  const load = ++plLoads;
+  const r = await getJSON(`/api/engagements/${id}/planning`);
+  if (load !== plLoads || currentEngagement?.id !== id) return;
+  pl = { ...r, engagement_id: id };
+  renderPlanning();
+}
+
+const PL_FIELDS = {
+  addressee: "pl-addressee", letter_date: "pl-letter-date", fee: "pl-fee", currency: "pl-currency",
+  fee_basis: "pl-fee-basis", report_due: "pl-report-due", firm_name: "pl-firm", partner_name: "pl-partner",
+  city: "pl-city", accepted_by: "pl-accepted-by", accepted_on: "pl-accepted-on",
+  other_services: "pl-other-services", approach: "pl-approach", business: "pl-business",
+  timetable: "pl-timetable", other_notes: "pl-other",
+};
+
+function renderPlanning() {
+  const links = ["pl-letter-en", "pl-letter-ar", "pl-memo-en", "pl-memo-ar"];
+  if (!pl) {
+    $("pl-warnings").innerHTML = "";
+    $("pl-warnings").hidden = true;
+    $("pl-form").reset();
+    delete $("pl-form").dataset.dirty;
+    delete $("pl-form").dataset.engagement;
+    $("pl-saved").textContent = "";
+    links.forEach((l) => $(l).removeAttribute("href"));
+    return;
+  }
+  const id = pl.engagement_id;
+  for (const l of links) {
+    const [, doc, lang] = l.split("-");
+    $(l).href = `/api/engagements/${id}/planning/${doc}?language=${lang}`;
+  }
+  $("pl-warnings").hidden = !pl.warnings.length;
+  $("pl-warnings").innerHTML = pl.warnings.map((w) => `<li>${esc(w)}</li>`).join("");
+  $("pl-saved").innerHTML = pl.updated_by ? `<span>Last saved by</span> ${data(pl.updated_by)} · <span>${esc(when(pl.updated_at))}</span>` : "";
+  const form = $("pl-form");
+  if (form.dataset.engagement === String(id) && form.dataset.dirty) return;  // keep unsaved edits
+  form.dataset.engagement = id;
+  $("pl-fee-basis").innerHTML = optionList(pl.fee_bases, pl.fee_basis);
+  $("pl-approach").innerHTML = optionList(pl.approaches, pl.approach);
+  for (const [k, el] of Object.entries(PL_FIELDS)) {
+    if (k === "fee_basis" || k === "approach") continue;
+    $(el).value = pl[k] ?? "";
+  }
+}
+
+$("pl-form").addEventListener("input", () => formEdited($("pl-form")));
+$("pl-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!pl) return;
+  const id = pl.engagement_id;
+  const body = {};
+  for (const [k, el] of Object.entries(PL_FIELDS)) body[k] = $(el).value;
+  for (const k of ["letter_date", "report_due", "accepted_on"]) body[k] = body[k] || null;
+  body.fee = body.fee === "" ? null : Number(body.fee);
+  const rev = $("pl-form").dataset.rev;
+  busy($("pl-save"), async () => {
+    await sendJSON("PUT", `/api/engagements/${id}/planning`, body);
+    if (currentEngagement?.id !== id) return;
+    if ($("pl-form").dataset.rev === rev) delete $("pl-form").dataset.dirty;
+    await loadPlanning();
+    refreshDashboard();
+    await loadEngagementActivity();
+  });
+});
+
+// Staff bookings on this engagement
+
+let bk = null;
+let bkLoads = 0;
+
+async function loadBookings(warnings = []) {
+  const id = currentEngagement.id;
+  const load = ++bkLoads;
+  const r = await getJSON(`/api/engagements/${id}/bookings`);
+  if (load !== bkLoads || currentEngagement?.id !== id) return;
+  bk = { ...r, engagement_id: id, warnings };
+  renderBookings();
+}
+
+function renderBookings() {
+  $("bk-warnings").hidden = !bk?.warnings.length;
+  $("bk-warnings").innerHTML = (bk?.warnings || []).map((w) => `<li>${esc(w)}</li>`).join("");
+  if (!bk) {
+    $("bk-table").innerHTML = "";
+    $("bk-summary").textContent = "";
+    $("bk-user").innerHTML = "";
+    return;
+  }
+  $("bk-summary").innerHTML = bk.budget_hours
+    ? `<span>Hours booked:</span> <bdi dir="ltr">${esc(bk.booked_hours)}</bdi> · <span>Hours budgeted:</span> <bdi dir="ltr">${esc(bk.budget_hours)}</bdi>`
+    : `<span>Hours booked:</span> <bdi dir="ltr">${esc(bk.booked_hours)}</bdi>`;
+  $("bk-user").innerHTML = bk.team.map((u) => `<option value="${u.id}" translate="no">${esc(u.name)}</option>`).join("");
+  $("bk-add").hidden = !bk.can_book;
+  if (!bk.bookings.length) {
+    $("bk-table").innerHTML = `<tbody><tr><td class="muted">${esc("No one is booked yet.")}</td></tr></tbody>`;
+    return;
+  }
+  $("bk-table").innerHTML = `<thead><tr><th>Who</th><th>From</th><th>To</th><th class="num">Hours</th><th>Note</th><th>Booked by</th><th></th></tr></thead><tbody>
+    ${bk.bookings.map((b) => `<tr><td>${data(b.name)}</td>
+      <td class="nowrap"><bdi dir="ltr" translate="no">${esc(b.starts_on)}</bdi></td>
+      <td class="nowrap"><bdi dir="ltr" translate="no">${esc(b.ends_on)}</bdi></td>
+      <td class="num">${esc(b.hours)}</td><td>${b.note ? data(b.note) : ""}</td><td>${data(b.created_by)}</td>
+      <td>${bk.can_book ? `<button type="button" class="small secondary danger" data-bk-remove="${b.id}">Remove</button>` : ""}</td></tr>`).join("")}</tbody>`;
+}
+
+$("bk-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!bk) return;
+  const id = bk.engagement_id;
+  const body = { user_id: Number($("bk-user").value), starts_on: $("bk-from").value, ends_on: $("bk-to").value,
+    hours: Number($("bk-hours").value), note: $("bk-note").value };
+  busy($("bk-save"), async () => {
+    const out = await sendJSON("POST", `/api/engagements/${id}/bookings`, body);
+    if (currentEngagement?.id !== id) return;
+    $("bk-form").reset();
+    bk = { ...out, engagement_id: id };
+    renderBookings();
+    if (pl?.engagement_id === id && !$("pl-form").dataset.dirty) guard(loadPlanning);
+    await loadEngagementActivity();
+  });
+});
+
+$("bk-table").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-bk-remove]");
+  if (!btn || !bk) return;
+  const id = bk.engagement_id;
+  busy(btn, async () => {
+    const out = await sendJSON("DELETE", `/api/staff-bookings/${btn.dataset.bkRemove}`);
+    if (currentEngagement?.id !== id) return;
+    bk = { ...out, engagement_id: id };
+    renderBookings();
+    await loadEngagementActivity();
+  });
+});
+
+// Staff schedule across engagements
+
+let sch = null;
+
+async function showSchedule() {
+  const params = new URLSearchParams({ weeks: $("sch-weeks").value });
+  if ($("sch-start").value) params.set("start", $("sch-start").value);
+  sch = await getJSON(`/api/schedule?${params}`);
+  if (!$("sch-start").value) $("sch-start").value = sch.start;
+  $("sch-export").href = `/api/schedule/export?${params}`;
+  renderSchedule();
+}
+
+function renderSchedule() {
+  if (!sch) return;
+  const busyPeople = sch.people.filter((p) => p.total > 0).length;
+  $("sch-cards").innerHTML = [
+    [sch.people.length, "People", false],
+    [busyPeople, "Booked in these weeks", false],
+    [sch.over, "Over a full week", sch.over > 0],
+  ].map(([v, k, bad]) => `<div class="card${bad ? " bad" : ""}"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+  $("sch-table").innerHTML = `<thead><tr><th>Name</th>${sch.weeks.map((w) => `<th class="num"><bdi dir="ltr" translate="no">${esc(w.slice(5))}</bdi></th>`).join("")}<th class="num">Total</th></tr></thead><tbody>
+    ${sch.people.map((p) => `<tr><td>${data(p.name)} <span class="tag">${esc(p.role_label)}</span>${p.other_hours ? `<div class="tag">${esc(`${p.other_hours} hours on engagements you aren't on`)}</div>` : ""}</td>
+      ${p.weeks.map((h, i) => `<td class="num${p.over[i] ? " bad" : ""}">${h ? esc(h) : ""}</td>`).join("")}
+      <td class="num">${p.total ? esc(p.total) : ""}</td></tr>`).join("")}</tbody>`;
+  const rows = sch.people.flatMap((p) => p.bookings);
+  $("sch-bookings").innerHTML = rows.length
+    ? `<thead><tr><th>Who</th><th>Engagement</th><th>From</th><th>To</th><th class="num">Hours</th><th>Note</th></tr></thead><tbody>
+      ${rows.map((b) => `<tr><td>${data(b.name)}</td>
+        <td><a href="#/engagements/${b.engagement_id}">${data(b.label)}</a></td>
+        <td class="nowrap"><bdi dir="ltr" translate="no">${esc(b.starts_on)}</bdi></td>
+        <td class="nowrap"><bdi dir="ltr" translate="no">${esc(b.ends_on)}</bdi></td>
+        <td class="num">${esc(b.hours)}</td><td>${b.note ? data(b.note) : ""}</td></tr>`).join("")}</tbody>`
+    : `<tbody><tr><td class="muted">${esc("No one is booked in these weeks.")}</td></tr></tbody>`;
+}
+
+$("sch-start").addEventListener("change", () => guard(showSchedule));
+$("sch-weeks").addEventListener("change", () => guard(showSchedule));
 
 // Related parties
 

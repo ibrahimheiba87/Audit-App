@@ -44,6 +44,7 @@ from .locking import router as locking_router
 from .notifications import router as notifications_router
 from .overview import router as overview_router
 from .pack import router as pack_router
+from .planning import router as planning_router
 from .portal import router as portal_router
 from .posters import router as posters_router
 from .prior_points import router as prior_points_router
@@ -56,6 +57,7 @@ from .review import router as review_router
 from .risks import router as risks_router
 from .rollforward import router as rollforward_router
 from .samples import router as samples_router
+from .schedule import router as schedule_router
 from .search import router as search_router
 from .stock_count import router as stock_count_router
 from .summaries import router as summaries_router
@@ -94,7 +96,7 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                stock_count_router, prior_points_router, notifications_router, overview_router,
                posters_router, quality_router, search_router, account_pairs_router,
                vouching_router, ticks_router, translation_router,
-               consolidation_router, vat_router):
+               consolidation_router, vat_router, planning_router, schedule_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

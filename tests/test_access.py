@@ -99,6 +99,11 @@ def full_engagement(a):
     group = a.post(f"/api/engagements/{eid}/group/entries", json={
         "description": "x", "lines": [{"line": "payables", "debit": 1},
                                       {"line": "receivables", "credit": 1}]}).json()
+    staff = add_user(a, "preparer", "booked@example.com")
+    join(a, eid, staff)
+    booking = a.post(f"/api/engagements/{eid}/bookings", json={
+        "user_id": staff.get("/api/auth/me").json()["id"], "starts_on": "2027-01-04",
+        "ends_on": "2027-01-08", "hours": 8}).json()
     vat = a.post(f"/api/engagements/{eid}/vat/returns", json={
         "period_start": "2026-01-01", "period_end": "2026-01-31"}).json()
     assert tick.status_code == 201, tick.text
@@ -131,7 +136,8 @@ def full_engagement(a):
             "vouching_id": vouching_id, "tick_id": tick.json()["id"],
             "component_id": group["components"][0]["id"], "sub_id": sub,
             "consolidation_entry_id": group["entries"][0]["id"],
-            "vat_return_id": vat["returns"][0]["id"]}
+            "vat_return_id": vat["returns"][0]["id"],
+            "staff_booking_id": booking["bookings"][0]["id"], "document": "letter"}
 
 
 def bodies(ids):
@@ -273,6 +279,14 @@ def bodies(ids):
             {"json": {"period_start": "2026-02-01", "period_end": "2026-02-28"}},
         ("DELETE", "/api/vat-returns/{vat_return_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/vat/export"): {},
+        ("GET", "/api/engagements/{engagement_id}/planning"): {},
+        ("PUT", "/api/engagements/{engagement_id}/planning"): {"json": {"fee": 1}},
+        ("GET", "/api/engagements/{engagement_id}/planning/{document}"): {},
+        ("GET", "/api/engagements/{engagement_id}/bookings"): {},
+        ("POST", "/api/engagements/{engagement_id}/bookings"):
+            {"json": {"user_id": 1, "starts_on": "2027-01-04", "ends_on": "2027-01-04",
+                      "hours": 1}},
+        ("DELETE", "/api/staff-bookings/{staff_booking_id}"): {},
         ("GET", "/api/uploads/{upload_id}/posters/export"): {},
         ("POST", "/api/uploads/{upload_id}/fixed-assets"): {"json": {}},
         ("POST", "/api/uploads/{upload_id}/fixed-assets/export"): {"json": {}},
