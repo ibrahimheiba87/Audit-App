@@ -3517,3 +3517,20 @@ I18N.add({
     "Remove the invoice {n}?": "إزالة الفاتورة {n}؟",
   },
 });
+
+// Round 8: search inside documents, and the financial statements in Word.
+I18N.add({
+  exact: {
+    "Inside documents": "داخل المستندات",
+    "Finding evidence": "دليل ملاحظة",
+    "Client request": "طلب من العميل",
+    "Vouched document": "مستند مطابق",
+    "Statements in Word (English)": "القوائم المالية في Word (بالإنجليزية)",
+    "Statements in Word (Arabic)": "القوائم المالية في Word (بالعربية)",
+    "The draft financial statements and notes, to finish in Word": "مسودة القوائم المالية والإيضاحات، لإكمالها في Word",
+  },
+  patterns: {
+    "Page {n}": "صفحة {n}",
+    "Downloaded the financial statements in Word ({lang})": "تنزيل القوائم المالية في Word ({lang})",
+  },
+});

@@ -22,7 +22,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import assistant, auth
+from . import assistant, auth, doctext
 from .ai_tools import (
     DATA_ONLY,
     MAX_DOCUMENT_BYTES,
@@ -228,6 +228,7 @@ def vouch(  # not async: FastAPI runs it in a thread, so waiting on the AI block
                                "filename": filename, "sha256": sha, "status": status,
                                "replaced": old is not None, "model": assistant.model()})
     session.commit()
+    doctext.start_backfill()  # reads it for search
     return vouching_out(v)
 
 

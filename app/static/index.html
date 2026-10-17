@@ -1088,7 +1088,11 @@
                 <h2>Lead sheets and draft statements</h2>
                 <p class="muted" style="margin-top:-6px">Map each trial balance account to a financial statement line, post adjusting entries, and the adjusted balances roll into lead sheets and draft statements.</p>
               </div>
-              <a class="button" id="fs-export" href="#">Download workpapers</a>
+              <div class="cell-actions" id="fs-downloads">
+                <a class="button" id="fs-export" href="#">Download workpapers</a>
+                <a class="button secondary" id="fs-word-en" href="#" title="The draft financial statements and notes, to finish in Word">Statements in Word (English)</a>
+                <a class="button secondary" id="fs-word-ar" href="#" title="The draft financial statements and notes, to finish in Word">Statements in Word (Arabic)</a>
+              </div>
             </div>
             <p class="muted" id="fs-empty" hidden>Upload this year's trial balance above (type "Trial balance") to start. Add last year's as "Prior-year trial balance" for comparatives.</p>
             <div id="fs-body" hidden>
@@ -1585,7 +1589,7 @@
             </div>
           </section>
 
-          <section class="panel">
+          <section class="panel" id="smp-panel">
             <h2>Sampling</h2>
             <p class="muted">Pick items to test. The seed is saved with every sample, so the same file, settings and seed always give the same selection.</p>
             <form id="smp-form">

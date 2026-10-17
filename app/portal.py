@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import auth
+from . import auth, doctext
 from .auth import log, require, signed_in_user
 from .db import (
     DocumentRequest,
@@ -412,6 +412,7 @@ async def upload_file(request_id: int, file: UploadFile = File(...),
     log(session, user, "request.upload", f"Sent {f.filename} for {label(req)}", req.engagement,
         details={"request_id": req.id, "sha256": f.sha256, "size": f.size})
     session.commit()
+    doctext.start_backfill()  # reads it for search
     return request_out(req)
 
 

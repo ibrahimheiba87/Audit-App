@@ -4279,7 +4279,7 @@ function renderStatementsPanel(error = null) {
   const ready = !!fs?.tb;
   $("fs-empty").textContent = error ? `The lead sheets can't be built from this trial balance: ${error}` : FS_EMPTY;
   $("fs-empty").hidden = ready;
-  $("fs-body").hidden = $("fs-export").hidden = !ready;
+  $("fs-body").hidden = $("fs-downloads").hidden = !ready;
   if (!ready) return;
   $("fs-tb").innerHTML = fs.tb_choices.map((u) =>
     `<option value="${u.id}"${u.id === fs.tb.id ? " selected" : ""}>${esc(u.filename)} (${esc(when(u.uploaded_at))})</option>`).join("");
@@ -4288,6 +4288,7 @@ function renderStatementsPanel(error = null) {
     : '<option value="">None uploaded</option>';
   $("fs-prior").disabled = !fs.prior_choices.length;
   $("fs-export").href = `/api/engagements/${currentEngagement.id}/statements/export?${fsQuery()}`;
+  for (const lang of ["en", "ar"]) $(`fs-word-${lang}`).href = `/api/engagements/${currentEngagement.id}/statements/word?${fsQuery()}&language=${lang}`;
   const st = fs.statements;
   const assets = st.balance_sheet.find((r) => r.label === "Total assets");
   const cards = [
@@ -6549,6 +6550,7 @@ async function runSearch() {
     ${g.items.map((x) => `<li><button type="button" class="bell-item" data-hit="${n++}">
       <span class="bell-text">${x.kind === "finding" ? `<span class="sev ${esc(x.severity)}">${esc(x.severity)}</span> ` : ""}${data(x.title)}</span>
       ${x.snippet ? `<span class="tag">${data(x.snippet)}</span>` : ""}
+      ${x.kind === "document" ? `<span class="tag"><span>${esc(x.source_label)}</span>${x.page ? ` · <span>${esc(`Page ${x.page}`)}</span>` : ""}</span>` : ""}
       ${x.kind === "engagement" ? `<span class="tag"><span>Period end</span> <bdi dir="ltr" translate="no">${esc(x.period_end)}</bdi>${x.archived ? ` · <span>${esc("Archived")}</span>` : ""}</span>`
         : `<span class="tag">${data(x.engagement)}</span>`}</button></li>`).join("")}</ul>
     ${g.more ? `<p class="tag">${esc("More found. Type more to narrow the search.")}</p>` : ""}`).join("")
@@ -6582,7 +6584,7 @@ $("search-out").addEventListener("click", (ev) => {
   const x = searchHits[Number(btn.dataset.hit)];
   closeSearch();
   const hash = `#/engagements/${x.engagement_id}`;
-  pendingFinding = x.kind === "finding" ? x.id : null;
+  pendingFinding = x.kind === "finding" ? x.id : x.finding_id || null;
   if (location.hash === hash && currentEngagement?.id === x.engagement_id) {
     pendingPanel = x.panel;
     scrollToPendingPanel();
