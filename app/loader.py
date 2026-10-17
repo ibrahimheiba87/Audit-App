@@ -8,6 +8,7 @@ Normalized columns (only those found in the source are present):
     account    account number or name
     description
     user       who created / posted the entry
+    approver   who approved the entry, where the system records it
     debit, credit
     amount     signed amount (debit positive, credit negative)
 
@@ -32,6 +33,7 @@ FIELDS: list[dict] = [
     {"id": "entry_id", "label": "Entry / document number"},
     {"id": "description", "label": "Description"},
     {"id": "user", "label": "User"},
+    {"id": "approver", "label": "Approved by"},
     {"id": "amount", "label": "Amount (signed)"},
     {"id": "debit", "label": "Debit"},
     {"id": "credit", "label": "Credit"},
@@ -64,6 +66,8 @@ COLUMN_SYNONYMS: dict[str, list[str]] = {
                     "linedescription", "comment", "accountname", "accountdescription", "name",
                     "customername", "vendorname", "suppliername"],
     "user": ["user", "createdby", "postedby", "enteredby", "preparer", "username", "userid"],
+    "approver": ["approver", "approvedby", "authorisedby", "authorizedby", "authoriser",
+                 "authorizer", "approveduser", "releasedby"],
     # Bank statements say withdrawals and deposits: a debit and a credit on the bank's side.
     "debit": ["debit", "debits", "dr", "debitamount", "amountdr", "balancedr", "debitbalance",
               "withdrawal", "withdrawals", "paidout", "moneyout"],
@@ -402,7 +406,7 @@ def normalize(raw: pd.DataFrame, mapping: dict[str, str] | None = None) -> Loade
         if col in df:
             df[col] = _whole_numbers(df[col])
 
-    for col in ("entry_id", "account", "description", "user"):
+    for col in ("entry_id", "account", "description", "user", "approver"):
         if col in df:
             df[col] = df[col].astype("string").str.strip()
 
