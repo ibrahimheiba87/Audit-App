@@ -32,6 +32,7 @@ from .auth import current_user, log, require
 from .db import Engagement, Expectation, User, get_session, utcnow
 from .engagements import get_or_404, held_engagement, safe_stem
 from .exports import attachment, finish_workbook
+from .leadsheets import compute
 from .statements import LINE
 
 router = APIRouter(prefix="/api")
@@ -235,8 +236,6 @@ def title_for(x: Expectation) -> str:
 
 def figures_for(session: Session, e: Engagement) -> tuple[dict[str, dict], str | None]:
     """The lead sheet figures, or a reason there are none."""
-    from .leadsheets import compute  # leadsheets imports engagements, which imports this
-
     try:
         data, tb, _ = compute(session, e, None, None)
     except HTTPException as exc:
