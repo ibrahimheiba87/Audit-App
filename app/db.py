@@ -128,6 +128,13 @@ class Engagement(Base):
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="(VatReturn.period_start, VatReturn.id)"
     )
+    plan: Mapped[EngagementPlan | None] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan", uselist=False
+    )
+    bookings: Mapped[list[StaffBooking]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="(StaffBooking.starts_on, StaffBooking.id)"
+    )
     findings: Mapped[list[Finding]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan", order_by="Finding.id"
     )
@@ -1177,6 +1184,54 @@ class VatReturn(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="vat_returns")
+
+
+class EngagementPlan(Base):
+    """The engagement letter's terms and the planning memo's own text (planning.py). The rest
+    of both documents comes from the file: materiality, risks, team and budget."""
+
+    __tablename__ = "engagement_plans"
+
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), primary_key=True)
+    addressee: Mapped[str] = mapped_column(String(300), default="")
+    firm_name: Mapped[str] = mapped_column(String(300), default="")
+    partner_name: Mapped[str] = mapped_column(String(200), default="")
+    city: Mapped[str] = mapped_column(String(200), default="")
+    letter_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    fee: Mapped[float | None] = mapped_column(Float, nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="")
+    fee_basis: Mapped[str] = mapped_column(String(20), default="fixed")  # fixed | hourly
+    report_due: Mapped[date | None] = mapped_column(Date, nullable=True)
+    other_services: Mapped[str] = mapped_column(Text, default="")
+    accepted_by: Mapped[str] = mapped_column(String(200), default="")
+    accepted_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    business: Mapped[str] = mapped_column(Text, default="")
+    approach: Mapped[str] = mapped_column(String(20), default="substantive")
+    timetable: Mapped[str] = mapped_column(Text, default="")
+    other_notes: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="plan")
+
+
+class StaffBooking(Base):
+    """Someone booked to work on an engagement for a stretch of days (schedule.py)."""
+
+    __tablename__ = "staff_bookings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    starts_on: Mapped[date] = mapped_column(Date)
+    ends_on: Mapped[date] = mapped_column(Date)
+    hours: Mapped[float] = mapped_column(Float)  # spread evenly over the days
+    note: Mapped[str] = mapped_column(String(300), default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="bookings")
+    user: Mapped[User] = relationship()
 
 
 class FindingNote(Base):
