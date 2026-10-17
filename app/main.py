@@ -39,6 +39,7 @@ from .estimates import router as estimates_router
 from .expectations import router as expectations_router
 from .explorer import router as explorer_router
 from .exports import attachment
+from .fees import router as fees_router
 from .findings import router as findings_router
 from .fixed_assets import router as fixed_assets_router
 from .leadsheets import router as leadsheets_router
@@ -49,6 +50,7 @@ from .locking import router as locking_router
 from .notifications import router as notifications_router
 from .overview import router as overview_router
 from .pack import router as pack_router
+from .payroll import router as payroll_router
 from .planning import router as planning_router
 from .portal import router as portal_router
 from .posters import router as posters_router
@@ -104,7 +106,7 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                vouching_router, ticks_router, translation_router,
                consolidation_router, vat_router, planning_router, schedule_router,
                leases_router, ecl_router, loans_router, estimates_router,
-               checklists_router, request_lists_router):
+               checklists_router, request_lists_router, fees_router, payroll_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

@@ -18,6 +18,7 @@
       <a href="#/overview" data-view="overview" class="min-2">Overview</a>
       <a href="#/schedule" data-view="schedule">Schedule</a>
       <a href="#/library" data-view="library">Firm library</a>
+      <a href="#/wip" data-view="wip" class="min-3">WIP and fees</a>
       <a href="#/users" data-view="users" class="min-4">Users <span class="nav-count" id="signup-count" translate="no" title="Account requests waiting for approval" hidden></span></a>
       <a href="#/activity" data-view="activity" class="min-4">Activity</a>
     </nav>
@@ -260,6 +261,28 @@
     </section>
   </div>
 
+  <div id="view-wip" class="view" hidden>
+    <section class="panel">
+      <div class="row-between">
+        <h2>WIP and fees</h2>
+        <a class="button secondary" id="wip-export" href="/api/wip/export">Download Excel</a>
+      </div>
+      <p class="muted">Every engagement you can see, with its time valued at the firm's hourly rates, what has been billed and paid, what is still to bill and how much of the time the fee recovers. Only partners and admins see fees.</p>
+      <div class="cards" id="wip-cards"></div>
+      <p class="warn-box" id="wip-currencies" hidden>The engagements' fees are in more than one currency, so the totals add different currencies together.</p>
+      <label class="check-label" style="margin-top:8px"><input type="checkbox" id="wip-archived"><span>Include archived engagements</span></label>
+      <div class="table-wrap"><table id="wip-table"></table></div>
+    </section>
+    <section class="panel">
+      <h2>Hourly rates</h2>
+      <p class="muted">The firm's charge-out rate for each role. Time is valued at the rate for the role each person has now.</p>
+      <form id="wip-rates-form">
+        <div class="grid" id="wip-rates"></div>
+        <div class="actions"><button type="submit" class="small" id="wip-rates-save">Save rates</button></div>
+      </form>
+    </section>
+  </div>
+
   <div id="view-library" class="view" hidden>
     <section class="panel" id="lib-ck-panel">
       <h2>Firm checklists</h2>
@@ -360,6 +383,27 @@
             <div class="cards" id="dash-cards"></div>
             <h3>Next steps</h3>
             <ol class="next-steps" id="dash-steps"></ol>
+          </section>
+
+          <section class="panel min-3" id="fee-panel">
+            <h2>Fees and billing</h2>
+            <p class="muted">The fee from the engagement letter, the time worked valued at the firm's hourly rates, and the invoices sent. Only partners and admins see this, and it stays out of the audit file.</p>
+            <div class="cards" id="fee-cards"></div>
+            <p class="warn-box" id="fee-notes" hidden></p>
+            <details id="fee-add">
+              <summary>Record an invoice</summary>
+              <form id="fee-form">
+                <div class="grid">
+                  <div><label for="fee-number">Invoice number</label><input id="fee-number" maxlength="50"></div>
+                  <div><label for="fee-issued">Issued on</label><input id="fee-issued" type="date" required></div>
+                  <div><label for="fee-amount">Amount</label><input id="fee-amount" type="number" step="any" required></div>
+                  <div><label for="fee-paid">Paid on</label><input id="fee-paid" type="date"></div>
+                </div>
+                <div><label for="fee-note">Note</label><input id="fee-note" maxlength="2000"></div>
+                <div class="actions"><button type="submit" class="small" id="fee-submit">Record invoice</button><button type="button" class="small secondary" id="fee-cancel" hidden>Cancel</button></div>
+              </form>
+            </details>
+            <div class="table-wrap"><table id="fee-table"></table></div>
           </section>
 
           <section class="panel" id="wp-panel">
@@ -871,6 +915,36 @@
               </div>
               <p class="muted" id="fa-note"></p>
               <div class="table-wrap"><table id="fa-table"></table></div>
+            </div>
+          </section>
+
+          <section class="panel" id="pr-panel">
+            <div class="row-between">
+              <h2>Payroll tests</h2>
+              <button type="button" class="secondary" id="pr-export" hidden>Download Excel</button>
+            </div>
+            <p class="muted">Upload the client's payroll register as a Payroll register file. The app looks for ghost employees (bank accounts shared between people, the same number with different names), people paid twice in a month, paid after leaving or before joining, net pay above gross, and unusual pay, and ties the year's pay to the employee costs in the trial balance. Nothing is saved; each look is logged.</p>
+            <form id="pr-form">
+              <div class="grid">
+                <div><label for="pr-upload">Register</label><select id="pr-upload" class="map"></select></div>
+              </div>
+              <p class="muted" id="pr-columns-note" hidden>The columns are guessed from the headers. Change any that are wrong and test again.</p>
+              <div class="grid" id="pr-columns"></div>
+              <div class="actions"><button type="submit" id="pr-run">Test the payroll</button></div>
+            </form>
+            <p class="warn-box" id="pr-problem" hidden></p>
+            <div id="pr-result" hidden>
+              <div class="cards" id="pr-cards"></div>
+              <p class="warn-box" id="pr-tie" hidden></p>
+              <div class="muted" id="pr-notes" hidden></div>
+              <h3>Points to look at</h3>
+              <div class="table-wrap"><table id="pr-counts"></table></div>
+              <div class="table-wrap"><table id="pr-issues"></table></div>
+              <p class="muted" id="pr-more" hidden></p>
+              <h3>By month</h3>
+              <div class="table-wrap"><table id="pr-months"></table></div>
+              <h3>By department</h3>
+              <div class="table-wrap"><table id="pr-departments"></table></div>
             </div>
           </section>
 

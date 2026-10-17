@@ -42,11 +42,12 @@ router = APIRouter(prefix="/api")
 UPLOAD_KINDS = {"gl": "General ledger", "tb": "Trial balance", "prior_tb": "Prior-year trial balance",
                 "bank": "Bank statement", "ar": "Receivables listing", "ap": "Payables listing",
                 "fixed_assets": "Fixed asset register", "inventory": "Inventory listing",
+                "payroll": "Payroll register",
                 "list": "Other list (such as a vendor or employee master file)"}
 # Lists have no amounts to map: they're kept as they are, to be matched against other files,
 # and the fixed asset register and inventory listing are read by their own analyses, whose
 # columns the auditor picks there.
-LISTS = ("list", "fixed_assets", "inventory")
+LISTS = ("list", "fixed_assets", "inventory", "payroll")
 FRAMEWORKS = ["IFRS", "US GAAP", "IFRS for SMEs", "Local GAAP", "Other"]
 
 
@@ -681,7 +682,8 @@ def list_report(filename: str, content: bytes, sheet: str | None) -> dict:
 def load_upload(upload: Upload) -> loader.Loaded:
     if upload.kind in LISTS:
         where = {"fixed_assets": "Look at it under Fixed asset register.",
-                 "inventory": "Use it under Inventory count."}.get(
+                 "inventory": "Use it under Inventory count.",
+                 "payroll": "Test it under Payroll tests."}.get(
             upload.kind, "Match it against another file under Match two files.")
         raise HTTPException(400, f"{upload.filename} is a list with no amounts to check. {where}")
     try:

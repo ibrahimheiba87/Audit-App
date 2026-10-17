@@ -152,6 +152,10 @@ class Engagement(Base):
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="AccountingEstimate.id"
     )
+    invoices: Mapped[list[FeeInvoice]] = relationship(
+        back_populates="engagement", cascade="all, delete-orphan",
+        order_by="(FeeInvoice.issued_on, FeeInvoice.id)"
+    )
     checklists: Mapped[list[EngagementChecklist]] = relationship(
         back_populates="engagement", cascade="all, delete-orphan",
         order_by="EngagementChecklist.id"
@@ -1413,6 +1417,35 @@ class EngagementChecklist(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     engagement: Mapped[Engagement] = relationship(back_populates="checklists")
+
+
+class ChargeRate(Base):
+    """The firm's hourly rate for a staff role, to value time (fees.py)."""
+
+    __tablename__ = "charge_rates"
+
+    role: Mapped[str] = mapped_column(String(20), primary_key=True)
+    rate: Mapped[float] = mapped_column(Float, default=0.0)
+    updated_by: Mapped[str] = mapped_column(String(200), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class FeeInvoice(Base):
+    """An invoice the firm sent the client for an engagement (fees.py)."""
+
+    __tablename__ = "fee_invoices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    engagement_id: Mapped[int] = mapped_column(ForeignKey("engagements.id"), index=True)
+    number: Mapped[str] = mapped_column(String(50), default="")
+    issued_on: Mapped[date] = mapped_column(Date)
+    amount: Mapped[float] = mapped_column(Float)
+    paid_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    engagement: Mapped[Engagement] = relationship(back_populates="invoices")
 
 
 class RequestTemplate(Base):

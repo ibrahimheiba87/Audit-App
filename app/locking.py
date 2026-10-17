@@ -38,6 +38,7 @@ from .db import (
     EngagementLock,
     Evidence,
     Expectation,
+    FeeInvoice,
     Finding,
     GroupComponent,
     Lease,
@@ -84,6 +85,7 @@ PARAM_MODELS = {
     "lease_id": Lease, "loan_id": Loan, "covenant_id": Covenant,
     "estimate_id": AccountingEstimate,
     "engagement_checklist_id": EngagementChecklist,
+    "invoice_id": FeeInvoice,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is
@@ -95,6 +97,12 @@ ALLOWED_WHEN_LOCKED = {
     ("POST", "/api/uploads/{upload_id}/explore"),
     ("POST", "/api/uploads/{upload_id}/fixed-assets"),
     ("POST", "/api/uploads/{upload_id}/fixed-assets/export"),
+    ("POST", "/api/uploads/{upload_id}/payroll"),
+    ("POST", "/api/uploads/{upload_id}/payroll/export"),
+    # Fees are the firm's business, not the audit file's.
+    ("POST", "/api/engagements/{engagement_id}/invoices"),
+    ("PUT", "/api/invoices/{invoice_id}"),
+    ("DELETE", "/api/invoices/{invoice_id}"),
     ("POST", "/api/uploads/{upload_id}/inventory"),
     ("POST", "/api/uploads/{upload_id}/posters"),
     ("POST", "/api/uploads/{upload_id}/account-pairs"),

@@ -117,6 +117,8 @@ def full_engagement(a):
     firm_list = a.post("/api/checklists", json={"name": f"List {eid}", "items": ["Q"]}).json()
     checklist = a.post(f"/api/engagements/{eid}/checklists",
                        json={"checklist_id": firm_list["id"]}).json()
+    invoice = a.post(f"/api/engagements/{eid}/invoices",
+                     json={"issued_on": "2026-01-01", "amount": 1}).json()
     request_list = a.post("/api/request-templates", json={
         "name": f"Requests {eid}", "items": [{"title": "Minutes"}]}).json()
     assert tick.status_code == 201, tick.text
@@ -155,7 +157,8 @@ def full_engagement(a):
             "covenant_id": covenant["covenants"][0]["id"],
             "estimate_id": estimate["estimates"][0]["id"],
             "engagement_checklist_id": checklist["checklists"][0]["id"],
-            "firm_checklist_id": firm_list["id"], "request_template_id": request_list["id"]}
+            "firm_checklist_id": firm_list["id"], "request_template_id": request_list["id"],
+            "invoice_id": invoice["invoices"][0]["id"]}
 
 
 def bodies(ids):
@@ -349,6 +352,13 @@ def bodies(ids):
         ("GET", "/api/uploads/{upload_id}/posters/export"): {},
         ("POST", "/api/uploads/{upload_id}/fixed-assets"): {"json": {}},
         ("POST", "/api/uploads/{upload_id}/fixed-assets/export"): {"json": {}},
+        ("POST", "/api/uploads/{upload_id}/payroll"): {"json": {}},
+        ("POST", "/api/uploads/{upload_id}/payroll/export"): {"json": {}},
+        ("GET", "/api/engagements/{engagement_id}/fees"): {},
+        ("POST", "/api/engagements/{engagement_id}/invoices"):
+            {"json": {"issued_on": "2026-01-01", "amount": 1}},
+        ("PUT", "/api/invoices/{invoice_id}"): {"json": {"issued_on": "2026-01-01", "amount": 1}},
+        ("DELETE", "/api/invoices/{invoice_id}"): {},
         ("POST", "/api/uploads/{upload_id}/inventory"):
             {"json": {"upload_id": ids["stock_upload_id"]}},
         ("GET", "/api/engagements/{engagement_id}/prior-points"): {},
