@@ -83,6 +83,10 @@ def full_engagement(a):
     assert party.status_code == 201, party.text
     expectation = a.post(f"/api/engagements/{eid}/expectations", json={"kind": "payroll"})
     assert expectation.status_code == 201, expectation.text
+    stock = a.post(f"/api/engagements/{eid}/uploads", data={"kind": "inventory"}, files={
+        "file": ("stock.csv", b"Item,Qty,Unit cost\nA1,5,2\nA2,3,4\n", "text/csv")}).json()["id"]
+    count = a.post(f"/api/engagements/{eid}/stock-count", json={"upload_id": stock})
+    assert count.status_code == 201, count.text
     with db.SessionLocal() as s:
         doc = db.DocumentSummary(engagement_id=eid, kind="contract", filename="lease.pdf",
                                  sha256="0" * 64, size=1, content={"title": "Lease"})
@@ -100,7 +104,8 @@ def full_engagement(a):
             "time_entry_id": hours.json()["entries"][0]["id"],
             "event_id": event.json()["events"][0]["id"],
             "party_id": party.json()["parties"][0]["id"], "summary_id": summary_id,
-            "expectation_id": expectation.json()["expectations"][0]["id"]}
+            "expectation_id": expectation.json()["expectations"][0]["id"],
+            "stock_upload_id": stock, "stock_item_id": count.json()["items"][0]["id"]}
 
 
 def bodies(ids):
@@ -196,6 +201,19 @@ def bodies(ids):
         ("DELETE", "/api/document-summaries/{summary_id}"): {},
         ("POST", "/api/uploads/{upload_id}/explore"): {"json": {}},
         ("GET", "/api/uploads/{upload_id}/explore/export"): {},
+        ("POST", "/api/uploads/{upload_id}/fixed-assets"): {"json": {}},
+        ("POST", "/api/uploads/{upload_id}/fixed-assets/export"): {"json": {}},
+        ("POST", "/api/uploads/{upload_id}/inventory"):
+            {"json": {"upload_id": ids["stock_upload_id"]}},
+        ("GET", "/api/engagements/{engagement_id}/stock-count"): {},
+        ("POST", "/api/engagements/{engagement_id}/stock-count"):
+            {"json": {"upload_id": ids["stock_upload_id"]}},
+        ("PATCH", "/api/engagements/{engagement_id}/stock-count"): {"json": {"location": "x"}},
+        ("DELETE", "/api/engagements/{engagement_id}/stock-count"): {},
+        ("POST", "/api/engagements/{engagement_id}/stock-count/items"): {"json": {"item": "A9"}},
+        ("GET", "/api/engagements/{engagement_id}/stock-count/export"): {},
+        ("PATCH", "/api/stock-count-items/{stock_item_id}"): {"json": {"counted_qty": 1}},
+        ("DELETE", "/api/stock-count-items/{stock_item_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/report"): {},
         ("PUT", "/api/engagements/{engagement_id}/report"): {"json": {"city": "Cairo"}},
         ("GET", "/api/engagements/{engagement_id}/report/preview"): {},

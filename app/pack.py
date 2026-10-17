@@ -40,6 +40,7 @@ from . import (
     review,
     risks,
     samples,
+    stock_count,
     summaries,
     workplan,
 )
@@ -151,6 +152,8 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
     if e.expectations:
         pack.workpaper(testing, "Analytical procedures and proofs in total",
                        lambda: expectations.workbook(session, e))
+    if e.stock_count is not None:
+        pack.workpaper(testing, "Inventory count", lambda: stock_count.workbook(e))
     if e.confirmations:
         pack.workpaper(testing, "External confirmations", lambda: confirmations.workbook(e))
     for m in e.cross_matches:

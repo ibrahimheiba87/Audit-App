@@ -295,3 +295,4 @@ td.bad { color: var(--high); }
 .ds-item.flagged { border-inline-start: 3px solid var(--warn, #d97706); }
 .ds-item h3 { margin-top: 0; }
 .ds-item h4 { margin: 10px 0 4px; }
+.qty-input { width: 100px; text-align: end; }

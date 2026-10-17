@@ -35,6 +35,7 @@ from .expectations import router as expectations_router
 from .explorer import router as explorer_router
 from .exports import attachment
 from .findings import router as findings_router
+from .fixed_assets import router as fixed_assets_router
 from .leadsheets import router as leadsheets_router
 from .locking import check_unlocked
 from .locking import router as locking_router
@@ -47,6 +48,7 @@ from .review import router as review_router
 from .risks import router as risks_router
 from .rollforward import router as rollforward_router
 from .samples import router as samples_router
+from .stock_count import router as stock_count_router
 from .summaries import router as summaries_router
 from .templates import router as templates_router
 from .uploads import FORM_OVERHEAD, MAX_UPLOAD_BYTES, BodyLimit, parse_mapping, read_upload
@@ -75,7 +77,8 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                acceptance_router, crossmatch_router, disclosures_router, pack_router,
                templates_router, confirmations_router, controls_router, workplan_router,
                completion_router, report_router, related_router, summaries_router,
-               explorer_router, expectations_router):
+               explorer_router, expectations_router, fixed_assets_router,
+               stock_count_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

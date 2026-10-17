@@ -42,6 +42,7 @@ from .db import (
     RiskProcedure,
     Run,
     Sample,
+    StockCountItem,
     SubsequentEvent,
     Task,
     TimeEntry,
@@ -64,6 +65,7 @@ PARAM_MODELS = {
     "match_id": CrossMatch, "confirmation_id": Confirmation, "control_id": Control,
     "task_id": Task, "time_entry_id": TimeEntry, "event_id": SubsequentEvent,
     "party_id": RelatedParty, "summary_id": DocumentSummary, "expectation_id": Expectation,
+    "stock_item_id": StockCountItem,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is
@@ -72,6 +74,9 @@ ALLOWED_WHEN_LOCKED = {
     ("POST", "/api/uploads/{upload_id}/stratify"),
     ("POST", "/api/uploads/{upload_id}/aging"),
     ("POST", "/api/uploads/{upload_id}/explore"),
+    ("POST", "/api/uploads/{upload_id}/fixed-assets"),
+    ("POST", "/api/uploads/{upload_id}/fixed-assets/export"),
+    ("POST", "/api/uploads/{upload_id}/inventory"),
     ("POST", "/api/findings/{finding_id}/assistant"),
     ("POST", "/api/engagements/{engagement_id}/mapping/suggest"),
     ("POST", "/api/engagements/{engagement_id}/roll-forward"),
