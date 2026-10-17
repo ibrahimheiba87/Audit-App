@@ -73,7 +73,7 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
                confirmations: dict | None = None, workplan: dict | None = None,
                finishing: dict | None = None, related: dict | None = None,
                documents: dict | None = None, analytics: dict | None = None,
-               stock: dict | None = None) -> list[dict]:
+               stock: dict | None = None, prior: dict | None = None) -> list[dict]:
     """The to-do list, most pressing first. Each step names the panel (and tab) that deals
     with it."""
     steps: list[dict] = []
@@ -186,6 +186,14 @@ def next_steps(e: Engagement, mat: dict | None, kinds: set[str], gl_runs: int, f
         if missing:
             add("low", f"Finish the inputs of {_plural(missing, 'analytical procedure')}.",
                 "ap-panel")
+    if prior and prior["points"]:
+        if prior["statuses"]["to_follow_up"]:
+            add("medium", f"Follow up {_plural(prior['statuses']['to_follow_up'], 'point')} "
+                          "raised last year.", "py-panel")
+        if prior["unresolved_without_finding"]:
+            add("low", f"Raise this year's findings for "
+                       f"{_plural(prior['unresolved_without_finding'], 'point')} from last "
+                       "year that the client hasn't resolved.", "py-panel")
     if stock and stock["items"]:
         st = stock["statuses"]
         if st["difference"] + st["not_listed"]:
@@ -280,6 +288,7 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     from .controls import summary as control_summary
     from .disclosures import summary as disclosure_summary
     from .expectations import summary as analytics_summary
+    from .prior_points import summary as prior_summary
     from .related_parties import summary as related_summary
     from .report_draft import state as report_state
     from .risks import summary
@@ -297,6 +306,7 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
     finishing = completion_summary(e)
     analytics = analytics_summary(session, e)
     stock = stock_summary(e)
+    prior = prior_summary(e)
     finishing = {**finishing, "reps_dated": None, "signed_at": None,
                  "report_warnings": report_state(session, e)["warnings"]
                  if e.audit_report else []}
@@ -332,12 +342,13 @@ def get_dashboard(engagement_id: int, upload_id: int | None = None,
         "documents": documents,
         "analytics": analytics,
         "stock": stock,
+        "prior": prior,
         "completion": {k: finishing[k] for k in ("started", "signed", "going_concern",
                                                  "pending_events")},
         "next_steps": next_steps(e, mat, kinds, gl_runs, findings,
                                  open_by_severity.get("high", 0), rv, rq, fs, bank,
                                  risk_summary, acceptance_summary(e), disclosure_summary(e),
                                  controls, confirmations, workplan, finishing, related,
-                                 documents, analytics, stock)
+                                 documents, analytics, stock, prior)
         if e.lock is None else [],
     }

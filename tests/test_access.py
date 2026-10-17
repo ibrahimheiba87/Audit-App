@@ -87,6 +87,8 @@ def full_engagement(a):
         "file": ("stock.csv", b"Item,Qty,Unit cost\nA1,5,2\nA2,3,4\n", "text/csv")}).json()["id"]
     count = a.post(f"/api/engagements/{eid}/stock-count", json={"upload_id": stock})
     assert count.status_code == 201, count.text
+    point = a.post(f"/api/engagements/{eid}/prior-points", json={"title": "Old point"})
+    assert point.status_code == 201, point.text
     with db.SessionLocal() as s:
         doc = db.DocumentSummary(engagement_id=eid, kind="contract", filename="lease.pdf",
                                  sha256="0" * 64, size=1, content={"title": "Lease"})
@@ -105,7 +107,8 @@ def full_engagement(a):
             "event_id": event.json()["events"][0]["id"],
             "party_id": party.json()["parties"][0]["id"], "summary_id": summary_id,
             "expectation_id": expectation.json()["expectations"][0]["id"],
-            "stock_upload_id": stock, "stock_item_id": count.json()["items"][0]["id"]}
+            "stock_upload_id": stock, "point_id": point.json()["points"][0]["id"],
+            "stock_item_id": count.json()["items"][0]["id"]}
 
 
 def bodies(ids):
@@ -205,6 +208,14 @@ def bodies(ids):
         ("POST", "/api/uploads/{upload_id}/fixed-assets/export"): {"json": {}},
         ("POST", "/api/uploads/{upload_id}/inventory"):
             {"json": {"upload_id": ids["stock_upload_id"]}},
+        ("GET", "/api/engagements/{engagement_id}/prior-points"): {},
+        ("POST", "/api/engagements/{engagement_id}/prior-points"): {"json": {"title": "x"}},
+        ("POST", "/api/engagements/{engagement_id}/prior-points/import"):
+            {"json": {"from_engagement_id": ids["engagement_id"]}},
+        ("GET", "/api/engagements/{engagement_id}/prior-points/export"): {},
+        ("PATCH", "/api/prior-points/{point_id}"): {"json": {"title": "y"}},
+        ("POST", "/api/prior-points/{point_id}/finding"): {},
+        ("DELETE", "/api/prior-points/{point_id}"): {},
         ("GET", "/api/engagements/{engagement_id}/stock-count"): {},
         ("POST", "/api/engagements/{engagement_id}/stock-count"):
             {"json": {"upload_id": ids["stock_upload_id"]}},

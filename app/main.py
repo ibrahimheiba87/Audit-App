@@ -39,8 +39,10 @@ from .fixed_assets import router as fixed_assets_router
 from .leadsheets import router as leadsheets_router
 from .locking import check_unlocked
 from .locking import router as locking_router
+from .notifications import router as notifications_router
 from .pack import router as pack_router
 from .portal import router as portal_router
+from .prior_points import router as prior_points_router
 from .reconciliations import router as reconciliations_router
 from .related_parties import router as related_router
 from .report_draft import router as report_router
@@ -78,7 +80,7 @@ for router in (engagements_router, comparisons_router, samples_router, findings_
                templates_router, confirmations_router, controls_router, workplan_router,
                completion_router, report_router, related_router, summaries_router,
                explorer_router, expectations_router, fixed_assets_router,
-               stock_count_router):
+               stock_count_router, prior_points_router, notifications_router):
     app.include_router(router, dependencies=[Depends(current_user), Depends(check_unlocked)])
 # The document request portal is also open to client users; each endpoint checks access.
 app.include_router(portal_router, dependencies=[Depends(check_unlocked)])

@@ -35,6 +35,7 @@ from .db import (
     Evidence,
     Expectation,
     Finding,
+    PriorPoint,
     RelatedParty,
     RequestFile,
     ReviewNote,
@@ -65,7 +66,7 @@ PARAM_MODELS = {
     "match_id": CrossMatch, "confirmation_id": Confirmation, "control_id": Control,
     "task_id": Task, "time_entry_id": TimeEntry, "event_id": SubsequentEvent,
     "party_id": RelatedParty, "summary_id": DocumentSummary, "expectation_id": Expectation,
-    "stock_item_id": StockCountItem,
+    "stock_item_id": StockCountItem, "point_id": PriorPoint,
 }
 # Requests that change nothing in the file, so they still work once it's locked: analyses
 # and AI explanations that are only logged, carrying the engagement into next year, who is

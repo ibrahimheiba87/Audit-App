@@ -34,6 +34,7 @@ from . import (
     findings,
     leadsheets,
     portal,
+    prior_points,
     reconciliations,
     related_parties,
     report_draft,
@@ -131,6 +132,9 @@ def build(session: Session, e: Engagement, user: User, with_files: bool, out) ->
     if e.tasks or e.time_budgets or e.time_entries:
         pack.workpaper(planning, "Work plan, budget and time",
                        lambda: workplan.workbook(session, e, user))
+    if e.prior_points:
+        pack.workpaper(planning, "Follow-up of last year's points",
+                       lambda: prior_points.workbook(e))
     for d in e.ai_drafts:
         pack.workpaper(planning, f"AI {ai_writer.KINDS[d.kind].lower()} #{d.id}",
                        lambda d=d: ai_writer.workbook(d))
