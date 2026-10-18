@@ -145,7 +145,7 @@ def analyse(df: pd.DataFrame, e: Engagement) -> dict:
     pair_flags = [flagged_pairs.get(p, ()) for p in
                   zip(entry_pairs["_line_dr"], entry_pairs["_line_cr"], strict=True)]
     # Closing entries move profit or loss to retained earnings and nothing else; they are
-    # expected, so they aren't listed as equity moved against profit or loss.
+    # expected, so no check lists them (not even as revenue reversed).
     kinds = df.assign(_ok=df["_line"].map(lambda x: x == "retained_earnings" or is_pl(x)),
                       _re=df["_line"] == "retained_earnings").groupby("_entry")[["_ok", "_re"]]
     kinds = kinds.agg({"_ok": "all", "_re": "any"})
@@ -153,9 +153,7 @@ def analyse(df: pd.DataFrame, e: Engagement) -> dict:
     checks = []
     for k, name in CHECKS.items():
         hit = [k in f for f in pair_flags]
-        keys = entry_pairs["_entry"][hit].unique()
-        if k == "equity_pl":
-            keys = [key for key in keys if key not in closing]
+        keys = [key for key in entry_pairs["_entry"][hit].unique() if key not in closing]
         items = sorted((entry_info[key] for key in keys), key=lambda i: -i["debits"])
         checks.append({"check": k, "label": name, "count": len(items),
                        "debits": money(sum(i["debits"] for i in items)), "items": items})

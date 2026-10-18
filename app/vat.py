@@ -107,6 +107,12 @@ def reconcile(df: pd.DataFrame, e: Engagement, s: VatSetup) -> dict | None:
     revenue_lines = {i for i, _, sec in statements.LINES if sec == "revenue"}
     is_sales = lines_of(df, e).isin(revenue_lines)
     out_acc, in_acc = account.isin(set(s.output_accounts)), account.isin(set(s.input_accounts))
+    if "entry_id" in df:  # an entry on both output and input VAT settles the period's VAT
+        entry = text(df, "entry_id")
+        settled = (set(entry[out_acc]) & set(entry[in_acc])) - {""}
+        if settled:
+            keep = ~entry.isin(settled)
+            out_acc, in_acc = out_acc & keep, in_acc & keep
     day = df["date"].dt.date
     amount = df["amount"].astype(float)
     rate = s.rate_pct / 100
@@ -175,6 +181,8 @@ def save_setup(engagement_id: int, body: SetupIn, user: User = Depends(require("
         gl = next(u for u in e.uploads if u.id == body.upload_id)
         if "date" not in load_upload(gl).df:
             raise HTTPException(400, NO_DATES)
+    if set(body.output_accounts) & set(body.input_accounts):
+        raise HTTPException(400, "An account can't be both an output and an input VAT account.")
     s = e.vat_setup or VatSetup(engagement=e)
     s.upload_id, s.rate_pct = body.upload_id, body.rate_pct
     s.output_accounts = list(dict.fromkeys(body.output_accounts))

@@ -2900,6 +2900,8 @@ I18N.add({
     "Remove the translation": "إزالة الترجمة",
     "Remove the currency translation?": "هل تريد إزالة ترجمة العملات؟",
     "Uses the latest trial balance.": "تستخدم أحدث ميزان مراجعة.",
+    "The balance sheet doesn't balance before translation (check for unmapped accounts), so the translated one doesn't either. That gap is left out of the translation reserve.": "الميزانية غير متوازنة قبل الترجمة (تحقق من وجود حسابات غير مربوطة)، لذا لن تتوازن الميزانية المترجمة أيضًا. هذا الفرق مستبعد من احتياطي الترجمة.",
+    "An account can't be both an output and an input VAT account.": "لا يمكن أن يكون الحساب حساب ضريبة مخرجات وضريبة مدخلات في الوقت نفسه.",
     "Without last year's trial balance, retained earnings are taken as unchanged since the start of the year.": "في غياب ميزان مراجعة السنة الماضية، تُعتبر الأرباح المبقاة دون تغيير منذ بداية السنة.",
     "Map the trial balance's accounts to statement lines first.": "اربط حسابات ميزان المراجعة ببنود القوائم أولًا.",
     "Foreign currency translation reserve": "احتياطي ترجمة العملات الأجنبية",

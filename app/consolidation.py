@@ -315,11 +315,12 @@ def update_component(component_id: int, body: ComponentPatch,
     c = held_component(session, user, component_id)
     before = {"ownership_pct": c.ownership_pct, "materiality": c.materiality,
               "scope": c.scope, "note": c.note}
-    for k, v in body.model_dump().items():
+    changes = body.model_dump(exclude_unset=True)  # a field left out keeps its value
+    for k, v in changes.items():
         setattr(c, k, v)
     log(session, user, "group.component_update",
         f"Changed component {c.component.client.name}: {c.component.name}", c.engagement,
-        details={"component_id": c.id, "before": before, "after": body.model_dump()})
+        details={"component_id": c.id, "before": before, "after": changes})
     session.commit()
     return group_out(session, c.engagement)
 

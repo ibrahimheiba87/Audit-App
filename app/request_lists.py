@@ -163,9 +163,9 @@ def send_list(engagement_id: int, body: SendIn, user: User = Depends(require("pr
             reqs.append(DocumentRequest(engagement=e, number=first + i, title=item["title"],
                                         details=item.get("details", ""), due_date=due,
                                         created_by=user.name))
+        session.add_all(reqs)  # before the Guard lookup autoflushes
         if reqs:
             session.get(Guard, f"request-number:{engagement_id}").n = first + len(reqs) - 1
-        session.add_all(reqs)
         session.flush()
     added, skipped = len(reqs), len(t.items) - len(reqs)
     for req in reqs:

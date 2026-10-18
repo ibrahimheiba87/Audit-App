@@ -188,6 +188,8 @@ def vouch(  # not async: FastAPI runs it in a thread, so waiting on the AI block
     """Read the document behind a sample item and compare it with the ledger line."""
     x = get_or_404(session, Sample, sample_id, user)
     item_of(x, row)
+    if any(v.row == row for v in x.vouchings):
+        auth.ensure(user, "review")  # replacing the document removes evidence
     require_ai()
     content = file.file.read(MAX_DOCUMENT_BYTES + 1)
     if len(content) > MAX_DOCUMENT_BYTES:
@@ -214,6 +216,7 @@ def vouch(  # not async: FastAPI runs it in a thread, so waiting on the AI block
                                         x.engagement.client.name)
     old = session.scalar(select(Vouching).where(Vouching.sample_id == x.id, Vouching.row == row))
     if old is not None:
+        auth.ensure(user, "review")  # someone vouched it meanwhile
         session.delete(old)
         session.flush()
     v = Vouching(engagement_id=x.engagement_id, sample_id=x.id, row=row, filename=filename,
@@ -250,7 +253,7 @@ def download_document(vouching_id: int, user: User = Depends(current_user),
 
 
 @router.delete("/vouchings/{vouching_id}", status_code=204)
-def delete_vouching(vouching_id: int, user: User = Depends(require("prepare")),
+def delete_vouching(vouching_id: int, user: User = Depends(require("review")),
                     session: Session = Depends(get_session)) -> Response:
     v = get_or_404(session, Vouching, vouching_id, user)
     auth.hold(session, f"upload:{v.sample.upload_id}")

@@ -4612,8 +4612,12 @@ function renderLeadSheets() {
 
 // Tick marks
 
-function tickChips(list) {
-  return (list || []).map((t) => `<span class="tick" title="${esc([t.meaning, t.reference, t.link_label].filter(Boolean).join(" · "))}">${data(t.symbol)}</span>`).join(" ");
+// A tick's meaning: the built-in ones are translated, the firm's own are kept as typed.
+const meaningText = (m) => I18N.known(m) ? I18N.tr(m) : m;
+const meaningHtml = (m) => I18N.known(m) ? esc(m) : data(m);
+
+function tickChips(list) {  // translate="no": the title is built in the page's language
+  return (list || []).map((t) => `<span class="tick" translate="no" title="${esc([meaningText(t.meaning), t.reference, I18N.tr(t.link_label)].filter(Boolean).join(" · "))}">${esc(t.symbol)}</span>`).join(" ");
 }
 
 function renderTicks() {
@@ -4624,22 +4628,25 @@ function renderTicks() {
     `<option value="${esc(a.account)}"${a.account === account ? " selected" : ""} translate="no">${esc(a.account)} ${esc(a.name)}</option>`).join("");
   const legend = ticks?.legend || [];
   $("tick-symbol").innerHTML = legend.map((m) =>
-    `<option value="${esc(m.symbol)}"${m.symbol === symbol ? " selected" : ""}>${esc(m.symbol)}: ${esc(I18N.tr(m.meaning))}</option>`).join("");
+    `<option value="${esc(m.symbol)}"${m.symbol === symbol ? " selected" : ""} translate="no">${esc(m.symbol)}: ${esc(meaningText(m.meaning))}</option>`).join("");
   const groups = {};
   (ticks?.refs || []).forEach((r) => (groups[r.group] ||= []).push(r));
   $("tick-link").innerHTML = '<option value="">None</option>' + Object.entries(groups).map(([g, list]) =>
     `<optgroup label="${esc(g)}">` + list.map((r) => `<option value="${esc(r.link)}"${r.link === link ? " selected" : ""}>${esc(r.label)}</option>`).join("") + "</optgroup>").join("");
   const list = ticks?.ticks || [];
   $("tick-table").innerHTML = list.length ? "<tr><th>Account</th><th>Tick</th><th>Meaning</th><th>Reference</th><th>Linked workpaper</th><th>Note</th><th>By</th><th></th></tr>" +
-    list.map((t) => `<tr data-tick="${t.id}"><td>${data(t.account)}</td><td><span class="tick">${data(t.symbol)}</span></td><td>${esc(t.meaning)}</td>
+    list.map((t) => `<tr data-tick="${t.id}"><td>${data(t.account)}</td><td><span class="tick">${data(t.symbol)}</span></td><td>${meaningHtml(t.meaning)}</td>
       <td>${data(t.reference)}</td><td>${esc(t.link_label)}</td><td>${data(t.note)}</td><td>${data(t.created_by)} <span class="muted">${esc(when(t.created_at))}</span></td>
       <td><button type="button" class="small secondary danger" data-tick-delete>Remove</button></td></tr>`).join("")
     : '<tr><td class="muted">No tick marks yet.</td></tr>';
   $("tick-legend-box").hidden = !(me.rank >= 3);
   $("tick-legend").innerHTML = "<tr><th>Tick</th><th>Meaning</th><th></th></tr>" + legend.map((m) =>
-    `<tr data-mark="${m.id}"><td><span class="tick">${data(m.symbol)}</span></td><td>${esc(m.meaning)}</td>
+    `<tr data-mark="${m.id}"><td><span class="tick">${data(m.symbol)}</span></td><td>${meaningHtml(m.meaning)}</td>
       <td>${legend.length > 1 ? '<button type="button" class="small secondary danger" data-mark-delete>Take out</button>' : ""}</td></tr>`).join("");
 }
+
+// The picker and the chips' titles are drawn in the page's language, so redraw them.
+document.addEventListener("languagechange", () => { if (fs?.lead_sheets && $("fs-lead")) renderLeadSheets(); });
 
 async function reloadTicks() {
   const id = currentEngagement.id;
@@ -4856,14 +4863,14 @@ function showSample(s, scroll = true) {
 
 // Vouching: the document behind a sample item, read by the AI and compared with the line.
 function vouchCell(v) {
-  const pick = assistant.enabled
+  const pick = assistant.enabled && (!v || me.rank >= 2)  // replacing removes evidence
     ? `<label class="button small secondary">${v ? "Replace" : "Vouch"}<input type="file" hidden accept=".pdf,.png,.jpg,.jpeg" class="vouch-file"></label>` : "";
   if (!v) return pick || '<span class="muted">The AI assistant is off.</span>';
   return `<span class="pill vc-${v.status}">${esc(v.status_label)}</span>
     <div><a href="/api/vouchings/${v.id}/document" translate="no">${esc(v.filename)}</a></div>
     <ul class="vouch-checks">${v.checks.map((c) => `<li class="${c.ok === false ? "warn-high" : ""}">${c.ok ? "✓" : c.ok === false ? "✗" : "?"} <span>${esc(c.text)}</span></li>`).join("")}</ul>
     <div class="cell-actions">${v.suggested_amount != null ? `<button type="button" class="small secondary vouch-use" data-amount="${v.suggested_amount}">Use ${money(v.suggested_amount)}</button>` : ""}
-      ${pick}<button type="button" class="small secondary vouch-remove" data-vouching="${v.id}">Remove</button></div>`;
+      ${pick}${me.rank >= 2 ? `<button type="button" class="small secondary vouch-remove" data-vouching="${v.id}">Remove</button>` : ""}</div>`;
 }
 
 $("smp-table").addEventListener("click", (ev) => {

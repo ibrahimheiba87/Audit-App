@@ -18,7 +18,7 @@ from typing import Annotated
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
 from .auth import current_user, log, require
@@ -47,7 +47,7 @@ Money = Annotated[float, Field(ge=-1e13, le=1e13, allow_inf_nan=False)]
 
 
 class EstimateIn(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     line: str | None = None
     management: Money
     method: str = Field(default="", max_length=5000)

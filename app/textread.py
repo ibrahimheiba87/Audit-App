@@ -130,5 +130,11 @@ def extract(filename: str, content: bytes) -> tuple[str, str, int]:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 3 and sys.platform != "win32":  # limits from doctext.extract_safely
+        import resource
+
+        cpu, memory = int(sys.argv[2]), int(sys.argv[3])
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
+        resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
     status, value, pages = extract(sys.argv[1], sys.stdin.buffer.read())
     sys.stdout.write(json.dumps({"status": status, "text": value, "pages": pages}))
