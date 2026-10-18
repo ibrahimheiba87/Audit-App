@@ -84,6 +84,11 @@ def retained_presented(data: dict, t: CurrencyTranslation) -> float | None:
     return t.opening_reserves + (sheet["totals"]["adjusted"] - opening) * t.average_rate
 
 
+UNBALANCED = ("The balance sheet doesn't balance before translation (check for unmapped "
+              "accounts), so the translated one doesn't either. That gap is left out of the "
+              "translation reserve.")
+
+
 def translate(data: dict, t: CurrencyTranslation) -> dict:
     """The statements in `data` (from leadsheets.compute) in the presentation currency."""
     by_line: dict[str, list[dict]] = {}
@@ -104,7 +109,10 @@ def translate(data: dict, t: CurrencyTranslation) -> dict:
         lines.append({"line": line, "label": s["label"], "functional": functional,
                       "rate": rate, "basis": basis, "presented": round(presented, 2)})
     translated = statements._statements(by_line)
-    reserve = translated["difference"]["current"]  # what translating at different rates leaves
+    # What translating at different rates leaves. A trial balance that doesn't balance by
+    # itself (or has unmapped accounts) leaves a gap too; that part isn't the reserve.
+    gap = data["statements"]["difference"]["current"]
+    reserve = round(translated["difference"]["current"] - gap * t.closing_rate, 2)
     movement = (round(reserve - t.opening_translation_reserve, 2)
                 if t.opening_translation_reserve is not None else None)
     functional_rows = data["statements"]
@@ -124,9 +132,10 @@ def translate(data: dict, t: CurrencyTranslation) -> dict:
             "profit": translated["profit"]["current"], "reserve": reserve,
             "reserve_movement": movement,
             "difference": data["statements"]["difference"]["current"],
-            "notes": ["Without last year's trial balance, retained earnings are taken as "
-                      "unchanged since the start of the year."]
-            if t.opening_reserves is not None and not data.get("has_prior") else []}
+            "notes": (["Without last year's trial balance, retained earnings are taken as "
+                       "unchanged since the start of the year."]
+                      if t.opening_reserves is not None and not data.get("has_prior") else [])
+            + ([UNBALANCED] if abs(gap) >= 0.005 else [])}
 
 
 def sheet(data: dict, t: CurrencyTranslation | None) -> dict[str, list[dict]]:

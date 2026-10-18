@@ -19,11 +19,12 @@ from __future__ import annotations
 import calendar
 import io
 from datetime import date, timedelta
+from typing import Annotated
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
 from .auth import current_user, log, require
@@ -42,7 +43,7 @@ SHORT_TERM_MONTHS = 12
 
 
 class LeaseIn(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     start_date: date
     term_months: int = Field(ge=1, le=1200)
     payment: float = Field(gt=0, le=1e12, allow_inf_nan=False)

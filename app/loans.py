@@ -26,7 +26,7 @@ from typing import Annotated
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
 from . import ratios
@@ -54,12 +54,13 @@ METRICS = {
 }
 OPERATORS = {"min": "At least", "max": "At most"}
 
+Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Money = Annotated[float, Field(ge=-1e13, le=1e13, allow_inf_nan=False)]
 Positive = Annotated[float, Field(ge=0, le=1e13, allow_inf_nan=False)]
 
 
 class LoanIn(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
+    name: Name
     lender: str = Field(default="", max_length=200)
     opening: Money = 0.0
     drawn: Positive = 0.0
@@ -74,7 +75,7 @@ class LoanIn(BaseModel):
 
 
 class CovenantIn(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
+    title: Name
     loan_id: int | None = None
     metric: str
     operator: str = "min"

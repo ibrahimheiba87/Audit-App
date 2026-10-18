@@ -27,7 +27,7 @@ from sqlalchemy import and_, delete, exists, or_, select, text
 from sqlalchemy.orm import Session, selectinload, undefer
 
 from . import db
-from .db import DocumentText, Engagement, Evidence, RequestFile, Vouching
+from .db import DocumentRequest, DocumentText, Engagement, Evidence, Finding, RequestFile, Vouching
 from .textread import TEXT_TYPES, normal
 
 log = logging.getLogger(__name__)
@@ -43,22 +43,16 @@ STATUSES = {"ok": "Read", "empty": "No text (a picture or a scan)",
 READER = Path(__file__).with_name("textread.py")
 
 
-def _limits() -> None:  # in the reading process, before it starts
-    import resource  # noqa: PLC0415 - Unix only
-
-    resource.setrlimit(resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS))
-    resource.setrlimit(resource.RLIMIT_AS, (MEMORY, MEMORY))
-
-
 def extract_safely(filename: str, content: bytes) -> tuple[str, str, int]:
     """extract() in a separate process limited in time and memory."""
     if not content.startswith((b"%PDF", b"PK")) and not filename.lower().endswith(TEXT_TYPES):
         return "unsupported", "", 0
     try:
         done = subprocess.run(
-            [sys.executable, "-I", str(READER), filename], input=content,
-            capture_output=True, timeout=WALL_SECONDS, check=True,
-            preexec_fn=_limits if sys.platform != "win32" else None)  # noqa: PLW1509
+            # The reader limits its own time and memory (preexec_fn isn't safe in a server
+            # with threads running).
+            [sys.executable, "-I", str(READER), filename, str(CPU_SECONDS), str(MEMORY)],
+            input=content, capture_output=True, timeout=WALL_SECONDS, check=True)
         out = json.loads(done.stdout)
         return out["status"], out["text"], out["pages"]
     except (subprocess.SubprocessError, ValueError, KeyError, OSError) as exc:
@@ -85,13 +79,30 @@ def engagement_of(source: str, row) -> int | None:
     return row.engagement_id
 
 
-def current(source: str):
-    """Whether a stored text still belongs to a file that's there: same id and fingerprint
-    (SQLite can give a deleted file's id to a new one)."""
+def engagement_column(source: str):
+    """The engagement of a row of SOURCES[source], as a column for a query."""
+    if source == "evidence":
+        return (select(Finding.engagement_id).where(Finding.id == Evidence.finding_id)
+                .scalar_subquery())
+    if source == "request_file":
+        return (select(DocumentRequest.engagement_id)
+                .where(DocumentRequest.id == RequestFile.request_id).scalar_subquery())
+    return Vouching.engagement_id
+
+
+def same_file(source: str):
+    """A stored text matches a file: same id, fingerprint and engagement (SQLite can give a
+    deleted file's id to a new one, even in another engagement)."""
     model = SOURCES[source]
-    return and_(DocumentText.source == source,
-                exists(select(model.id).where(model.id == DocumentText.source_id,
-                                              model.sha256 == DocumentText.sha256)))
+    return and_(DocumentText.source == source, DocumentText.source_id == model.id,
+                DocumentText.sha256 == model.sha256,
+                DocumentText.engagement_id == engagement_column(source))
+
+
+def current(source: str):
+    """Whether a stored text still belongs to a file that's there."""
+    model = SOURCES[source]
+    return and_(DocumentText.source == source, exists(select(model.id).where(same_file(source))))
 
 
 def still_there():
@@ -100,38 +111,38 @@ def still_there():
 
 def unread(session: Session, source: str, after: int, limit: int) -> list[int]:
     model = SOURCES[source]
-    stmt = (select(model.id).outerjoin(DocumentText, and_(
-        DocumentText.source == source, DocumentText.source_id == model.id,
-        DocumentText.sha256 == model.sha256)).where(DocumentText.id.is_(None), model.id > after)
+    stmt = (select(model.id).outerjoin(DocumentText, same_file(source))
+            .where(DocumentText.id.is_(None), model.id > after)
         .order_by(model.id).limit(limit))
     return list(session.scalars(stmt))
 
 
-def read_one(source: str, file_id: int) -> None:
+def read_one(source: str, file_id: int) -> bool:
     """Read one file and keep its words. The file is loaded and the text saved in short
-    transactions of their own; nothing is held open while it's read."""
+    transactions of their own; nothing is held open while it's read. True once kept."""
     model = SOURCES[source]
     with db.SessionLocal() as session:
         row = session.get(model, file_id)
         if row is None:
-            return
+            return False
         eid, filename, sha, content = engagement_of(source, row), row.filename, row.sha256, \
             row.content
     if eid is None:
-        return
+        return False
     status, value, pages = extract_safely(filename, content)
     del content
     with db.SessionLocal() as session:
         # The file may have gone, or been replaced under the same id, while it was read.
         if session.scalar(select(model.id).where(model.id == file_id,
                                                  model.sha256 == sha)) is None:
-            return
+            return False
         session.execute(delete(DocumentText).where(DocumentText.source == source,
                                                    DocumentText.source_id == file_id))
         session.add(DocumentText(engagement_id=eid, source=source, source_id=file_id,
                                  filename=filename, sha256=sha, status=status, pages=pages,
                                  text=value))
         session.commit()
+    return True
 
 
 _running = threading.Lock()
@@ -167,6 +178,7 @@ def backfill(limit: int | None = None, tidy: bool = True) -> int:
                         session.commit()
                 while True:
                     _again.clear()
+                    kept = False
                     for source in SOURCES:
                         after = 0
                         while limit is None or done < limit:
@@ -177,13 +189,16 @@ def backfill(limit: int | None = None, tidy: bool = True) -> int:
                             for i in ids:
                                 after = i
                                 try:
-                                    read_one(source, i)
+                                    kept = read_one(source, i) or kept
                                 except Exception:  # one file mustn't stop the others
                                     log.exception("Couldn't keep the text of %s %s", source, i)
                                 done += 1
                                 if limit is not None and done >= limit:
                                     break
-                    if not _again.is_set() or (limit is not None and done >= limit):
+                    # Another pass while the last one read something: files may have
+                    # arrived meanwhile, here or in another worker that found us running.
+                    if not kept and not _again.is_set() or (
+                            limit is not None and done >= limit):
                         break
             finally:
                 if guard.dialect.name == "postgresql":

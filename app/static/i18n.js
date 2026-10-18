@@ -206,5 +206,8 @@ const I18N = (() => {
       attributes: true, attributeFilter: ATTRS });
   });
 
-  return { add, tr, set, when, get lang() { return lang; } };
+  // Whether the dictionary has `text` itself (not just a pattern it happens to fit).
+  const known = (text) => exact.has(norm(text));
+
+  return { add, tr, known, set, when, get lang() { return lang; } };
 })();
