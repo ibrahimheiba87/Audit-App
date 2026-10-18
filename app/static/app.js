@@ -7028,10 +7028,11 @@ function renderGroup() {
       <td><div class="cell-actions"><button type="button" class="small secondary" data-comp-save>Save</button><button type="button" class="small secondary danger" data-comp-remove>Remove</button></div></td></tr>`).join("")
     : '<tr><td class="muted">No components yet.</td></tr>';
   const entries = g?.entries || [];
+  $("gr-entry-box").hidden = !(me.rank >= 2);  // eliminations are posted by reviewers, like booked entries
   $("gr-entries").innerHTML = entries.length ? "<tr><th>Elimination</th><th>Line</th><th class=\"num\">Debit</th><th class=\"num\">Credit</th><th></th></tr>" +
     entries.map((x) => x.lines.map((ln, i) => `<tr${i ? "" : ` data-ge="${x.id}"`}><td>${i ? "" : data(x.description)}</td><td>${esc(ln.label)}</td>
       <td class="num">${ln.debit ? signed(ln.debit) : ""}</td><td class="num">${ln.credit ? signed(ln.credit) : ""}</td>
-      <td>${i ? "" : '<button type="button" class="small secondary danger" data-ge-remove>Remove</button>'}</td></tr>`).join("")).join("")
+      <td>${i || !(me.rank >= 2) ? "" : '<button type="button" class="small secondary danger" data-ge-remove>Remove</button>'}</td></tr>`).join("")).join("")
     : "";
   const r = g?.result;
   $("gr-result").hidden = !r;
