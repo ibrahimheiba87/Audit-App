@@ -137,3 +137,19 @@ def test_saving_a_component_keeps_fields_left_out():
                               "note": "Visited in May"}).status_code == 200
     out = client.patch(f"/api/group-components/{cid}", json={"ownership_pct": 80, "scope": "full"}).json()
     assert out["components"][0]["note"] == "Visited in May"
+
+
+@pytest.mark.usefixtures("real_auth")
+def test_only_reviewers_post_or_delete_eliminations():
+    a = admin()
+    prep = add_user(a, "preparer")
+    acme = a.post("/api/clients", json={"name": "Acme"}).json()
+    eid = a.post(f"/api/clients/{acme['id']}/engagements",
+                 json={"name": "FY2026", "period_end": "2026-12-31"}).json()["id"]
+    join(a, eid, prep)
+    entry = {"description": "Intra-group", "lines": [{"line": "payables", "debit": 5},
+                                                      {"line": "receivables", "credit": 5}]}
+    assert prep.post(f"/api/engagements/{eid}/group/entries", json=entry).status_code == 403
+    [x] = a.post(f"/api/engagements/{eid}/group/entries", json=entry).json()["entries"]
+    assert prep.delete(f"/api/consolidation-entries/{x['id']}").status_code == 403
+    assert a.delete(f"/api/consolidation-entries/{x['id']}").status_code == 200

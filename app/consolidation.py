@@ -340,7 +340,7 @@ def delete_component(component_id: int, user: User = Depends(require("prepare"))
 
 
 @router.post("/engagements/{engagement_id}/group/entries", status_code=201)
-def add_entry(engagement_id: int, body: EntryIn, user: User = Depends(require("prepare")),
+def add_entry(engagement_id: int, body: EntryIn, user: User = Depends(require("review")),
               session: Session = Depends(get_session)) -> dict:
     lines = []
     for i, ln in enumerate(body.lines, start=1):
@@ -370,7 +370,7 @@ def add_entry(engagement_id: int, body: EntryIn, user: User = Depends(require("p
 
 
 @router.delete("/consolidation-entries/{consolidation_entry_id}")
-def delete_entry(consolidation_entry_id: int, user: User = Depends(require("prepare")),
+def delete_entry(consolidation_entry_id: int, user: User = Depends(require("review")),
                  session: Session = Depends(get_session)) -> dict:
     x = get_or_404(session, ConsolidationEntry, consolidation_entry_id, user)
     e = held_engagement(session, user, x.engagement_id, f"group:{x.engagement_id}")
