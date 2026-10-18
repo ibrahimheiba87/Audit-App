@@ -3,6 +3,12 @@
 // themselves translated (roles, statuses, labels). Server messages are here too.
 I18N.add({
   exact: {
+    "Guides": "الأدلة",
+    "The user manual and the features list, as PDF files with screenshots.": "دليل المستخدم وقائمة المزايا، ملفات PDF مع صور من التطبيق.",
+    "User manual (English)": "دليل المستخدم (إنجليزي)",
+    "User manual (Arabic)": "دليل المستخدم (عربي)",
+    "Features list (English)": "قائمة المزايا (إنجليزي)",
+    "Features list (Arabic)": "قائمة المزايا (عربي)",
     "No account yet?": "ليس لديك حساب؟",
     "Ask for one": "اطلب حسابًا",
     "Ask for an account": "طلب حساب",
