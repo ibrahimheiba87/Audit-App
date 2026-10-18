@@ -6,8 +6,8 @@ Roles, lowest to highest. Each role can do everything the roles below it can:
               off sections as prepared, reply to review notes
     reviewer  clear and reopen findings, change severity, remove evidence and files, post
               booked entries, mark proposed entries booked, delete adjusting entries, post
-              and delete group eliminations, raise and clear review notes, sign off sections as reviewed, add and edit clients
-              and engagements
+              and delete group eliminations, raise and clear review notes, sign off sections
+              as reviewed, add and edit clients and engagements
     partner   set materiality, sign off completion, delete clients and engagements
     admin     manage users, assign the team to engagements, see the whole activity log
 
